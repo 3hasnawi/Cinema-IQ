@@ -3,7 +3,21 @@ package com.cinemaplus.rebuilt.ui.mobile
 import android.graphics.Color as AndroidColor
 import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.LayoutDirection
+import com.cinemaplus.rebuilt.ui.Label
+import com.cinemaplus.rebuilt.ui.Muted
+import com.cinemaplus.rebuilt.ui.nextSubtitleHeight
+import com.cinemaplus.rebuilt.ui.subtitleHeightLabel
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -50,9 +64,15 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     var qualityIndex by remember(film.id) { mutableIntStateOf(0) }
     var qualityChosen by remember(film.id) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var playing by remember { mutableStateOf(false) }
+    var scrubbing by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var lastInteraction by remember { mutableLongStateOf(android.os.SystemClock.uptimeMillis()) }
+    val anchors = remember { HashMap<MobilePanel, IntRect>() }
     var buffering by remember { mutableStateOf(false) }
     var playerError by remember(film.id) { mutableStateOf<String?>(null) }
-    var menu by remember { mutableStateOf<String?>(null) }
+    var panel by remember { mutableStateOf<MobilePanel?>(null) }
+    var episodesOpen by remember { mutableStateOf(false) }
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     var tracks by remember { mutableStateOf(player.currentTracks) }
     var sheetSeason by remember(film.id) { mutableIntStateOf(vm.seasons.indexOfFirst { it.number == film.season }.coerceAtLeast(0)) }
@@ -62,10 +82,17 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
             vm.recordProgress(film, player.currentPosition, player.duration.coerceAtLeast(0))
     }
     fun close() { saveProgress(); vm.stop() }
-    BackHandler { if (menu != null) menu = null else close() }
+    fun interact() { lastInteraction = android.os.SystemClock.uptimeMillis() }
+    fun togglePlayback() { if (player.playWhenReady) player.pause() else if (player.currentMediaItem != null) player.play() }
+    fun seekBy(delta: Long) {
+        val end = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        player.seekTo((player.currentPosition + delta).coerceIn(0L, end))
+    }
+    BackHandler { when { panel != null -> panel = null; episodesOpen -> episodesOpen = false; else -> close() } }
     DisposableEffect(player, owner, film.id) {
         val listener = object : Player.Listener {
             override fun onTracksChanged(value: Tracks) { tracks = value }
+            override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
                 if (state == Player.STATE_ENDED && player.currentMediaItem?.mediaId == film.id) vm.completePlayback(film)
@@ -124,11 +151,19 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
             delay(400)
         }
     }
+    LaunchedEffect(notice) { if (notice != null) { delay(2_400); notice = null } }
+    LaunchedEffect(controlsVisible, lastInteraction, playing, panel, scrubbing, buffering, playerError, episodesOpen) {
+        if (controlsVisible && playing && panel == null && !scrubbing && !episodesOpen && !buffering && playerError == null) {
+            val remaining = 3_500L - (android.os.SystemClock.uptimeMillis() - lastInteraction)
+            if (remaining > 0) delay(remaining)
+            controlsVisible = false
+        }
+    }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { ctx -> PlayerView(ctx).apply {
-            this.player = player; keepScreenOn = true; useController = true; controllerShowTimeoutMs = 3000
-            setShowSubtitleButton(true); setShowNextButton(false); setShowPreviousButton(false)
-            setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { controlsVisible = it == View.VISIBLE })
+            // Compose draws every control; Media3 only renders the video and subtitles.
+            this.player = player; keepScreenOn = true; useController = false
+            setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             playerView = this
         } }, modifier = Modifier.fillMaxSize(), update = { view ->
             view.subtitleView?.apply {
@@ -139,108 +174,178 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                     AndroidColor.TRANSPARENT, CaptionStyleCompat.EDGE_TYPE_OUTLINE, AndroidColor.BLACK, null))
             }
         })
-        if (controlsVisible || vm.playbackError != null || playerError != null) {
-            Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .65f)).statusBarsPadding().padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { close() }) { Icon(Icons.Rounded.Close, "إغلاق المشغل", tint = Color.White) }
-                Text(mediaTitle(film), color = Color.White, maxLines = 1, modifier = Modifier.weight(1f))
-
-            }
-        }
-        if (controlsVisible) Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding()
-            .padding(bottom = 100.dp).background(Color.Black.copy(alpha = .65f))
-            .horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center) {
-            TextButton(onClick = { menu = "quality" }) { Text("الجودة") }
-            TextButton(onClick = { menu = "subtitles" }) { Text("الصوت والترجمة") }
-            TextButton(onClick = { menu = "settings" }) { Text("ضبط الترجمة") }
-            if (vm.seasons.isNotEmpty()) TextButton(onClick = { menu = "episodes" }) { Text("الحلقات ↑") }
-            if (next != null) TextButton(onClick = { saveProgress(); vm.play(next) }) { Text("التالية") }
-        }
-        if (vm.seasons.isNotEmpty()) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(28.dp)
+        // Tap anywhere on the picture to show or hide the controls.
+        Box(Modifier.fillMaxSize().pointerInput(Unit) {
+            detectTapGestures(onTap = { if (controlsVisible) controlsVisible = false else { controlsVisible = true; interact() } })
+        })
+        // Swipe up from the bottom edge to open the episodes (series only).
+        if (vm.seasons.isNotEmpty()) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
             .pointerInput(film.id) {
                 var drag = 0f
                 detectVerticalDragGestures(onDragStart = { drag = 0f }, onVerticalDrag = { change, amount ->
                     change.consume(); drag += amount
-                    if (drag < -40.dp.toPx()) { menu = "episodes"; drag = 0f }
+                    if (drag < -40.dp.toPx()) { episodesOpen = true; drag = 0f }
                 })
-            }, contentAlignment = Alignment.Center) {
-            if (controlsVisible) Text("اسحب للأعلى لعرض الحلقات", color = Color.White.copy(alpha = .65f))
-        }
-        if (buffering || vm.playbackBusy) CircularProgressIndicator(Modifier.align(Alignment.Center))
-        (vm.playbackError ?: playerError)?.let { error ->
-            Column(Modifier.align(Alignment.Center).padding(24.dp).background(Color.Black.copy(alpha = .8f)), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(error, color = Color.White)
-                TextButton(onClick = { vm.play(film) }) { Text("إعادة المحاولة") }
-                TextButton(onClick = { close() }) { Text("رجوع") }
-            }
-        }
-    }
-    menu?.let { shown ->
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { menu = null; playerView?.showController() }, sheetState = sheetState) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-                Text(when (shown) { "quality" -> "جودة الفيديو"; "subtitles" -> "الصوت والترجمة";
-                    "settings" -> "ضبط الترجمة"; else -> "الحلقات" }, modifier = Modifier.padding(horizontal = 16.dp))
-                when (shown) {
-                    "episodes" -> {
-                        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            vm.seasons.forEachIndexed { index, season ->
-                                FilterChip(selected = sheetSeason == index, onClick = { sheetSeason = index },
-                                    label = { Text("الموسم ${season.number}") })
-                            }
-                        }
-                        vm.seasons.getOrNull(sheetSeason)?.let { season ->
-                            MobileEpisodeRail(season.episodes.map { it.copy(season = season.number, seriesId = film.seriesId) },
-                                film.backdrop) { episode -> saveProgress(); vm.play(episode); menu = null }
-                        }
+            })
+        AnimatedVisibility(controlsVisible, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                0f to Color.Black.copy(alpha = .70f), .26f to Color.Transparent,
+                .52f to Color.Transparent, 1f to Color.Black.copy(alpha = .90f)))
+                .displayCutoutPadding().navigationBarsPadding()) {
+                // Title block on the leading edge, close on the other, like the TV player.
+                Column(Modifier.align(Alignment.TopStart).padding(horizontal = 20.dp, vertical = 14.dp).fillMaxWidth(.7f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    val seriesTitle = vm.selected?.takeIf { it.series }
+                    Label(if (film.episode > 0 && seriesTitle != null) mediaTitle(seriesTitle) else mediaTitle(film), 20, Color.White, true, lines = 1)
+                    if (film.episode > 0) Label("الموسم ${film.season} • الحلقة ${film.episode}", 12, Color.White.copy(alpha = .75f), lines = 1)
+                    vm.streams.getOrNull(qualityIndex)?.resolution?.takeIf(String::isNotBlank)?.let { MobileBadge(it) }
+                }
+                MobileRoundControl("إغلاق", "×", Modifier.align(Alignment.TopEnd).padding(horizontal = 20.dp, vertical = 10.dp)) { close() }
+                // Transport stays physically centred whatever the text direction.
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        MobileRoundControl("رجوع 10 ثوانٍ", "↶10") { interact(); seekBy(-10_000) }
+                        MobileRoundControl(if (playing) "إيقاف مؤقت" else "تشغيل", if (playing) "Ⅱ" else "▶", main = true) { interact(); togglePlayback() }
+                        MobileRoundControl("تقديم 10 ثوانٍ", "10↷") { interact(); seekBy(10_000) }
                     }
-                    "quality" -> LazyColumn(Modifier.heightIn(max = 220.dp)) {
-                        items(vm.streams.indices.toList()) { index ->
-                            TextButton(onClick = { saveProgress(); qualityChosen = true; vm.chooseQuality(vm.streams[index].resolution);
-                                qualityIndex = index; menu = null }) {
-                                Text(vm.streams[index].resolution + if (index == qualityIndex) " ✓" else "")
+                }
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 22.dp)) {
+                    MobileSeekBar(player, onScrubbing = { scrubbing = it }, onInteract = ::interact)
+                    Spacer(Modifier.height(6.dp))
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            if (vm.seasons.isNotEmpty()) MobileRoundControl("الحلقات", "☷") { interact(); episodesOpen = true }
+                            MobileRoundControl(if (vm.sceneFilter) "فلترة المشاهد: مفعّلة" else "فلترة المشاهد غير اللائقة", "✂", active = vm.sceneFilter) {
+                                interact(); vm.chooseSceneFilter(!vm.sceneFilter)
+                                notice = if (vm.sceneFilter) "جارٍ تحليل المشاهد…" else "أُوقفت فلترة المشاهد"
                             }
-                        }
-                    }
-                    "settings" -> LazyColumn(Modifier.heightIn(max = 240.dp).padding(horizontal = 16.dp)) {
-                        item {
-                            Text("حجم الخط: ${vm.subtitleSize.toInt()}")
-                            Slider(value = vm.subtitleSize.coerceIn(12f, 40f), onValueChange = vm::chooseSubtitleSize, valueRange = 12f..40f)
-                            Text("شفافية خلفية الترجمة: ${(vm.subtitleBackground * 100).toInt()}% • صفر لإزالة الخلفية")
-                            Slider(value = vm.subtitleBackground.coerceIn(0f, 1f), onValueChange = vm::chooseSubtitleBackground)
-                            Text("ارتفاع الترجمة")
-                            Slider(value = vm.subtitleHeight.coerceIn(.02f, .3f), onValueChange = vm::chooseSubtitleHeight, valueRange = .02f.. .3f)
-                        }
-                    }
-                    "subtitles" -> LazyColumn(Modifier.heightIn(max = 240.dp)) {
-                        item { TextButton(onClick = {
-                            vm.chooseSubtitleLanguage("off")
-                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                                .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
-                        }) { Text("بدون ترجمة" + if (player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) " ✓" else "") } }
-                        val textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
-                        if (textGroups.isEmpty()) item { Text("لا تتوفر مسارات ترجمة لهذا الفيديو", Modifier.padding(16.dp)) }
-                        tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT || it.type == C.TRACK_TYPE_AUDIO }.forEach { group ->
-                            items((0 until group.length).filter { group.isTrackSupported(it) }) { index ->
-                                val format = group.getTrackFormat(index)
-                                val language = format.language.orEmpty()
-                                val label = format.label?.takeIf { it.isNotBlank() } ?: when (language.substringBefore('-')) {
-                                    "ar" -> "العربية"; "en" -> "الإنجليزية"; "" -> "مسار ${index + 1}"; else -> language
-                                }
-                                TextButton(onClick = {
-                                    if (group.type == C.TRACK_TYPE_TEXT) vm.chooseSubtitleLanguage(language.ifBlank { "und" })
-                                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                                        .setTrackTypeDisabled(group.type, false)
-                                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(index))).build()
-                                }) { Text((if (group.type == C.TRACK_TYPE_AUDIO) "صوت • " else "ترجمة • ") + label +
-                                    if (group.isTrackSelected(index)) " ✓" else "") }
-                            }
+                            MobileRoundControl("حجم الترجمة وخلفيتها وارتفاعها", "Aa", onPlaced = { anchors[MobilePanel.SubtitleStyle] = it }) { interact(); panel = MobilePanel.SubtitleStyle }
+                            MobileRoundControl("الصوت والترجمة", "CC", onPlaced = { anchors[MobilePanel.Tracks] = it }) { interact(); panel = MobilePanel.Tracks }
+                            MobileRoundControl("الجودة", "HD", enabled = vm.streams.isNotEmpty(), onPlaced = { anchors[MobilePanel.Quality] = it }) { interact(); panel = MobilePanel.Quality }
+                            if (next != null) MobileRoundControl("الحلقة التالية", "▶|") { saveProgress(); vm.play(next) }
                         }
                     }
                 }
             }
         }
+        notice?.let { text ->
+            Label(text, 13, Color.White, true, lines = 1,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp)
+                    .background(Color(0xF2151826), RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 6.dp))
+        }
+        if (buffering || vm.playbackBusy) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
+        (vm.playbackError ?: playerError)?.let { error ->
+            Column(Modifier.align(Alignment.Center).padding(24.dp).background(Color(0xF2151826), RoundedCornerShape(20.dp)).padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Label(error, 15, Color.White, lines = 3)
+                TextButton(onClick = { vm.play(film) }) { Text("إعادة المحاولة") }
+                TextButton(onClick = { close() }) { Text("رجوع") }
+            }
+        }
     }
+    panel?.let { shown ->
+        MobileOptionsPopup(title = when (shown) {
+            MobilePanel.Quality -> "جودة الفيديو"; MobilePanel.Tracks -> "الصوت والترجمة"; MobilePanel.SubtitleStyle -> "مظهر الترجمة"
+        }, anchor = anchors[shown] ?: IntRect.Zero,
+            width = when (shown) { MobilePanel.Quality -> 200.dp; MobilePanel.Tracks -> 300.dp; MobilePanel.SubtitleStyle -> 280.dp },
+            onDismiss = { panel = null; interact() }) {
+            when (shown) {
+                MobilePanel.Quality -> vm.streams.forEachIndexed { index, stream ->
+                    MobileOption(stream.resolution, index == qualityIndex) {
+                        saveProgress(); qualityChosen = true; vm.chooseQuality(stream.resolution); qualityIndex = index; panel = null
+                    }
+                }
+                MobilePanel.SubtitleStyle -> {
+                    // Each row cycles to the next value and stays open, so the sample below shows the change at once.
+                    val sizes = listOf(16f, 18f, 20f, 22f, 26f, 30f, 34f, 40f)
+                    val backgrounds = listOf(0f, .25f, .5f, .75f, 1f)
+                    fun nearest(values: List<Float>, current: Float) =
+                        values.indices.minByOrNull { kotlin.math.abs(values[it] - current) } ?: 0
+                    MobileOption("حجم الخط: ${vm.subtitleSize.toInt()}", false) {
+                        interact(); vm.chooseSubtitleSize(sizes[(nearest(sizes, vm.subtitleSize) + 1) % sizes.size])
+                    }
+                    MobileOption("الخلفية: " + if (vm.subtitleBackground == 0f) "بدون" else "${(vm.subtitleBackground * 100).toInt()}%", false) {
+                        interact(); vm.chooseSubtitleBackground(backgrounds[(nearest(backgrounds, vm.subtitleBackground) + 1) % backgrounds.size])
+                    }
+                    MobileOption("الارتفاع: " + subtitleHeightLabel(vm.subtitleHeight), false) {
+                        interact(); vm.chooseSubtitleHeight(nextSubtitleHeight(vm.subtitleHeight))
+                    }
+                    MobileOption("إعادة الضبط الافتراضي", false) {
+                        interact(); vm.chooseSubtitleSize(22f); vm.chooseSubtitleBackground(.5f); vm.chooseSubtitleHeight(.08f)
+                    }
+                    Box(Modifier.fillMaxWidth().padding(top = 8.dp).background(Color.White.copy(alpha = .10f), RoundedCornerShape(14.dp))
+                        .padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
+                        Label("هذا نص تجريبي للترجمة", vm.subtitleSize.toInt(), Color.White, false, lines = 1,
+                            modifier = Modifier.background(Color.Black.copy(alpha = vm.subtitleBackground)).padding(horizontal = 8.dp, vertical = 2.dp))
+                    }
+                }
+                MobilePanel.Tracks -> {
+                    Label("الترجمة", 14, Muted, true, modifier = Modifier.padding(start = 6.dp, top = 4.dp))
+                    MobileOption("إيقاف الترجمة", player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)) {
+                        vm.chooseSubtitleLanguage("off")
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                        panel = null
+                    }
+                    val textGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                    if (textGroups.isEmpty()) Label("لا توجد مسارات ترجمة متاحة في هذا الفيديو.", 12, Muted, modifier = Modifier.padding(start = 6.dp))
+                    var textNumber = 0
+                    textGroups.forEach { group -> repeat(group.length) { index ->
+                        if (group.isTrackSupported(index)) {
+                            textNumber++
+                            val format = group.getTrackFormat(index)
+                            MobileOption(mobileTrackLabel(format, "ترجمة $textNumber"), group.isTrackSelected(index)) {
+                                vm.chooseSubtitleLanguage(format.language.orEmpty().ifBlank { "und" })
+                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
+                                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(index))).build()
+                                panel = null
+                            }
+                        }
+                    } }
+                    Label("الصوت", 14, Muted, true, modifier = Modifier.padding(start = 6.dp, top = 12.dp))
+                    val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+                    if (audioGroups.isEmpty()) Label("جارٍ قراءة مسارات الصوت…", 12, Muted, modifier = Modifier.padding(start = 6.dp))
+                    var audioNumber = 0
+                    audioGroups.forEach { group -> repeat(group.length) { index ->
+                        if (group.isTrackSupported(index)) {
+                            audioNumber++
+                            MobileOption(mobileTrackLabel(group.getTrackFormat(index), "صوت $audioNumber"), group.isTrackSelected(index)) {
+                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                                    .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(index))).build()
+                                panel = null
+                            }
+                        }
+                    } }
+                }
+            }
+        }
+    }
+    if (episodesOpen) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = { episodesOpen = false; interact() }, sheetState = sheetState) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("الحلقات", modifier = Modifier.padding(horizontal = 16.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    vm.seasons.forEachIndexed { index, season ->
+                        FilterChip(selected = sheetSeason == index, onClick = { sheetSeason = index }, label = { Text("الموسم ${season.number}") })
+                    }
+                }
+                vm.seasons.getOrNull(sheetSeason)?.let { season ->
+                    MobileEpisodeRail(season.episodes.map { it.copy(season = season.number, seriesId = film.seriesId) },
+                        film.backdrop) { episode -> saveProgress(); vm.play(episode); episodesOpen = false }
+                }
+            }
+        }
+    }
+}
+
+/** Readable name of an audio or subtitle track: its label, else the language in Arabic, else [fallback]. */
+private fun mobileTrackLabel(format: Format, fallback: String): String {
+    if (!format.label.isNullOrBlank()) return format.label!!
+    val language = format.language?.takeUnless { it == "und" || it.isBlank() } ?: return fallback
+    return java.util.Locale.forLanguageTag(language).getDisplayLanguage(java.util.Locale.forLanguageTag("ar")).ifBlank { fallback }
 }
