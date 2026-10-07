@@ -6,6 +6,7 @@
 - الإصدارات العامة: https://github.com/3hasnawi/Cinema-IQ-Releases
 - الحزمة: `com.cinemaplus.rebuilt`
 - الواجهة: Kotlin / Jetpack Compose، العربية وRTL وخط Cairo.
+- دعم الهاتف والتلفزيون قيد المراجعة: واجهتان حسب نوع الجهاز، مع نفس البيانات والحزمة. راجع `docs/MOBILE-AND-TV.md`.
 
 ## التحديثات
 

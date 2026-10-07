@@ -11,8 +11,11 @@ import com.cinemaplus.rebuilt.ui.CinemaApp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val television = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(this)
+        requestedOrientation = if (television) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
+            if (television) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         com.cinemaplus.rebuilt.ui.TrailerResolver.init(applicationContext)

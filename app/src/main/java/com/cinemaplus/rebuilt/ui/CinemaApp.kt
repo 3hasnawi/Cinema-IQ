@@ -72,6 +72,11 @@ val Muted = Color(0xFFA3A8BE)
 val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.font.cairo_semibold, FontWeight.SemiBold), Font(R.font.cairo_bold, FontWeight.Bold))
 
 @Composable fun CinemaApp(vm: CinemaViewModel = viewModel()) {
+    if (com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(LocalContext.current)) TvCinemaApp(vm)
+    else com.cinemaplus.rebuilt.ui.mobile.MobileCinemaApp(vm)
+}
+
+@Composable private fun TvCinemaApp(vm: CinemaViewModel) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, vm) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
