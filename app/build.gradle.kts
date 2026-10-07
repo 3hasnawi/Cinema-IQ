@@ -24,8 +24,8 @@ android {
         applicationId = "com.cinemaplus.rebuilt"
         minSdk = 24
         targetSdk = 36
-        versionCode = 44
-        versionName = "4.2"
+        versionCode = 45
+        versionName = "4.3"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"$youtubeApiKey\"")
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         testInstrumentationRunner = "com.cinemaplus.rebuilt.ui.PlayerSmokeInstrumentation"
