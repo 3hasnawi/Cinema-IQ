@@ -56,15 +56,15 @@ fun ProfilePicker(store: ProfileStore, onChosen: (Profile) -> Unit) {
                 Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
                     BoxWithConstraints(Modifier.fillMaxSize()) {
                     // Tiles wrap into rows that fit the width, so six profiles never run off a narrow phone screen.
-                    val perRow = (maxWidth / 144.dp).toInt().coerceIn(2, 7)
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+                    val perRow = ProfileGridLayout.columns(maxWidth.value)
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(ProfileGridLayout.EdgePadding.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(26.dp, Alignment.CenterVertically)) {
                         Label("من يشاهد؟", 34, bold = true)
                         Label("لكل ملف قائمته وسجل مشاهدته الخاص", 15, Muted)
                         // A null entry stands for the "add profile" tile.
                         val entries: List<Profile?> = profiles + if (profiles.size < ProfileList.MAX && !managing) listOf(null) else emptyList()
                         entries.chunked(perRow).forEachIndexed { rowIndex, row ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(ProfileGridLayout.Gap.dp), verticalAlignment = Alignment.Top) {
                                 row.forEachIndexed { column, profile ->
                                     val first = if (rowIndex == 0 && column == 0) Modifier.focusRequester(firstFocus) else Modifier
                                     if (profile == null) AddTile { name = ""; adding = true }
@@ -104,7 +104,7 @@ fun ProfilePicker(store: ProfileStore, onChosen: (Profile) -> Unit) {
 private fun ProfileTile(profile: Profile, removable: Boolean, modifier: Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.08f else 1f, spring(stiffness = 400f), label = "Profile focus")
-    Column(modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+    Column(modifier.width(ProfileGridLayout.TileWidth.dp).graphicsLayer { scaleX = scale; scaleY = scale }
         .onFocusChanged { focused = it.isFocused }
         .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
         .clickable(onClick = onClick).padding(8.dp),
@@ -114,7 +114,7 @@ private fun ProfileTile(profile: Profile, removable: Boolean, modifier: Modifier
             .then(if (focused) Modifier.border(4.dp, Color.White, CircleShape) else Modifier), contentAlignment = Alignment.Center) {
             Label(profile.name.first().toString(), 44, OnAccent, true)
         }
-        Label(profile.name, 17, if (focused) Color.White else Muted, true, lines = 1, modifier = Modifier.widthIn(max = 130.dp))
+        Label(profile.name, 17, if (focused) Color.White else Muted, true, lines = 1, modifier = Modifier.widthIn(max = (ProfileGridLayout.TileWidth - 16).dp))
         if (removable) Label("حذف", 14, Signal, true)
     }
 }
@@ -123,7 +123,7 @@ private fun ProfileTile(profile: Profile, removable: Boolean, modifier: Modifier
 private fun AddTile(onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.08f else 1f, spring(stiffness = 400f), label = "Add focus")
-    Column(Modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+    Column(Modifier.width(ProfileGridLayout.TileWidth.dp).graphicsLayer { scaleX = scale; scaleY = scale }
         .onFocusChanged { focused = it.isFocused }
         .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
         .clickable(onClick = onClick).padding(8.dp),
