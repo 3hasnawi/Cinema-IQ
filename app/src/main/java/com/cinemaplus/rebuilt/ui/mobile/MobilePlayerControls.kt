@@ -56,7 +56,7 @@ import kotlin.math.roundToInt
  */
 
 /** Translucent panel colour shared by the option popups. */
-private val PanelGlass = Color(0xD90E1020)
+private val PanelGlass = Color(0xD9170F1C)
 
 /** The panels that open above a control button. */
 enum class MobilePanel { Quality, Tracks, SubtitleStyle }

@@ -787,7 +787,7 @@ private fun PlayerOptionsDialog(
                 expandVertically(tween(240, easing = FastOutSlowInEasing), expandFrom = Alignment.Bottom),
             exit = fadeOut(tween(100))) {
             Column(Modifier.width(width).heightIn(max = 360.dp)
-                .background(Color(0xD90E1020), shape).border(1.dp, Color.White.copy(alpha = .10f), shape)
+                .background(Color(0xD9170F1C), shape).border(1.dp, Color.White.copy(alpha = .10f), shape)
                 .padding(8.dp).onPreviewKeyEvent { event ->
                     if(event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                         if(event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN && event.nativeKeyEvent.repeatCount == 0) onMediaToggle()

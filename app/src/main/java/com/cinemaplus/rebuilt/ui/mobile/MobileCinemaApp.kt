@@ -280,7 +280,14 @@ private fun MobileSettings(vm: CinemaViewModel) {
     var password by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("الإعدادات", fontSize = 26.sp, fontWeight = FontWeight.Bold) }
-        item { MobileChoice("مصدر المحتوى", vm.sourceChoice.label) { vm.chooseSource(SourceChoice.entries[(vm.sourceChoice.ordinal + 1) % SourceChoice.entries.size]) } }
+        item { Text("المصادر", fontWeight = FontWeight.Bold) }
+        SourceChoice.entries.forEach { choice ->
+            item(key = "source-${choice.name}") { MobileChoice(choice.label, if (vm.sourceChoice == choice) "✓ مختار" else "") { vm.chooseSource(choice) } }
+        }
+        item {
+            val switchProfile = com.cinemaplus.rebuilt.ui.LocalProfileSwitch.current
+            MobileChoice("الملف الحالي", vm.profile.name) { switchProfile() }
+        }
         item { MobileChoice("لغة أسماء الأعمال", vm.titleLanguage.label) { vm.chooseTitleLanguage(TitleLanguage.entries[(vm.titleLanguage.ordinal + 1) % TitleLanguage.entries.size]) } }
         item {
             Text("الحساب", fontWeight = FontWeight.Bold)

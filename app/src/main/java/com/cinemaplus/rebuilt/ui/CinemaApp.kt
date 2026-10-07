@@ -56,22 +56,37 @@ import com.cinemaplus.rebuilt.data.*
 import kotlinx.coroutines.delay
 import androidx.tv.material3.MaterialTheme as TvTheme
 
-val Ink = Color(0xFF151827)
-val Panel = Color(0xFF202439)
-val PanelHi = Color(0xFF2C3250)
+val Ink = Color(0xFF1E1722)
+val Panel = Color(0xFF2B2230)
+val PanelHi = Color(0xFF3A2F3F)
 /** Marquee gold: primary buttons, focus rings, selection, progress and ratings. */
-val Accent = Color(0xFFFFB93B)
-val AccentLight = Color(0xFFFFD27A)
+val Accent = Color(0xFFFF8A2B)
+val AccentLight = Color(0xFFFFB470)
 /** Text and icons drawn on top of [Accent]. */
-val OnAccent = Color(0xFF1A1204)
+val OnAccent = Color(0xFF1A0E02)
 /** Deep plum that tints the bottom of hero artwork. */
-val AccentDeep = Color(0xFF2A1740)
-val InputBorder = Color(0xFF424A6E)
+val AccentDeep = Color(0xFF3A1D2E)
+val InputBorder = Color(0xFF54465A)
 val Signal = Color(0xFFFF453A)
-val Muted = Color(0xFFA3A8BE)
+val Muted = Color(0xFFB5A9BC)
 val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.font.cairo_semibold, FontWeight.SemiBold), Font(R.font.cairo_bold, FontWeight.Bold))
 
-@Composable fun CinemaApp(vm: CinemaViewModel = viewModel()) {
+/** App shell: shows the profile picker when several profiles exist, then runs one view model per profile. */
+@Composable fun CinemaApp() {
+    val context = LocalContext.current
+    val store = remember { ProfileStore(context) }
+    var activeId by rememberSaveable { mutableStateOf(store.activeId) }
+    var picking by rememberSaveable { mutableStateOf(store.profiles().size > 1) }
+    if (picking) {
+        ProfilePicker(store) { chosen -> store.activeId = chosen.id; activeId = chosen.id; picking = false }
+    } else {
+        // A separate view model per profile keeps lists, history and settings from leaking between viewers.
+        val vm: CinemaViewModel = viewModel(key = "profile-$activeId")
+        CompositionLocalProvider(LocalProfileSwitch provides { picking = true }) { CinemaApp(vm) }
+    }
+}
+
+@Composable fun CinemaApp(vm: CinemaViewModel) {
     if (com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(LocalContext.current)) TvCinemaApp(vm)
     else com.cinemaplus.rebuilt.ui.mobile.MobileCinemaApp(vm)
 }
@@ -385,9 +400,17 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                 SettingRow("لغة أسماء الأعمال", vm.titleLanguage.label) {
                     vm.chooseTitleLanguage(next(TitleLanguage.entries.toList(), vm.titleLanguage))
                 }
-                SettingRow("مصدر المحتوى", vm.sourceChoice.label) {
-                    vm.chooseSource(next(SourceChoice.entries.toList(), vm.sourceChoice))
+            }
+            SettingsGroup("المصادر") {
+                Label("اختر من أين يُجلب المحتوى", 13, Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                SourceChoice.entries.forEach { choice ->
+                    SettingRow(choice.label, if (vm.sourceChoice == choice) "✓ مختار" else "") { vm.chooseSource(choice) }
                 }
+            }
+            val switchProfile = LocalProfileSwitch.current
+            SettingsGroup("الملفات الشخصية") {
+                SettingRow("الملف الحالي", vm.profile.name) { switchProfile() }
+                Label("اضغط لتبديل الملف أو إضافة ملف جديد", 12, Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             }
             SettingsGroup("الحساب") {
                 var username by remember { mutableStateOf("") }

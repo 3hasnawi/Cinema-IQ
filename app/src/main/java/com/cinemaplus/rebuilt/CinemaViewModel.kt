@@ -57,7 +57,8 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             finally { updateBusy = false }
         }
     }
-    val library = Library(app)
+    val profile: Profile = ProfileStore(app).active()
+    val library = Library(app, profile.id)
     private val account = SourceAccount(app)
     private val api = CinemanaApi { account.token() }
     private val subtitleResolver = CinemanaSubtitles()
