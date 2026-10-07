@@ -1,6 +1,6 @@
 package com.cinemaplus.rebuilt.ui.mobile
 
-import com.cinemaplus.rebuilt.Shelf
+import com.cinemaplus.rebuilt.data.Shelf
 import com.cinemaplus.rebuilt.data.Film
 import org.junit.Assert.*
 import org.junit.Test

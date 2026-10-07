@@ -25,7 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.cinemaplus.rebuilt.CinemaViewModel
-import com.cinemaplus.rebuilt.Shelf
+import com.cinemaplus.rebuilt.data.Shelf
 import com.cinemaplus.rebuilt.data.Film
 import com.cinemaplus.rebuilt.ui.*
 import kotlinx.coroutines.delay
