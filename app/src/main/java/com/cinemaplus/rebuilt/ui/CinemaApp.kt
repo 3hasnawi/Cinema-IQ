@@ -75,6 +75,31 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 @Composable fun CinemaApp() {
     val context = LocalContext.current
     val store = remember { ProfileStore(context) }
+    // Testing only: ask once per launch and retain the answer across activity recreation.
+    var interfaceName by rememberSaveable { mutableStateOf<String?>(null) }
+    val chosenInterface = TestInterface.entries.firstOrNull { it.name == interfaceName }
+    if (chosenInterface == null) {
+        BackHandler { (context as? android.app.Activity)?.finish() }
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+            InterfaceTestPicker(com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(context)) {
+                interfaceName = it.name
+            }
+        }
+        return
+    }
+    val television = chosenInterface == TestInterface.Television
+    DisposableEffect(television) {
+        val activity = context as? android.app.Activity
+        activity?.requestedOrientation = if (television) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        activity?.let {
+            androidx.core.view.WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
+                if (television) hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                else show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose { }
+    }
     var activeId by rememberSaveable { mutableStateOf(store.activeId) }
     var picking by rememberSaveable { mutableStateOf(store.profiles().size > 1) }
     if (picking) {
@@ -84,12 +109,13 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
         val vm: CinemaViewModel = viewModel(key = "profile-$activeId")
         // Another profile may have signed the shared account in or out while this one was in the background.
         LaunchedEffect(vm) { vm.refreshAccount() }
-        CompositionLocalProvider(LocalProfileSwitch provides { picking = true }) { CinemaApp(vm) }
+        CompositionLocalProvider(LocalProfileSwitch provides { picking = true }) { CinemaApp(vm, television) }
     }
 }
 
-@Composable fun CinemaApp(vm: CinemaViewModel) {
-    if (com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(LocalContext.current)) TvCinemaApp(vm)
+@Composable fun CinemaApp(vm: CinemaViewModel,
+    television: Boolean = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(LocalContext.current)) {
+    if (television) TvCinemaApp(vm)
     else com.cinemaplus.rebuilt.ui.mobile.MobileCinemaApp(vm)
 }
 
