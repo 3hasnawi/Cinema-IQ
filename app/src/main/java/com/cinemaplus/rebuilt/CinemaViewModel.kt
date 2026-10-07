@@ -64,6 +64,8 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     private val subtitleResolver = CinemanaSubtitles()
     var signedIn by mutableStateOf(account.token() != null)
     var accountBusy by mutableStateOf(false)
+    /** The account is shared by every profile, so a view model re-reads it when it becomes active again. */
+    fun refreshAccount() { signedIn = account.token() != null; accountError = null }
     var accountError by mutableStateOf<String?>(null)
     fun login(username: String, password: String) {
         if(accountBusy) return

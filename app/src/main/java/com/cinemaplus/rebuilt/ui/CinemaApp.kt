@@ -82,6 +82,8 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     } else {
         // A separate view model per profile keeps lists, history and settings from leaking between viewers.
         val vm: CinemaViewModel = viewModel(key = "profile-$activeId")
+        // Another profile may have signed the shared account in or out while this one was in the background.
+        LaunchedEffect(vm) { vm.refreshAccount() }
         CompositionLocalProvider(LocalProfileSwitch provides { picking = true }) { CinemaApp(vm) }
     }
 }
