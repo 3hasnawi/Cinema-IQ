@@ -217,7 +217,11 @@ private fun MobileDetails(vm: CinemaViewModel) {
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     var showTrailer by remember(film.id) { mutableStateOf(false) }
-    val related = remember(film.id, vm.shelves) { vm.shelves.flatMap { it.films }.filter { it.id != film.id }.distinctBy { it.id }.take(24) }
+    val candidates = vm.shelves.map { shelf -> shelf.copy(films = shelf.films.map(vm::withArtwork)) }
+    val related = phoneRelatedFilms(film, candidates)
+    LaunchedEffect(film.id, vm.shelves) {
+        vm.enrich(vm.shelves.flatMap { it.films }.filter { it.series == film.series && it.id != film.id }.distinctBy { it.id }.take(36))
+    }
     if (showTrailer) MobileTrailer(film) { showTrailer = false }
     // A new list state per title, so opening a similar title starts at its top instead of the previous scroll offset.
     val listState = remember(film.id) { androidx.compose.foundation.lazy.LazyListState() }

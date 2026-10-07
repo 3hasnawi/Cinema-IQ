@@ -31,3 +31,11 @@ Kotlin compilation and JVM unit tests cover the existing shared behavior and add
 - Quality, audio/subtitles and subtitle appearance open as a glass panel that grows out of its button, like the TV. Subtitle appearance uses the same cycling rows and live sample as the TV; the sliders were removed.
 - Drag or tap the scrubber to seek (the video seeks when the finger lifts). The swipe up from the bottom edge still opens the episodes sheet.
 - TV player files are untouched. Needs a phone test: orientation, cut-out, popups near the screen edge, scrubbing, episode switching and subtitle changes.
+
+## Phone playback and recommendations fixes
+
+- Play restarts ended media from zero. Seek controls require a ready player, a known positive duration and a seekable timeline; a cancelled scrub does not keep auto-hide suspended.
+- New media reveals its controls and gets a fresh visibility interval when playback starts, including after buffering.
+- Similar titles stay in the same movie/series format, exclude the current title and individual episodes, and prioritize TMDB genre overlap or known source genre-shelf membership. Rating and year proximity break ties. Missing genre data falls back to rating/year; known unrelated genres are excluded when the target genres are available.
+- TMDB genre IDs come from the existing matched search response and are cached with artwork. Old artwork cache entries without genres refresh once. Phone detail enrichment is bounded to 36 candidates and never changes playback sources.
+- TV interface files and release version are unchanged. Device verification remains necessary; no APK export is part of these source edits.

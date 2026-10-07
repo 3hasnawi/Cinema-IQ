@@ -108,12 +108,14 @@ fun MobileSeekBar(player: Player, onScrubbing: (Boolean) -> Unit, onInteract: ()
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var buffered by remember { mutableLongStateOf(0L) }
+    var seekable by remember { mutableStateOf(false) }
     var preview by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(player) {
         while (true) {
             if (preview == null) position = player.currentPosition.coerceAtLeast(0L)
             duration = player.duration.coerceAtLeast(0L)
             buffered = player.bufferedPosition.coerceAtLeast(0L)
+            seekable = MobilePlayerActions.canSeek(player)
             delay(250)
         }
     }
@@ -131,21 +133,27 @@ fun MobileSeekBar(player: Player, onScrubbing: (Boolean) -> Unit, onInteract: ()
             val bufferedFraction = if (duration > 0) (buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
             val thickness = if (previewing) 7.dp else 4.dp
             BoxWithConstraints(Modifier.fillMaxWidth().height(28.dp)
-                .pointerInput(duration) {
+                .pointerInput(duration, seekable) {
                     detectTapGestures { offset ->
-                        if (duration > 0) {
+                        if (seekable && MobilePlayerActions.canSeek(player)) {
                             onInteract()
                             val target = mobileSeekTarget(offset.x, size.width, duration)
                             player.seekTo(target); position = target
                         }
                     }
                 }
-                .pointerInput(duration) {
-                    detectHorizontalDragGestures(
+                .pointerInput(duration, seekable) {
+                    if (!seekable) return@pointerInput
+                    try { detectHorizontalDragGestures(
                         onDragStart = { offset -> onScrubbing(true); preview = mobileSeekTarget(offset.x, size.width, duration) },
                         onHorizontalDrag = { change, _ -> change.consume(); onInteract(); preview = mobileSeekTarget(change.position.x, size.width, duration) },
-                        onDragEnd = { preview?.let { player.seekTo(it); position = it }; preview = null; onScrubbing(false) },
+                        onDragEnd = { preview?.let {
+                            if (MobilePlayerActions.canSeek(player)) {
+                                player.seekTo(it.coerceIn(0L, player.duration)); position = it
+                            }
+                        }; preview = null; onScrubbing(false) },
                         onDragCancel = { preview = null; onScrubbing(false) })
+                    } finally { preview = null; onScrubbing(false) }
                 }, contentAlignment = Alignment.CenterStart) {
                 Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = .22f)))
                 Box(Modifier.fillMaxWidth(bufferedFraction).height(thickness).clip(CircleShape).background(Color.White.copy(alpha = .38f)))
