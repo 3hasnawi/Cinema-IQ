@@ -56,9 +56,9 @@ import com.cinemaplus.rebuilt.data.*
 import kotlinx.coroutines.delay
 import androidx.tv.material3.MaterialTheme as TvTheme
 
-val Ink = Color(0xFF0A0B12)
-val Panel = Color(0xFF151826)
-val PanelHi = Color(0xFF1E2236)
+val Ink = Color(0xFF151827)
+val Panel = Color(0xFF202439)
+val PanelHi = Color(0xFF2C3250)
 /** Marquee gold: primary buttons, focus rings, selection, progress and ratings. */
 val Accent = Color(0xFFFFB93B)
 val AccentLight = Color(0xFFFFD27A)
@@ -66,9 +66,9 @@ val AccentLight = Color(0xFFFFD27A)
 val OnAccent = Color(0xFF1A1204)
 /** Deep plum that tints the bottom of hero artwork. */
 val AccentDeep = Color(0xFF2A1740)
-val InputBorder = Color(0xFF343A55)
+val InputBorder = Color(0xFF424A6E)
 val Signal = Color(0xFFFF453A)
-val Muted = Color(0xFF8E93A8)
+val Muted = Color(0xFFA3A8BE)
 val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.font.cairo_semibold, FontWeight.SemiBold), Font(R.font.cairo_bold, FontWeight.Bold))
 
 @Composable fun CinemaApp(vm: CinemaViewModel = viewModel()) {
