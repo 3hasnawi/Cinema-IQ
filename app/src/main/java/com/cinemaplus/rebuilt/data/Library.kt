@@ -4,8 +4,9 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 
-class Library(context: Context) {
-    private val prefs = context.getSharedPreferences("cinema_library", Context.MODE_PRIVATE)
+/** Per-profile storage. The default profile reads the original file, so nothing is lost on upgrade. */
+class Library(context: Context, profileId: String = ProfileList.MAIN) {
+    private val prefs = context.getSharedPreferences(ProfileList.prefsName(profileId), Context.MODE_PRIVATE)
     var sourceChoice: SourceChoice
         get() = SourceChoice.restore(prefs.getString("content_source", null))
         set(value) { prefs.edit().putString("content_source", value.name).apply() }

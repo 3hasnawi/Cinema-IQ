@@ -262,11 +262,11 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         notice?.let { text ->
             Label(text, 13, Color.White, true, lines = 1,
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp)
-                    .background(Color(0xF2151826), RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 6.dp))
+                    .background(Color(0xF21E1722), RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 6.dp))
         }
         if (buffering || vm.playbackBusy) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
         (vm.playbackError ?: playerError)?.let { error ->
-            Column(Modifier.align(Alignment.Center).padding(24.dp).background(Color(0xF2151826), RoundedCornerShape(20.dp)).padding(20.dp),
+            Column(Modifier.align(Alignment.Center).padding(24.dp).background(Color(0xF21E1722), RoundedCornerShape(20.dp)).padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Label(error, 15, Color.White, lines = 3)
                 TextButton(onClick = { vm.play(film) }) { Text("إعادة المحاولة") }

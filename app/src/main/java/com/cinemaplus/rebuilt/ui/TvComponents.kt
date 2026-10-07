@@ -109,7 +109,7 @@ val LocalTabBarState = staticCompositionLocalOf { TabBarState() }
 
 /** Translucent "material" used for tvOS style pills and panels. */
 val Glass = Color.White.copy(alpha = .30f)
-val GlassStrong = Color(0xF2151826)
+val GlassStrong = Color(0xF21E1722)
 
 /** Settings switch for the trailer on focused cards. */
 val LocalTrailerPreviewEnabled = compositionLocalOf { true }
