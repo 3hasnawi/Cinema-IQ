@@ -2,7 +2,13 @@ package com.cinemaplus.rebuilt.ui.mobile
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -58,15 +64,31 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
         activity?.requestedOrientation = if (playback) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         activity?.let {
+            // Keep the display awake only while the phone player is mounted.
+            if (playback) it.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else it.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             WindowCompat.getInsetsController(it.window, it.window.decorView).apply {
                 if (playback) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
             }
         }
         onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).show(WindowInsetsCompat.Type.systemBars()) }
         }
     }
+    var compactBar by remember { mutableStateOf(false) }
+    val barScale by animateFloatAsState(if (compactBar) .9f else 1f, spring(), label = "floating-navigation")
+    val scrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -2f) compactBar = true
+                else if (available.y > 2f) compactBar = false
+                return Offset.Zero
+            }
+        }
+    }
+    LaunchedEffect(vm.page) { compactBar = false }
     var exit by remember { mutableStateOf(false) }
     BackHandler(enabled = !playback) {
         when { vm.selected != null -> vm.backDetail(); vm.page != Page.Home -> vm.backPage(); else -> exit = true }
@@ -86,7 +108,9 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
             if (playback) MobilePlayerScreen(vm)
             else if (vm.selected != null) MobileDetails(vm)
             else Scaffold(containerColor = Ink, bottomBar = {
-                NavigationBar(containerColor = Panel) {
+                NavigationBar(containerColor = Panel.copy(alpha = .96f),
+                    modifier = Modifier.navigationBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp)
+                        .scale(barScale).clip(RoundedCornerShape(28.dp)), windowInsets = WindowInsets(0, 0, 0, 0)) {
                     val destinations = listOf(Page.Home to Icons.Rounded.Home, Page.Search to Icons.Rounded.Search,
                         Page.Library to Icons.Rounded.Favorite, Page.Settings to Icons.Rounded.Settings)
                     destinations.forEach { (page, icon) ->
@@ -95,7 +119,7 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
                     }
                 }
             }) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding)) {
+                Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollConnection)) {
                     if (vm.page == Page.Settings) MobileSettings(vm) else MobileBrowse(vm)
                 }
             }
@@ -227,18 +251,9 @@ private fun MobileDetails(vm: CinemaViewModel) {
                 }
             }
         }
-        items(season?.episodes.orEmpty(), key = { it.id }) { episode ->
-            Row(Modifier.fillMaxWidth().clickable { vm.play(episode.copy(seriesId = film.id, season = season?.number ?: episode.season)) }
-                .padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                AsyncImage(episode.backdrop.ifBlank { film.backdrop }, null, Modifier.width(120.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                Column(Modifier.weight(1f)) {
-                    Text("الحلقة ${episode.episode}", fontWeight = FontWeight.Bold)
-                    Text(mediaTitle(episode), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text(formatContentDuration(episode.duration), color = Muted, fontSize = 12.sp)
-                }
-                Icon(Icons.Rounded.PlayArrow, "تشغيل الحلقة")
-            }
+        if (season != null) item {
+            MobileEpisodeRail(season.episodes.map { it.copy(seriesId = film.id, season = season.number) },
+                fallbackArtwork = film.backdrop, onPlay = vm::play)
         }
     }
 }

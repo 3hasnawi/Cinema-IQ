@@ -15,3 +15,11 @@ No new dependencies or package change. Version remains 4.3 until the owner appro
 ## Validation
 
 Kotlin compilation and JVM unit tests cover the existing shared behavior and added mobile quality/resume policy. A physical phone and a TV must still be tested for native player controls, orientation changes, keyboard visibility, insets and D-pad behavior before approving publication. BlueStacks normally reports a non-TV mode and therefore opens the touch interface.
+
+## Phone controls follow-up
+
+- Rounded floating bottom navigation shrinks on downward scrolling and expands on upward scrolling.
+- Details and the player share horizontal episode artwork cards. Swipe upward from the bottom edge of the player or tap Episodes to open the season/episode sheet.
+- Quality, audio/subtitle selection and caption styling are accessible from the lower player action row. Track selection uses the actual supported Media3 tracks; caption sliders persist through the existing preferences.
+- The phone player requests an awake display and clears the window flag on exit. This addresses automatic screen sleep; actual device crashes or shutdowns require separate device logs.
+- Verify on a phone: upward/downward scroll, bottom-edge gesture, season changes, available subtitle/audio tracks, caption sliders, quality switching, screen remaining awake beyond its timeout and sleeping normally after exit. TV UI files are unchanged.
