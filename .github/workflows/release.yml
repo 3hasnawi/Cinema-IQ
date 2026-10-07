@@ -50,7 +50,8 @@ jobs:
           mkdir -p release
           "$ANDROID_HOME/build-tools/36.0.0/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$RUNNER_TEMP/signing.keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out release/Cinema-iQ-release.apk "$RUNNER_TEMP/aligned.apk"
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify release/Cinema-iQ-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs release/Cinema-iQ-release.apk > "$RUNNER_TEMP/certificate.txt"
+          grep -F 'Signer #1 certificate SHA-256 digest: 5067306a939e183d5862467b39ccd02eaef3359353a4dc23ebf3f923a396193a' "$RUNNER_TEMP/certificate.txt" > /dev/null
           VERSION=$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging release/Cinema-iQ-release.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
           echo "RELEASE_TAG=v$VERSION" >> "$GITHUB_ENV"
           python scripts/release_metadata.py --apk release/Cinema-iQ-release.apk --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" --tag "v$VERSION" --output release/update.json
