@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.LayoutDirection
+import com.cinemaplus.rebuilt.ui.PlayerTransportIcon
 import com.cinemaplus.rebuilt.ui.Label
 import com.cinemaplus.rebuilt.ui.Muted
 import com.cinemaplus.rebuilt.ui.nextSubtitleHeight
@@ -64,6 +65,8 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     var qualityIndex by remember(film.id) { mutableIntStateOf(0) }
     var qualityChosen by remember(film.id) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
+    var ended by remember(film.id) { mutableStateOf(false) }
+    var offerNext by remember(film.id) { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -100,7 +103,9 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying; if (isPlaying) interact() }
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
-                if (state == Player.STATE_ENDED && player.currentMediaItem?.mediaId == film.id) vm.completePlayback(film)
+                if (state == Player.STATE_ENDED && player.currentMediaItem?.mediaId == film.id) {
+                    ended = true; controlsVisible = true; player.pause(); vm.completePlayback(film)
+                }
             }
             override fun onPlayerError(error: PlaybackException) {
                 playerError = "تعذّر تشغيل الفيديو. تحقق من الشبكة أو جرّب جودة أخرى."
@@ -154,6 +159,13 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
             if (player.isPlaying) ranges.firstOrNull { player.currentPosition in it }?.let { player.seekTo(it.last + 1) }
             if (android.os.SystemClock.elapsedRealtime() - lastSave > 5000) { saveProgress(); lastSave = android.os.SystemClock.elapsedRealtime() }
             delay(400)
+        }
+    }
+    LaunchedEffect(player, film.id, next?.id) {
+        while (true) {
+            offerNext = player.currentMediaItem?.mediaId == film.id && film.episode > 0 &&
+                MobilePlayerActions.offerNextEpisode(player.currentPosition, player.duration, next != null)
+            delay(500)
         }
     }
     // A fresh title gets its own full control visibility interval.
@@ -213,7 +225,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                     Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(28.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         MobileRoundControl("رجوع 10 ثوانٍ", "↶10", enabled = seekable) { interact(); seekBy(-10_000) }
-                        MobileRoundControl(if (playing) "إيقاف مؤقت" else "تشغيل", if (playing) "Ⅱ" else "▶", main = true) { interact(); togglePlayback() }
+                        MobileRoundControl(if (playing) "إيقاف مؤقت" else "تشغيل", if (playing) "Ⅱ" else "▶", main = true, enabled = !ended) { interact(); togglePlayback() }
                         MobileRoundControl("تقديم 10 ثوانٍ", "10↷", enabled = seekable) { interact(); seekBy(10_000) }
                     }
                 }
@@ -231,9 +243,19 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                             MobileRoundControl("حجم الترجمة وخلفيتها وارتفاعها", "Aa", onPlaced = { anchors[MobilePanel.SubtitleStyle] = it }) { interact(); panel = MobilePanel.SubtitleStyle }
                             MobileRoundControl("الصوت والترجمة", "CC", onPlaced = { anchors[MobilePanel.Tracks] = it }) { interact(); panel = MobilePanel.Tracks }
                             MobileRoundControl("الجودة", "HD", enabled = vm.streams.isNotEmpty(), onPlaced = { anchors[MobilePanel.Quality] = it }) { interact(); panel = MobilePanel.Quality }
-                            if (next != null) MobileRoundControl("الحلقة التالية", "▶|") { saveProgress(); vm.play(next) }
                         }
                     }
+                }
+            }
+        }
+        // Keep this action visible above the physical right side of the scrubber, even when controls fade.
+        if (offerNext && next != null && panel == null && !episodesOpen) {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Button(onClick = { saveProgress(); vm.play(next) }, modifier = Modifier.align(Alignment.BottomEnd)
+                    .displayCutoutPadding().navigationBarsPadding().padding(end = 20.dp, bottom = 138.dp)) {
+                    PlayerTransportIcon("▶|", Color.Black, 20.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("الحلقة التالية")
                 }
             }
         }

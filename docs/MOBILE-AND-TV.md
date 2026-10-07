@@ -34,8 +34,10 @@ Kotlin compilation and JVM unit tests cover the existing shared behavior and add
 
 ## Phone playback and recommendations fixes
 
-- Play restarts ended media from zero. Seek controls require a ready player, a known positive duration and a seekable timeline; a cancelled scrub does not keep auto-hide suspended.
+- Ended media stays stopped; the transport button does not restart it. Seek controls require a ready player, a known positive duration and a seekable timeline; a cancelled scrub does not keep auto-hide suspended.
 - New media reveals its controls and gets a fresh visibility interval when playback starts, including after buffering.
 - Similar titles stay in the same movie/series format, exclude the current title and individual episodes, and prioritize TMDB genre overlap or known source genre-shelf membership. Rating and year proximity break ties. Missing genre data falls back to rating/year; known unrelated genres are excluded when the target genres are available.
 - TMDB genre IDs come from the existing matched search response and are cached with artwork. Old artwork cache entries without genres refresh once. Phone detail enrichment is bounded to 36 candidates and never changes playback sources.
 - TV interface files and release version are unchanged. Device verification remains necessary; no APK export is part of these source edits.
+
+- The phone next-episode prompt stays visible at the physical bottom-right above the scrubber, with manual selection only. Sources expose no credit timestamps: the fallback window is the final 90 seconds, capped at 10% of duration for short videos. No prompt appears for movies or a final episode without a successor. Existing completion handling removes finished content from Continue Watching.

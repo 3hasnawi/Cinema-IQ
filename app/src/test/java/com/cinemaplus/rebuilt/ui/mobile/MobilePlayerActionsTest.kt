@@ -21,10 +21,20 @@ class MobilePlayerActionsTest {
         }
     } as Player
 
-    @Test fun endedPlaybackSeeksToStartBeforePlayingEvenWithPlayWhenReadyTrue() {
+    @Test fun endedPlaybackNeverRestartsEvenWithPlayWhenReadyTrue() {
         val actions = mutableListOf<String>()
         MobilePlayerActions.toggle(player(Player.STATE_ENDED, actions = actions))
-        assertEquals(listOf("seek:0", "play"), actions)
+        assertTrue(actions.isEmpty())
+    }
+
+    @Test fun nextEpisodeAppearsOnlyNearTheEndWithAKnownDurationAndSuccessor() {
+        assertFalse(MobilePlayerActions.offerNextEpisode(1_000_000, 2_000_000, true))
+        assertTrue(MobilePlayerActions.offerNextEpisode(1_910_000, 2_000_000, true))
+        assertTrue(MobilePlayerActions.offerNextEpisode(2_000_000, 2_000_000, true))
+        assertFalse(MobilePlayerActions.offerNextEpisode(1_950_000, 2_000_000, false))
+        assertFalse(MobilePlayerActions.offerNextEpisode(0, C.TIME_UNSET, true))
+        assertFalse(MobilePlayerActions.offerNextEpisode(0, 60_000, true))
+        assertTrue(MobilePlayerActions.offerNextEpisode(54_000, 60_000, true))
     }
 
     @Test fun readyPlaybackStillPausesNormally() {
