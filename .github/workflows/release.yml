@@ -1,0 +1,70 @@
+name: Manually build and publish Cinema iQ
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type RELEASE to explicitly approve building and publishing the current version'
+        required: true
+        type: string
+      publish:
+        description: Publish APK and update.json to Cinema-IQ-Releases (requires RELEASES_TOKEN)
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: cinema-iq-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: inputs.confirm == 'RELEASE'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Build approved release and test
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: ./gradlew --no-daemon :app:assembleRelease :app:testReleaseUnitTest
+      - name: Sign with the existing update-compatible key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KEYSTORE_BASE64" && test -n "$STORE_PASSWORD" && test -n "$KEY_PASSWORD" && test -n "$KEY_ALIAS"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing.keystore"
+          trap 'rm -f "$RUNNER_TEMP/signing.keystore"' EXIT
+          mkdir -p release
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -P 16 -f 4 app/build/outputs/apk/release/app-release-unsigned.apk "$RUNNER_TEMP/aligned.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$RUNNER_TEMP/signing.keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:STORE_PASSWORD --key-pass env:KEY_PASSWORD --out release/Cinema-iQ-release.apk "$RUNNER_TEMP/aligned.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify release/Cinema-iQ-release.apk
+          VERSION=$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging release/Cinema-iQ-release.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -1)
+          echo "RELEASE_TAG=v$VERSION" >> "$GITHUB_ENV"
+          python scripts/release_metadata.py --apk release/Cinema-iQ-release.apk --aapt "$ANDROID_HOME/build-tools/36.0.0/aapt" --tag "v$VERSION" --output release/update.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cinema-iq-approved-release
+          path: release/
+          retention-days: 30
+      - name: Publish the approved version to the public releases repository
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh release create "$RELEASE_TAG" release/Cinema-iQ-release.apk release/update.json --repo 3hasnawi/Cinema-IQ-Releases --title "Cinema iQ ${RELEASE_TAG#v}" --notes 'Official signed Cinema iQ update.' --latest

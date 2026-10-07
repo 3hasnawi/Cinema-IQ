@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Cinema iQ</string>
+    <string name="exo_controls_play_description">تشغيل</string>
+    <string name="exo_controls_pause_description">إيقاف مؤقت</string>
+    <string name="exo_controls_fastforward_description">تقديم</string>
+    <string name="exo_controls_rewind_description">إرجاع</string>
+    <string name="exo_controls_next_description">التالي</string>
+    <string name="exo_controls_previous_description">السابق</string>
+    <string name="exo_controls_settings_description">إعدادات التشغيل</string>
+    <string name="exo_controls_subtitle_description">الترجمة</string>
+    <string name="exo_controls_playback_speed">سرعة التشغيل</string>
+    <string name="exo_controls_audio_track">الصوت</string>
+    <string name="exo_track_selection_auto">تلقائي</string>
+    <string name="exo_track_selection_none">بدون</string>
+</resources>
