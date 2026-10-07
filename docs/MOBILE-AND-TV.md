@@ -23,3 +23,11 @@ Kotlin compilation and JVM unit tests cover the existing shared behavior and add
 - Quality, audio/subtitle selection and caption styling are accessible from the lower player action row. Track selection uses the actual supported Media3 tracks; caption sliders persist through the existing preferences.
 - The phone player requests an awake display and clears the window flag on exit. This addresses automatic screen sleep; actual device crashes or shutdowns require separate device logs.
 - Verify on a phone: upward/downward scroll, bottom-edge gesture, season changes, available subtitle/audio tracks, caption sliders, quality switching, screen remaining awake beyond its timeout and sleeping normally after exit. TV UI files are unchanged.
+
+## Phone player now matches the TV player
+
+- Compose draws all controls (Media3 only renders video and subtitles): the same round glass buttons, thin gold scrubber with buffered range and time labels, title block with series line and quality badge, and the vertical shade over the picture.
+- Tap the picture to show or hide the controls; they hide after 3.5 s while playing. Centre: back 10 s, play/pause, forward 10 s. Bottom row: episodes (series), scene filter, subtitle appearance, audio/subtitles, quality, next episode.
+- Quality, audio/subtitles and subtitle appearance open as a glass panel that grows out of its button, like the TV. Subtitle appearance uses the same cycling rows and live sample as the TV; the sliders were removed.
+- Drag or tap the scrubber to seek (the video seeks when the finger lifts). The swipe up from the bottom edge still opens the episodes sheet.
+- TV player files are untouched. Needs a phone test: orientation, cut-out, popups near the screen edge, scrubbing, episode switching and subtitle changes.
