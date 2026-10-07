@@ -38,6 +38,7 @@ fun pageSubtitle(page: Page): String = when (page) {
     Page.Series -> "مسلسلات مرتبة حسب التصنيف"
     Page.Library -> "أعمال أضفتها لتشاهدها لاحقًا"
     Page.Search -> "ابحث بالاسم"
+    Page.Explore -> "تصفّح حسب المزاج"
     Page.Settings -> "الحساب والترجمة والتشغيل"
     else -> ""
 }

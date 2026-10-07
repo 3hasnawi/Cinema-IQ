@@ -181,7 +181,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     val width by animateDpAsState(if (bar.hasFocus) TvMetrics.RailExpanded else TvMetrics.RailCollapsed,
         tween(220, easing = CubicBezierEasing(.2f, 0f, 0f, 1f)), label = "Rail width")
     val labels = width > 130.dp
-    val items = listOf(Page.Home, Page.Search, Page.Movies, Page.Series, Page.Library)
+    val items = listOf(Page.Home, Page.Search, Page.Explore, Page.Movies, Page.Series, Page.Library)
     val shape = RoundedCornerShape(32.dp)
     // A floating capsule centred on the edge; it widens over the page and never reflows it.
     Box(modifier.fillMaxHeight().width(width).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
@@ -226,6 +226,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
         Page.Search -> Icon(Icons.Rounded.Search, null, size, tint = tint)
         Page.Home -> Icon(Icons.Rounded.Home, null, size, tint = tint)
         Page.Library -> Icon(Icons.Rounded.Favorite, null, size, tint = tint)
+        Page.Explore -> Icon(Icons.Rounded.Star, null, size, tint = tint)
         Page.Settings -> Icon(Icons.Rounded.Settings, null, size, tint = tint)
         // Film frame: a rounded frame with sprocket dots on both sides.
         Page.Movies -> Canvas(size) {
@@ -253,6 +254,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     when (vm.page) {
         Page.Home -> HomeScreen(vm)
         Page.Search -> SearchScreen(vm)
+        Page.Explore -> ExploreScreen(vm)
         else -> CatalogScreen(vm)
     }
 }
@@ -373,20 +375,49 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 
 // ───────────────────────── Settings (tvOS list style) ─────────────────────────
 
+private enum class SettingsSection(val title: String) {
+    Sources("المصادر والمحتوى"), Account("الحساب"), Profiles("الملفات الشخصية"),
+    Subtitles("الترجمة"), Playback("التشغيل"), About("التحديث وحول التطبيق")
+}
+
+/** Settings as a hub of cards; each card opens its own short page, and Back returns to the hub. */
 @Composable private fun SettingsScreen(vm: CinemaViewModel) {
-    val context = LocalContext.current
-    var loginMessage by remember { mutableStateOf<String?>(null) }
+    var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
+    val section = SettingsSection.entries.firstOrNull { it.name == sectionName }
+    BackHandler(enabled = section != null) { sectionName = null }
     fun <T> next(options: List<T>, current: T): T = options[(options.indexOf(current) + 1).mod(options.size)]
     val sizes = listOf(18f, 22f, 26f, 30f)
     val languages = listOf("ar", "en", "off")
     val backgrounds = listOf(0f, .25f, .5f, .75f, 1f)
     val qualities = listOf("تلقائي", "1080p", "720p", "480p")
+    val languageLabel = when (vm.subtitleLanguage) { "ar" -> "العربية"; "en" -> "الإنجليزية"; else -> "بدون ترجمة" }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(top = TvMetrics.TabBarSpace, bottom = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(Modifier.widthIn(max = 780.dp).fillMaxWidth().padding(horizontal = 32.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
-            PageHeader("الإعدادات", pageSubtitle(Page.Settings))
-            SettingsGroup("تحديث التطبيق") {
+        Column(Modifier.widthIn(max = if (section == null) 980.dp else 780.dp).fillMaxWidth().padding(horizontal = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp)) {
+            PageHeader(section?.title ?: "الإعدادات", if (section == null) pageSubtitle(Page.Settings) else "")
+            if (section == null) {
+                val cards = listOf(
+                    SettingsSection.Sources to "${vm.sourceChoice.label} · ${vm.titleLanguage.label}",
+                    SettingsSection.Account to if (vm.signedIn) "تم تسجيل الدخول" else "غير مسجّل",
+                    SettingsSection.Profiles to vm.profile.name,
+                    SettingsSection.Subtitles to "الحجم ${vm.subtitleSize.toInt()} · $languageLabel",
+                    SettingsSection.Playback to "الجودة ${vm.quality}",
+                    SettingsSection.About to if (vm.availableUpdate != null) "تحديث متاح" else "الإصدار ${BuildConfig.VERSION_NAME}")
+                cards.chunked(3).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        row.forEach { (target, summary) -> SettingsCard(target.title, summary, Modifier.weight(1f)) { sectionName = target.name } }
+                    }
+                }
+                Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Label(androidx.compose.ui.res.stringResource(R.string.app_name), 18, Accent, true)
+                    Label("الإصدار ${com.cinemaplus.rebuilt.BuildConfig.VERSION_NAME}", 13, Muted)
+                    if(vm.artworkFromTmdb) Label("This product uses the TMDB API but is not endorsed or certified by TMDB.", 11, Muted, lines = 2)
+                    Label("تطوير Emad Hasnawi", 13, Muted)
+                }
+            }
+            if (section == SettingsSection.About) SettingsGroup("تحديث التطبيق") {
                 Label("الإصدار الحالي ${BuildConfig.VERSION_NAME}", 14, Muted)
                 Action(if (vm.updateBusy) "جارٍ الفحص أو التنزيل… ${vm.updateProgress}%" else "فحص التحديثات") {
                     vm.checkUpdates(manual = true)
@@ -396,23 +427,27 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                     Action(if (vm.updateBusy) "جارٍ تنزيل التحديث…" else "تنزيل وتثبيت ${update.versionName}", true) { vm.downloadUpdate() }
                 }
             }
-            SettingsGroup("المحتوى") {
-                SettingRow("لغة أسماء الأعمال", vm.titleLanguage.label) {
-                    vm.chooseTitleLanguage(next(TitleLanguage.entries.toList(), vm.titleLanguage))
+            if (section == SettingsSection.Sources) {
+                SettingsGroup("المصدر") {
+                    Label("اختر من أين يُجلب المحتوى", 13, Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    SourceChoice.entries.forEach { choice ->
+                        SettingRow(choice.label, if (vm.sourceChoice == choice) "✓ مختار" else "") { vm.chooseSource(choice) }
+                    }
+                }
+                SettingsGroup("المحتوى") {
+                    SettingRow("لغة أسماء الأعمال", vm.titleLanguage.label) {
+                        vm.chooseTitleLanguage(next(TitleLanguage.entries.toList(), vm.titleLanguage))
+                    }
                 }
             }
-            SettingsGroup("المصادر") {
-                Label("اختر من أين يُجلب المحتوى", 13, Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-                SourceChoice.entries.forEach { choice ->
-                    SettingRow(choice.label, if (vm.sourceChoice == choice) "✓ مختار" else "") { vm.chooseSource(choice) }
+            if (section == SettingsSection.Profiles) {
+                val switchProfile = LocalProfileSwitch.current
+                SettingsGroup("الملفات الشخصية") {
+                    SettingRow("الملف الحالي", vm.profile.name) { switchProfile() }
+                    Label("اضغط لتبديل الملف أو إضافة ملف جديد", 12, Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
             }
-            val switchProfile = LocalProfileSwitch.current
-            SettingsGroup("الملفات الشخصية") {
-                SettingRow("الملف الحالي", vm.profile.name) { switchProfile() }
-                Label("اضغط لتبديل الملف أو إضافة ملف جديد", 12, Muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-            }
-            SettingsGroup("الحساب") {
+            if (section == SettingsSection.Account) SettingsGroup("الحساب") {
                 var username by remember { mutableStateOf("") }
                 var password by remember { mutableStateOf("") }
                 if(vm.signedIn) {
@@ -431,9 +466,9 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                 }
                 vm.accountError?.let { Label(it, 12, Muted, lines = 2) }
             }
-            SettingsGroup("الترجمة") {
+            if (section == SettingsSection.Subtitles) SettingsGroup("الترجمة") {
                 SettingRow("حجم الخط", "${vm.subtitleSize.toInt()}") { vm.chooseSubtitleSize(next(sizes, vm.subtitleSize)) }
-                SettingRow("اللغة المفضلة", when (vm.subtitleLanguage) { "ar" -> "العربية"; "en" -> "الإنجليزية"; else -> "بدون ترجمة" }) {
+                SettingRow("اللغة المفضلة", languageLabel) {
                     vm.chooseSubtitleLanguage(next(languages, vm.subtitleLanguage))
                 }
                 SettingRow("خلفية الترجمة", if (vm.subtitleBackground == 0f) "بدون خلفية" else "${(vm.subtitleBackground * 100).toInt()}%") {
@@ -442,19 +477,38 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                 SettingRow("ارتفاع الترجمة", subtitleHeightLabel(vm.subtitleHeight)) {
                     vm.chooseSubtitleHeight(nextSubtitleHeight(vm.subtitleHeight))
                 }
+                // Live sample so the effect of size, background and height can be judged without starting a film.
+                Box(Modifier.fillMaxWidth().height(110.dp).padding(8.dp).clip(RoundedCornerShape(14.dp)).background(PanelHi),
+                    contentAlignment = Alignment.BottomCenter) {
+                    Label("هكذا ستظهر الترجمة", vm.subtitleSize.toInt(), Color.White, true,
+                        Modifier.padding(bottom = (vm.subtitleHeight * 160).dp + 6.dp)
+                            .background(Color.Black.copy(alpha = vm.subtitleBackground), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp),
+                        lines = 1)
+                }
             }
-            SettingsGroup("التشغيل") {
+            if (section == SettingsSection.Playback) SettingsGroup("التشغيل") {
                 SettingRow("الجودة المفضلة", vm.quality) { vm.chooseQuality(next(qualities, vm.quality)) }
                 SettingRow("معاينة التريلر في البطاقات", if(vm.trailerPreview) "مفعّلة" else "معطّلة (يظهر الوصف)") { vm.chooseTrailerPreview(!vm.trailerPreview) }
                 SettingRow("صوت التريلر", if(vm.trailerMuted) "مكتوم" else "مفتوح") { vm.chooseTrailerMuted(!vm.trailerMuted) }
             }
-            Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Label(androidx.compose.ui.res.stringResource(R.string.app_name), 18, Accent, true)
-                Label("الإصدار ${com.cinemaplus.rebuilt.BuildConfig.VERSION_NAME}", 13, Muted)
-                if(vm.artworkFromTmdb) Label("This product uses the TMDB API but is not endorsed or certified by TMDB.", 11, Muted, lines = 2)
-                Label("تطوير Emad Hasnawi", 13, Muted)
-            }
         }
+    }
+}
+
+/** Large hub card: title and a one-line summary of the current state. Focus turns it into the accent colour. */
+@Composable private fun SettingsCard(title: String, summary: String, modifier: Modifier, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.04f else 1f,
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow), label = "Settings card focus")
+    val shape = RoundedCornerShape(20.dp)
+    Column(modifier.height(104.dp).zIndex(if (focused) 5f else 0f).graphicsLayer { scaleX = scale; scaleY = scale }
+        .clip(shape).background(if (focused) Accent else Panel)
+        .border(1.dp, Color.White.copy(alpha = .08f), shape)
+        .onFocusChanged { focused = it.isFocused }
+        .clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.Center) {
+        Label(title, 18, if (focused) OnAccent else Color.White, true, lines = 1)
+        Label(summary, 13, if (focused) OnAccent.copy(alpha = .75f) else Muted, lines = 1)
     }
 }
 

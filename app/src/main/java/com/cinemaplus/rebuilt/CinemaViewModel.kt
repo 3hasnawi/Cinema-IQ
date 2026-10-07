@@ -8,7 +8,7 @@ import com.cinemaplus.rebuilt.data.*
 import kotlinx.coroutines.*
 import com.cinemaplus.rebuilt.update.*
 
-enum class Page(val label: String) { Home("الرئيسية"), Movies("أفلام"), Series("مسلسلات"), Search("بحث"), Library("قائمتي"), Settings("الإعدادات") }
+enum class Page(val label: String) { Home("الرئيسية"), Explore("استكشاف"), Movies("أفلام"), Series("مسلسلات"), Search("بحث"), Library("قائمتي"), Settings("الإعدادات") }
 class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     private val updates = UpdateRepository()
     var availableUpdate by mutableStateOf<UpdateManifest?>(null)
@@ -97,6 +97,10 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         pageNumber = 1; shelves = emptyList(); descriptions.clear()
         closeDetail(); stop(); reload()
     }
+    /** Selected mood on the Explore page; null shows the mood grid. */
+    var exploreMood by mutableStateOf<Mood?>(null)
+        private set
+    fun chooseMood(mood: Mood?) { exploreMood = mood }
     var shelves by mutableStateOf<List<Shelf>>(emptyList())
     var busy by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
@@ -221,8 +225,11 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                         Page.Home -> Demo.shelves
                         Page.Movies -> listOf(Shelf("movies", "أفلام", Demo.films.filterNot { it.series }))
                         Page.Series -> listOf(Shelf("series", "مسلسلات", Demo.films.filter { it.series }))
+                        Page.Explore -> listOf(Shelf("genre-m-demo", "أكشن", Demo.films.filterNot { it.series }),
+                            Shelf("genre-s-demo", "دراما", Demo.films.filter { it.series }))
                         else -> listOf(Shelf("search", "نتائج البحث", Demo.films.filter { it.title.contains(query) }))
                     }
+                    page == Page.Explore -> exploreCatalog()
                     page == Page.Home -> combinedSources(listOf(false, true), 1) { api.home() }
                     page == Page.Search -> {
                         if (query.isBlank()) emptyList() else searchCatalog(query, pageNumber)
@@ -245,6 +252,16 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = e.message ?: "تعذّر تحميل المحتوى. تحقق من الشبكة المحلية." }
             finally { if(currentCoroutineContext().isActive) busy = false }
+        }
+    }
+    /** Category shelves for mood browsing. Only the Cinemana source exposes categories. */
+    private suspend fun exploreCatalog(): List<Shelf> {
+        if (sourceChoice == SourceChoice.VODU)
+            throw IllegalStateException("الاستكشاف يعتمد على تصنيفات سينمانا. اختر سينمانا من الإعدادات > المصادر.")
+        return coroutineScope {
+            val movies = async { api.genreShelves(false, 20) }
+            val series = async { api.genreShelves(true, 20) }
+            movies.await() + series.await()
         }
     }
     /** Source failures remain visible while another source can still supply content. */

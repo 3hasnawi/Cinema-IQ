@@ -94,7 +94,7 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
     LaunchedEffect(vm.page) { compactBar = false }
     var exit by remember { mutableStateOf(false) }
     BackHandler(enabled = !playback) {
-        when { vm.selected != null -> vm.backDetail(); vm.page != Page.Home -> vm.backPage(); else -> exit = true }
+        when { vm.selected != null -> vm.backDetail(); vm.page == Page.Explore && vm.exploreMood != null -> vm.chooseMood(null); vm.page != Page.Home -> vm.backPage(); else -> exit = true }
     }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl,
         LocalFilmTitle provides { film -> vm.withArtwork(film).displayTitle(vm.titleLanguage) }) {
@@ -114,7 +114,7 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
                 NavigationBar(containerColor = Panel.copy(alpha = .96f),
                     modifier = Modifier.navigationBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp)
                         .scale(barScale).clip(RoundedCornerShape(28.dp)), windowInsets = WindowInsets(0, 0, 0, 0)) {
-                    val destinations = listOf(Page.Home to Icons.Rounded.Home, Page.Search to Icons.Rounded.Search,
+                    val destinations = listOf(Page.Home to Icons.Rounded.Home, Page.Search to Icons.Rounded.Search, Page.Explore to Icons.Rounded.Star,
                         Page.Library to Icons.Rounded.Favorite, Page.Settings to Icons.Rounded.Settings)
                     destinations.forEach { (page, icon) ->
                         NavigationBarItem(selected = vm.page == page || (page == Page.Home && vm.page in listOf(Page.Movies, Page.Series)),
@@ -123,7 +123,7 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
                 }
             }) { padding ->
                 Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollConnection)) {
-                    if (vm.page == Page.Settings) MobileSettings(vm) else MobileBrowse(vm)
+                    when (vm.page) { Page.Settings -> MobileSettings(vm); Page.Explore -> MobileExplore(vm); else -> MobileBrowse(vm) }
                 }
             }
         }
@@ -328,6 +328,46 @@ private fun MobileChoice(title: String, value: String, onClick: () -> Unit) {
     Surface(onClick = onClick, shape = RoundedCornerShape(12.dp), color = Panel, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, Modifier.weight(1f)); Text(value, color = Accent)
+        }
+    }
+}
+
+/** Browse by mood on the phone: a two-column grid of moods, then the matching shelves. */
+@Composable
+private fun MobileExplore(vm: CinemaViewModel) {
+    val mood = vm.exploreMood
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item { PageHeader(mood?.title ?: "استكشاف", mood?.subtitle ?: pageSubtitle(Page.Explore)) }
+        if (mood == null) {
+            items(com.cinemaplus.rebuilt.data.Moods.all.chunked(2), key = { it.first().id }) { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { m ->
+                        Column(Modifier.weight(1f).height(96.dp).clip(RoundedCornerShape(16.dp))
+                            .background(androidx.compose.ui.graphics.Brush.linearGradient(listOf(androidx.compose.ui.graphics.Color(m.color), Panel)))
+                            .clickable { vm.chooseMood(m) }.padding(14.dp), verticalArrangement = Arrangement.Bottom) {
+                            Text(m.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1)
+                            Text(m.subtitle, fontSize = 11.sp, color = Muted, maxLines = 2)
+                        }
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        } else {
+            val shelves = com.cinemaplus.rebuilt.data.Moods.shelves(mood, vm.shelves)
+            items(shelves, key = { it.id }) { shelf ->
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SectionHeader(shelf.title, Modifier, count = shelf.films.size)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(shelf.films, key = { it.id }) { film -> MobileCard(vm.withArtwork(film), 0f, false) { vm.open(film) } }
+                    }
+                }
+            }
+        }
+        item {
+            if (vm.busy) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Accent) }
+            vm.error?.let { Text(it, color = Muted) }
+            if (mood != null && !vm.busy && vm.error == null && com.cinemaplus.rebuilt.data.Moods.shelves(mood, vm.shelves).isEmpty())
+                Text("لا توجد تصنيفات مطابقة لهذا المزاج في المصدر", color = Muted)
         }
     }
 }
