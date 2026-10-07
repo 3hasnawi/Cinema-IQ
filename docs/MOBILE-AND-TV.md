@@ -47,3 +47,11 @@ Kotlin compilation and JVM unit tests cover the existing shared behavior and add
 - TV now uses the same no-restart policy and 90-second/10%-duration next-episode window as the phone. Movies stay stopped at the end and completion tracking remains intact.
 - The TV next-episode button appears at the physical bottom-right above the scrubber, including while the overlay is hidden. Up from the scrubber or hidden host reaches it; Select activates it and Down returns to the scrubber/host. Appearance does not steal focus or pause playback. Auto-hide is suspended while the button is focused.
 - Verify with a physical remote: prompt selection with a hidden overlay, focus return, episode transitions, final episodes and movie completion. No APK build is included.
+
+## Temporary launch interface picker
+
+- The normal app entry now asks for TV or phone before profile selection. The test choice overrides hardware routing for this launch, so either UI can be tested on the same device.
+- The answer is saved only in activity state to survive recreation and orientation changes; no permanent preference is written. A new activity launch asks again, while returning to an existing session keeps its choice.
+- TV selection applies landscape/hidden system bars; phone selection uses normal browsing orientation and system bars with the existing immersive landscape player.
+- Both choices are usable with touch and D-pad. The app shell passes the choice explicitly; direct callers of `CinemaApp(vm)` keep hardware detection as their default.
+- Verify on-device: launch choice, orientation change, profile switching and playback in both modes. No APK export is included in the source change.
