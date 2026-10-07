@@ -32,6 +32,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.AbsoluteAlignment
@@ -90,6 +92,9 @@ fun PlayerScreen(vm: CinemaViewModel) {
     val backFocus = remember { FocusRequester() }
     val audioFocus = remember { FocusRequester() }
     val subtitleStyleFocus = remember { FocusRequester() }
+    val nextEpisodeFocus = remember { FocusRequester() }
+    var nextEpisodeFocused by remember { mutableStateOf(false) }
+    var ended by remember(film.id) { mutableStateOf(false) }
     val qualityFocus = remember { FocusRequester() }
     var streamIndex by remember(film.id, vm.streams) { mutableIntStateOf(
         vm.streams.indexOfFirst { it.resolution.removeSuffix("p") == vm.quality.removeSuffix("p") }.coerceAtLeast(0)) }
@@ -111,6 +116,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
     val isSeries = film.episode > 0 || film.series || vm.selected?.series == true
     val next = vm.nextEpisode()
+    val offerNext = film.episode > 0 && PlaybackEndPolicy.offerNextEpisode(position, duration, next != null)
     // Episodes of the season being played, shown as a thumbnail strip when the user presses Down.
     val episodes = remember(vm.seasons, film.id) {
         if (!isSeries) emptyList()
@@ -132,7 +138,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
     }
     fun interact() { lastInteraction = SystemClock.uptimeMillis() }
     fun reveal() { interact(); controlsVisible = true }
-    fun togglePlayback() { if(player.playWhenReady) player.pause() else if(player.currentMediaItem != null) player.play() }
+    fun togglePlayback() { PlaybackEndPolicy.toggle(player) }
     fun seekBy(delta: Long) {
         if(player.isCurrentMediaItemSeekable && player.duration > 0)
             player.seekTo((player.currentPosition + delta).coerceIn(0L, player.duration))
@@ -225,8 +231,9 @@ fun PlayerScreen(vm: CinemaViewModel) {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 buffering = state == Player.STATE_BUFFERING
+                ended = state == Player.STATE_ENDED
                 if(state == Player.STATE_ENDED) {
-                    controlsVisible = true; previewPosition = null
+                    ended = true; controlsVisible = true; previewPosition = null; player.pause()
                     if (player.currentMediaItem?.mediaId == film.id) vm.completePlayback(film)
                 }
             }
@@ -312,8 +319,15 @@ fun PlayerScreen(vm: CinemaViewModel) {
             delay(250)
         }
     }
-    LaunchedEffect(controlsVisible, lastInteraction, playing, panel, previewPosition, buffering, playerError, episodesShown) {
-        if(controlsVisible && playing && panel == null && previewPosition == null && !episodesShown && !buffering && playerError == null) {
+    LaunchedEffect(film.id) { nextEpisodeFocused = false; interact() }
+    LaunchedEffect(offerNext, panel, episodesShown) {
+        if ((!offerNext || panel != null || episodesShown) && nextEpisodeFocused) {
+            nextEpisodeFocused = false
+            if (panel == null && !episodesShown) runCatching { if(controlsVisible) seekFocus.requestFocus() else rootFocus.requestFocus() }
+        }
+    }
+    LaunchedEffect(controlsVisible, lastInteraction, playing, panel, previewPosition, buffering, playerError, episodesShown, nextEpisodeFocused) {
+        if(controlsVisible && playing && panel == null && previewPosition == null && !episodesShown && !nextEpisodeFocused && !buffering && playerError == null) {
             // Playback state changes must not restart the remote's inactivity deadline.
             val remaining = OverlayTimeoutMillis - (SystemClock.uptimeMillis() - lastInteraction)
             if (remaining > 0) delay(remaining)
@@ -338,8 +352,19 @@ fun PlayerScreen(vm: CinemaViewModel) {
         .focusRequester(rootFocus).focusProperties { canFocus = !controlsVisible }
         .onPreviewKeyEvent { event ->
             val native = event.nativeKeyEvent
+            if (offerNext && panel == null && !episodesShown && !nextEpisodeFocused &&
+                (seekFocused || !controlsVisible) && native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) {
+                if (native.action == AndroidKeyEvent.ACTION_DOWN) {
+                    interact(); runCatching { nextEpisodeFocus.requestFocus() }
+                }
+                return@onPreviewKeyEvent true
+            }
+            // Let the focused prompt consume Select even when the main overlay is hidden.
+            if (nextEpisodeFocused && native.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER,
+                    AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER, AndroidKeyEvent.KEYCODE_BUTTON_A))
+                return@onPreviewKeyEvent false
             val horizontal = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT || native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
-            if(horizontal && !episodesShown && (!controlsVisible || previewPosition != null || seekFocused)) {
+            if(horizontal && !nextEpisodeFocused && !episodesShown && (!controlsVisible || previewPosition != null || seekFocused)) {
                 if(native.action == AndroidKeyEvent.ACTION_DOWN)
                     scrub(if(native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT) -1 else 1, native.repeatCount)
                 return@onPreviewKeyEvent true
@@ -360,7 +385,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
             val routed = keyRouter.route(key, native.action == AndroidKeyEvent.ACTION_DOWN, native.repeatCount, controlsVisible)
             routed.commands.forEach { command -> when(command) {
                 TvRemoteKeyRouter.Command.TogglePlayback -> togglePlayback()
-                TvRemoteKeyRouter.Command.Play -> player.play()
+                TvRemoteKeyRouter.Command.Play -> if(!ended) player.play()
                 TvRemoteKeyRouter.Command.Pause -> player.pause()
                 TvRemoteKeyRouter.Command.SeekBack -> seekBy(-10_000)
                 TvRemoteKeyRouter.Command.SeekForward -> seekBy(10_000)
@@ -417,7 +442,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                         previewing = previewPosition != null, bufferedPosition = bufferedPosition,
                         speedLabel = if(previewPosition != null && scrubLevel > 0)
                             "${if(scrubDir < 0) "◀◀" else "▶▶"} ×${ScrubSpeeds[scrubLevel]}" else "",
-                        modifier = Modifier.focusRequester(seekFocus).focusProperties { down = playFocus; up = backFocus },
+                        modifier = Modifier.focusRequester(seekFocus).focusProperties { down = playFocus; up = if(offerNext) nextEpisodeFocus else backFocus },
                         onFocusChange = { seekFocused = it },
                         onSelect = { if(previewPosition != null) commitScrub() else { interact(); togglePlayback() } })
                     Spacer(Modifier.height(8.dp))
@@ -431,7 +456,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                             } else false
                         }, verticalAlignment = Alignment.CenterVertically) {
                             Spacer(Modifier.weight(1f))
-                            PlayerControl(if(playing) "إيقاف مؤقت" else "تشغيل", if(playing) "Ⅱ" else "▶", main = true,
+                            PlayerControl(if(playing) "إيقاف مؤقت" else "تشغيل", if(playing) "Ⅱ" else "▶", main = true, enabled = !ended,
                                 modifier = Modifier.focusRequester(playFocus).focusProperties { up = seekFocus }) { interact(); togglePlayback() }
                             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.End)) {
                                 PlayerControl("الصوت والترجمة", "CC",
@@ -452,7 +477,6 @@ fun PlayerScreen(vm: CinemaViewModel) {
                                 PlayerControl("الجودة", "HD", modifier = Modifier.focusRequester(qualityFocus).focusProperties { up = seekFocus },
                                     onPlaced = { anchors[PlayerPanel.Quality] = it },
                                     enabled = vm.streams.isNotEmpty()) { openPanel(PlayerPanel.Quality, qualityFocus) }
-                                if(next != null) PlayerControl("الحلقة التالية", "▶|", modifier = Modifier.focusProperties { up = seekFocus }) { playEpisode(next) }
                             }
                         }
                     }
@@ -462,6 +486,17 @@ fun PlayerScreen(vm: CinemaViewModel) {
                         EpisodeStrip(episodes, film.id, onPlay = ::playEpisode,
                             onUp = { episodesShown = false; runCatching { playFocus.requestFocus() } })
                     }
+                }
+            }
+        }
+        if(offerNext && next != null && panel == null && !episodesShown) {
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                TvActionButton("الحلقة التالية", icon = Icons.Rounded.PlayArrow, modifier = Modifier.align(Alignment.BottomEnd)
+                    .padding(end = TvMetrics.EdgeInset, bottom = 142.dp)
+                    .focusRequester(nextEpisodeFocus)
+                    .onFocusChanged { nextEpisodeFocused = it.isFocused }
+                    .focusProperties { down = if(controlsVisible) seekFocus else rootFocus; up = if(controlsVisible) backFocus else rootFocus }) {
+                    playEpisode(next)
                 }
             }
         }

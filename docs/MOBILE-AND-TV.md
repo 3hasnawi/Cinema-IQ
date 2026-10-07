@@ -41,3 +41,9 @@ Kotlin compilation and JVM unit tests cover the existing shared behavior and add
 - TV interface files and release version are unchanged. Device verification remains necessary; no APK export is part of these source edits.
 
 - The phone next-episode prompt stays visible at the physical bottom-right above the scrubber, with manual selection only. Sources expose no credit timestamps: the fallback window is the final 90 seconds, capped at 10% of duration for short videos. No prompt appears for movies or a final episode without a successor. Existing completion handling removes finished content from Continue Watching.
+
+## Shared phone and TV end behavior
+
+- TV now uses the same no-restart policy and 90-second/10%-duration next-episode window as the phone. Movies stay stopped at the end and completion tracking remains intact.
+- The TV next-episode button appears at the physical bottom-right above the scrubber, including while the overlay is hidden. Up from the scrubber or hidden host reaches it; Select activates it and Down returns to the scrubber/host. Appearance does not steal focus or pause playback. Auto-hide is suspended while the button is focused.
+- Verify with a physical remote: prompt selection with a hidden overlay, focus return, episode transitions, final episodes and movie completion. No APK build is included.
