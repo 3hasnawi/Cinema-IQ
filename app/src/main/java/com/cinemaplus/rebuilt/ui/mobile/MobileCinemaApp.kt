@@ -112,13 +112,13 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
             else if (vm.selected != null) MobileDetails(vm)
             else Scaffold(containerColor = Ink, bottomBar = {
                 NavigationBar(containerColor = Panel.copy(alpha = .96f),
-                    modifier = Modifier.navigationBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp)
+                    modifier = Modifier.navigationBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp).height(64.dp)
                         .scale(barScale).clip(RoundedCornerShape(28.dp)), windowInsets = WindowInsets(0, 0, 0, 0)) {
                     val destinations = listOf(Page.Home to Icons.Rounded.Home, Page.Search to Icons.Rounded.Search, Page.Explore to Icons.Rounded.Star,
                         Page.Library to Icons.Rounded.Favorite, Page.Settings to Icons.Rounded.Settings)
                     destinations.forEach { (page, icon) ->
                         NavigationBarItem(selected = vm.page == page || (page == Page.Home && vm.page in listOf(Page.Movies, Page.Series)),
-                            onClick = { vm.navigate(page) }, icon = { Icon(icon, page.label) }, label = { Text(page.label) })
+                            onClick = { vm.navigate(page) }, icon = { Icon(icon, page.label) })
                     }
                 }
             }) { padding ->
@@ -150,13 +150,6 @@ private fun MobileBrowse(vm: CinemaViewModel) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Cinema iQ", fontSize = 24.sp, color = Accent, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 IconButton(onClick = { vm.reload() }) { Icon(Icons.Rounded.Refresh, "تحديث المحتوى") }
-            }
-            if (vm.page in listOf(Page.Home, Page.Movies, Page.Series)) {
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(Page.Home, Page.Movies, Page.Series).forEach { page ->
-                        FilterChip(selected = vm.page == page, onClick = { vm.navigate(page) }, label = { Text(page.label) })
-                    }
-                }
             }
             if (vm.page != Page.Home) PageHeader(vm.page.label, pageSubtitle(vm.page), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             if (vm.page == Page.Search) OutlinedTextField(typed, { typed = it }, singleLine = true,

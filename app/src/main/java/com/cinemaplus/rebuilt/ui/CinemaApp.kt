@@ -209,7 +209,9 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     val width by animateDpAsState(if (bar.hasFocus) TvMetrics.RailExpanded else TvMetrics.RailCollapsed,
         tween(220, easing = CubicBezierEasing(.2f, 0f, 0f, 1f)), label = "Rail width")
     val labels = width > 130.dp
-    val items = listOf(Page.Home, Page.Search, Page.Explore, Page.Movies, Page.Series, Page.Library)
+    val items = listOf(Page.Home, Page.Search, Page.Explore, Page.Library)
+    // Legacy catalog destinations return remote focus to Explore after their shortcuts are removed.
+    val railPage = if (vm.page in listOf(Page.Movies, Page.Series)) Page.Explore else vm.page
     val shape = RoundedCornerShape(32.dp)
     // A floating capsule centred on the edge; it widens over the page and never reflows it.
     Box(modifier.fillMaxHeight().width(width).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
@@ -219,7 +221,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
             .padding(horizontal = 7.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             items.forEach { p ->
-                RailItem(p, vm.page == p, labels, if (p == vm.page) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(p) }
+                RailItem(p, railPage == p, labels, if (p == railPage) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(p) }
             }
             TicketDivider(Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
             RailItem(Page.Settings, vm.page == Page.Settings, labels,
