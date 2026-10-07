@@ -13,7 +13,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /** Artwork and synopsis for one title as published by TMDB. Any field may be blank. */
-data class ArtworkMatch(val backdrop: String, val poster: String, val overview: String, val rating: String, val originalTitle: String = "")
+data class ArtworkMatch(val backdrop: String, val poster: String, val overview: String, val rating: String, val originalTitle: String = "", val genreIds: Set<Int> = emptySet())
 
 /**
  * Looks titles up on TMDB (themoviedb.org) to replace weak source artwork with sharp backdrops and posters, and
@@ -70,8 +70,8 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             val root = JSONObject(file.readText())
             root.keys().forEach { id ->
                 val o = root.getJSONObject(id)
-                known[id] = Entry(if (!o.optBoolean("none") && !o.has("original")) 0L else o.optLong("t"), if (o.optBoolean("none")) null
-                    else ArtworkMatch(o.optString("b"), o.optString("p"), o.optString("o"), o.optString("r"), o.optString("original")))
+                known[id] = Entry(if (!o.optBoolean("none") && (!o.has("original") || !o.has("genres"))) 0L else o.optLong("t"), if (o.optBoolean("none")) null
+                    else ArtworkMatch(o.optString("b"), o.optString("p"), o.optString("o"), o.optString("r"), o.optString("original"), genreIds(o.optJSONArray("genres"))))
             }
         }
     }
@@ -83,7 +83,7 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             known.forEach { (id, entry) ->
                 root.put(id, JSONObject().put("t", entry.at).apply {
                     val m = entry.match
-                    if (m == null) put("none", true) else put("b", m.backdrop).put("p", m.poster).put("o", m.overview).put("r", m.rating).put("original", m.originalTitle)
+                    if (m == null) put("none", true) else put("b", m.backdrop).put("p", m.poster).put("o", m.overview).put("r", m.rating).put("original", m.originalTitle).put("genres", JSONArray(m.genreIds.toList()))
                 })
             }
             file.writeText(root.toString())
@@ -120,6 +120,9 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             return null
         }
 
+        private fun genreIds(array: JSONArray?): Set<Int> = if (array == null) emptySet() else
+            (0 until array.length()).map { array.optInt(it) }.filter { it > 0 }.toSet()
+
         fun toMatch(r: JSONObject): ArtworkMatch {
             val backdrop = JsonMapper.text(r, "backdrop_path")
             val poster = JsonMapper.text(r, "poster_path")
@@ -130,6 +133,7 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
                 poster = if (poster.isBlank()) "" else ImageBase + "w780" + poster,
                 overview = JsonMapper.text(r, "overview"),
                 originalTitle = JsonMapper.text(r, "original_title", "original_name"),
+                genreIds = genreIds(r.optJSONArray("genre_ids")),
                 rating = if (votes >= 10 && average > 0) String.format(Locale.US, "%.1f", average) else "")
         }
     }

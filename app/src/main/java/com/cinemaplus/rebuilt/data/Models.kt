@@ -12,7 +12,8 @@ data class Film(
     val subtitles: List<Subtitle> = emptyList(),
     // Optional extras: English title (better for trailer search) and a trailer link/id if the source provides one.
     val enTitle: String = "", val trailer: String = "", val seriesId: String = "",
-    val originalTitle: String = "", val contentQuality: String = "", val edition: String = ""
+    val originalTitle: String = "", val contentQuality: String = "", val edition: String = "",
+    val genreIds: Set<Int> = emptySet()
 )
 data class Subtitle(val url: String, val language: String = "und", val title: String = "ترجمة", val mimeType: String = "text/vtt")
 data class Stream(val url: String, val resolution: String)
