@@ -11,6 +11,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -136,6 +139,11 @@ private fun MobileBrowse(vm: CinemaViewModel) {
     val revision = vm.libraryRevision
     val recent = remember(revision) { vm.library.recent() }
     val shelves = if (vm.page == Page.Home && recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) + vm.shelves else vm.shelves
+    val featured = remember(vm.shelves) { phoneFeaturedFilms(vm.shelves) }
+    // Sharper artwork and missing synopses from TMDB for what is on screen first; bounded so a long list stays cheap.
+    LaunchedEffect(featured, vm.shelves) {
+        vm.enrich(featured + vm.shelves.take(4).flatMap { it.films.take(6) })
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
@@ -150,13 +158,12 @@ private fun MobileBrowse(vm: CinemaViewModel) {
                     }
                 }
             }
+            if (vm.page != Page.Home) PageHeader(vm.page.label, pageSubtitle(vm.page), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             if (vm.page == Page.Search) OutlinedTextField(typed, { typed = it }, singleLine = true,
                 label = { Text("اسم الفيلم أو المسلسل") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         }
-        if (vm.page == Page.Home) vm.shelves.flatMap { it.films }.firstOrNull()?.let { hero ->
-            item { MobileHero(vm.withArtwork(hero), vm) }
-        }
+        if (vm.page == Page.Home && featured.isNotEmpty()) item(key = "hero") { MobileHero(vm, featured) }
         if (vm.busy) item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }
         vm.error?.let { message -> item {
             Column(Modifier.padding(horizontal = 16.dp)) {
@@ -165,7 +172,7 @@ private fun MobileBrowse(vm: CinemaViewModel) {
         } }
         items(shelves, key = { it.id }) { shelf ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(shelf.title, fontWeight = FontWeight.Bold, fontSize = 19.sp, modifier = Modifier.padding(horizontal = 16.dp))
+                SectionHeader(shelf.title, Modifier.padding(horizontal = 16.dp), count = shelf.films.size)
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(shelf.films, key = { it.id }) { film ->
                         MobileCard(vm.withArtwork(film), vm.library.fraction(film.id), shelf.id == "recent") {
@@ -186,32 +193,20 @@ private fun MobileBrowse(vm: CinemaViewModel) {
 }
 
 @Composable
-private fun MobileHero(film: Film, vm: CinemaViewModel) {
-    Box(Modifier.fillMaxWidth().height(310.dp)) {
-        AsyncImage(film.backdrop.ifBlank { film.poster }, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Ink))))
-        Column(Modifier.align(Alignment.BottomStart).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(mediaTitle(film), fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 27.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(listOf(film.year, if (film.series) "مسلسل" else "فيلم", film.rating).filter(String::isNotBlank).joinToString(" • "), color = Muted)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { if (film.series) vm.open(film) else vm.play(film) }) {
-                    Icon(Icons.Rounded.PlayArrow, null); Text(if (film.series) "الحلقات" else "شاهد الآن")
-                }
-                OutlinedButton(onClick = { vm.open(film) }) { Text("التفاصيل") }
-            }
+private fun MobileCard(film: Film, progress: Float, wide: Boolean, width: androidx.compose.ui.unit.Dp = if (wide) 230.dp else 132.dp, click: () -> Unit) {
+    Column(Modifier.width(width).clickable(onClick = click), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box {
+            AsyncImage(if (wide) film.backdrop.ifBlank { film.poster } else film.poster, mediaTitle(film),
+                Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else 2f / 3f).clip(RoundedCornerShape(10.dp)).background(Panel),
+                contentScale = ContentScale.Crop)
+            RatingChip(film.rating, Modifier.align(Alignment.TopStart).padding(6.dp), size = 11)
         }
-    }
-}
-
-@Composable
-private fun MobileCard(film: Film, progress: Float, wide: Boolean, click: () -> Unit) {
-    Column(Modifier.width(if (wide) 230.dp else 132.dp).clickable(onClick = click), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        AsyncImage(if (wide) film.backdrop.ifBlank { film.poster } else film.poster, mediaTitle(film),
-            Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else 2f / 3f).clip(RoundedCornerShape(10.dp)).background(Panel),
-            contentScale = ContentScale.Crop)
         if (wide && progress > 0) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
         Text(mediaTitle(film), fontFamily = Cairo, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(if (film.episode > 0) "الموسم ${film.season} • الحلقة ${film.episode}" else film.year, color = Muted, fontSize = 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Box(Modifier.size(6.dp).background(kindTint(film.series), CircleShape))
+            Text(if (film.episode > 0) "الموسم ${film.season} • الحلقة ${film.episode}" else film.year, color = Muted, fontSize = 12.sp)
+        }
     }
 }
 
@@ -221,23 +216,32 @@ private fun MobileDetails(vm: CinemaViewModel) {
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
-    LazyColumn(Modifier.fillMaxSize().background(Ink).statusBarsPadding(), contentPadding = PaddingValues(bottom = 24.dp),
+    var showTrailer by remember(film.id) { mutableStateOf(false) }
+    val related = remember(film.id, vm.shelves) { vm.shelves.flatMap { it.films }.filter { it.id != film.id }.distinctBy { it.id }.take(24) }
+    if (showTrailer) MobileTrailer(film) { showTrailer = false }
+    // A new list state per title, so opening a similar title starts at its top instead of the previous scroll offset.
+    val listState = remember(film.id) { androidx.compose.foundation.lazy.LazyListState() }
+    LazyColumn(Modifier.fillMaxSize().background(Ink).statusBarsPadding(), state = listState, contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
-            Box(Modifier.fillMaxWidth().aspectRatio(16f / 10f)) {
-                AsyncImage(film.backdrop.ifBlank { film.poster }, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Ink))))
+            Box(Modifier.fillMaxWidth().aspectRatio(1.15f)) {
+                HeroBackdrop(film, Modifier.fillMaxSize(), sideScrim = false, fadeFrom = .40f)
                 IconButton(onClick = { vm.backDetail() }, modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(Panel, RoundedCornerShape(24.dp))) {
                     Icon(Icons.Rounded.ArrowForward, "رجوع")
                 }
             }
             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(mediaTitle(film), fontSize = 27.sp, fontFamily = Cairo, fontWeight = FontWeight.Bold)
-                Text(listOf(film.year, formatContentDuration(film.duration), film.contentQuality, film.edition).filter(String::isNotBlank).joinToString(" • "), color = Muted)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    KindBadge(film.series)
+                    RatingChip(film.rating)
+                    listOf(film.year, formatContentDuration(film.duration), film.contentQuality, film.edition).forEach { InfoChip(it) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Button(enabled = !film.series || season?.episodes?.isNotEmpty() == true,
                         onClick = { vm.play(if (film.series) season?.episodes?.firstOrNull()?.copy(seriesId = film.id, season = season.number) ?: film else film) }) { Icon(Icons.Rounded.PlayArrow, null); Text("شاهد الآن") }
                     OutlinedButton(onClick = { vm.toggle(film) }) { Text(if (saved) "إزالة من قائمتي" else "قائمتي") }
+                    IconButton(onClick = { showTrailer = true }) { Icon(TrailerIcon, "التريلر") }
                 }
                 Text(film.description.ifBlank { "لا يتوفر وصف لهذا العمل." }, color = Color.White.copy(alpha = .85f))
                 if (vm.detailBusy) CircularProgressIndicator(Modifier.size(24.dp))
@@ -254,6 +258,14 @@ private fun MobileDetails(vm: CinemaViewModel) {
         if (season != null) item {
             MobileEpisodeRail(season.episodes.map { it.copy(seriesId = film.id, season = season.number) },
                 fallbackArtwork = film.backdrop, onPlay = vm::play)
+        }
+        if (related.isNotEmpty()) item(key = "related") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionHeader("أعمال مشابهة", Modifier.padding(horizontal = 16.dp))
+                LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(related, key = { it.id }) { other -> MobileCard(vm.withArtwork(other), 0f, false, 110.dp) { vm.open(other) } }
+                }
+            }
         }
     }
 }
