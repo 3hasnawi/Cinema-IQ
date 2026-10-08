@@ -13,7 +13,7 @@ data class Film(
     // Optional extras: English title (better for trailer search) and a trailer link/id if the source provides one.
     val enTitle: String = "", val trailer: String = "", val seriesId: String = "",
     val originalTitle: String = "", val contentQuality: String = "", val edition: String = "",
-    val genreIds: Set<Int> = emptySet(), val imdbRating: String = "", val tmdbRating: String = "", val airDate: String = ""
+    val genreIds: Set<Int> = emptySet(), val imdbRating: String = "", val tmdbRating: String = "", val airDate: String = "", val originalLanguage: String = ""
 )
 data class Subtitle(val url: String, val language: String = "und", val title: String = "ترجمة", val mimeType: String = "text/vtt")
 data class Stream(val url: String, val resolution: String)
@@ -50,7 +50,7 @@ object JsonMapper {
             text(o, "trailer", "trailerUrl", "trailer_url", "youtube", "youtubeUrl", "youtube_url", "youtubeTrailer", "yt"), text(o, "seriesId"), text(o, "original_title", "original_name", "originalTitle"),
             text(o, "videoQuality", "quality", "resolution", "contentQuality"),
             text(o, "videoVersion", "videoEdition", "edition", "releaseType", "release_type"),
-            imdbRating = imdbRating(o))
+            imdbRating = imdbRating(o), originalLanguage = text(o, "original_language", "originalLanguage"))
     }
     /** First usable rating among the known keys, normalized to a one-decimal 0-10 string; blank when missing or zero. */
     fun rating(o: JSONObject): String {

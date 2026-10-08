@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +33,7 @@ import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.Film
+import com.cinemaplus.rebuilt.data.relatedFilms
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -47,11 +49,20 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val seasonFocus = remember(film.id) { FocusRequester() }
     val episodeFocus = remember(film.id) { FocusRequester() }
     val trailerFocus = remember(film.id) { FocusRequester() }
+    val castFocus = remember(film.id) { FocusRequester() }
+    val credits = vm.detailsCredits
+    val hasCast = !credits?.cast.isNullOrEmpty()
+    LaunchedEffect(film.id) { vm.loadDetailsCredits() }
     val relatedFocus = remember(film.id) { FocusRequester() }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
     LaunchedEffect(film.id, season?.number) { if(season != null) vm.enrichSelectedSeason() }
-    val related = vm.shelves.flatMap { it.films }.filter { it.id != film.id }.distinctBy { it.id }
+    val candidates = vm.shelves.map { it.copy(films = it.films.map(vm::withArtwork)) }
+    val related = relatedFilms(film, candidates)
+    LaunchedEffect(film.id, vm.shelves) {
+        vm.enrich(vm.shelves.flatMap { it.films }.filter { it.series == film.series && it.episode == 0 && it.id != film.id }
+            .distinctBy { it.id }.take(36))
+    }
     var showTrailer by remember(film.id) { mutableStateOf(false) }
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
@@ -92,6 +103,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                                 DetailsControl(if(vm.library.progress(film.id) > 0) "استئناف" else "تشغيل",
                                     Modifier.weight(1f).height(52.dp).focusRequester(playFocus).focusProperties {
                                         if(episodes.isNotEmpty()) down = seasonFocus
+                                        else if(hasCast) down = castFocus
                                         else if(related.isNotEmpty()) down = relatedFocus
                                     }, true, enabled = !film.series || episodes.isNotEmpty()) {
                                     if(film.series) episodes.firstOrNull()?.let { vm.play(it.copy(seriesId = film.id, season = season?.number ?: it.season)) }
@@ -99,11 +111,13 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                                 }
                                 DetailsControl("عرض التريلر", Modifier.size(52.dp).focusRequester(trailerFocus).focusProperties {
                                     if(episodes.isNotEmpty()) down = seasonFocus
-                                    else if(related.isNotEmpty()) down = relatedFocus
+                                    else if(hasCast) down = castFocus
+                                        else if(related.isNotEmpty()) down = relatedFocus
                                 }, false, icon = TrailerIcon) { showTrailer = true }
                                 DetailsControl(if(saved) "إزالة من قائمتي" else "إضافة إلى قائمتي",
                                     Modifier.size(52.dp).focusProperties {
                                         if(episodes.isNotEmpty()) down = seasonFocus
+                                        else if(hasCast) down = castFocus
                                         else if(related.isNotEmpty()) down = relatedFocus
                                     }, false, icon = if(saved) Icons.Rounded.Check else Icons.Rounded.Add) { vm.toggle(film) }
                             }
@@ -142,10 +156,41 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                             modifier = Modifier.padding(horizontal = 24.dp))
                     }
                 }
+                if(credits != null && (hasCast || credits.directors.isNotEmpty() || credits.creators.isNotEmpty())) {
+                    item(key = "credits-info") {
+                        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Label("طاقم العمل", 22, Color.White, true)
+                            val directorText = if(credits.directors.isNotEmpty()) "المخرج: " + credits.directors.joinToString("، ")
+                                else if(credits.creators.isNotEmpty()) "صنّاع العمل: " + credits.creators.joinToString("، ") else ""
+                            val year = film.year.ifBlank { credits.year }
+                            Label(listOf(directorText, if(year.isNotBlank()) "سنة الإنتاج: $year" else "")
+                                .filter { it.isNotBlank() }.joinToString("   •   "), 14, Muted, lines = 2)
+                        }
+                    }
+                    if(hasCast) item(key = "cast") {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                            itemsIndexed(credits.cast, key = { _, actor -> actor.id }) { index, actor ->
+                                var focused by remember { mutableStateOf(false) }
+                                Column(Modifier.width(112.dp).then(if(index == 0) Modifier.focusRequester(castFocus) else Modifier)
+                                    .focusProperties { up = if(episodes.isNotEmpty()) episodeFocus else playFocus
+                                        if(related.isNotEmpty()) down = relatedFocus }
+                                    .onFocusChanged { focused = it.isFocused }.focusable(),
+                                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(Modifier.size(84.dp).clip(CircleShape).background(Panel)
+                                        .border(if(focused) 2.dp else 1.dp, if(focused) Color.White else Color.White.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Rounded.Person, null, Modifier.size(32.dp), Muted)
+                                        if(actor.image.isNotBlank()) AsyncImage(actor.image, actor.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    }
+                                    Label(actor.name, 13, if(focused) Color.White else Muted, bold = focused, lines = 2)
+                                }
+                            }
+                        }
+                    }
+                }
                 if(related.isNotEmpty()) {
                     item(key = "related-title") { Label("أعمال مشابهة", 22, Color.White, true, Modifier.padding(horizontal = 24.dp)) }
                     item(key = "related") {
-                        DetailsRail(related, relatedFocus, if(episodes.isNotEmpty()) episodeFocus else playFocus, revision, vm,
+                        DetailsRail(related, relatedFocus, if(hasCast) castFocus else if(episodes.isNotEmpty()) episodeFocus else playFocus, revision, vm,
                             episodes = false, onClick = vm::open)
                     }
                 }

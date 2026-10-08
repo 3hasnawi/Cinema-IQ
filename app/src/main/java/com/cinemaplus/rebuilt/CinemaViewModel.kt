@@ -106,6 +106,8 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     var shelves by mutableStateOf<List<Shelf>>(emptyList())
     var busy by mutableStateOf(false)
     var error by mutableStateOf<String?>(null)
+    var detailsCredits by mutableStateOf<WorkCredits?>(null)
+        private set
     var selected by mutableStateOf<Film?>(null)
     var seasons by mutableStateOf<List<Season>>(emptyList())
     var seasonIndex by mutableIntStateOf(0)
@@ -146,7 +148,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         val match = artwork[film.id] ?: return film
         return film.copy(backdrop = match.backdrop.ifBlank { film.backdrop }, poster = match.poster.ifBlank { film.poster },
             description = film.description.ifBlank { match.overview }, rating = film.rating.ifBlank { match.rating },
-            originalTitle = film.originalTitle.ifBlank { match.originalTitle }, genreIds = film.genreIds + match.genreIds)
+            originalTitle = film.originalTitle.ifBlank { match.originalTitle }, genreIds = film.genreIds + match.genreIds, originalLanguage = film.originalLanguage.ifBlank { match.originalLanguage })
     }
     /** Looks the titles up in the background; failures leave the source data untouched. */
     fun enrich(films: List<Film>) {
@@ -302,7 +304,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     fun open(film: Film) {
         enrich(listOf(film))
         selected?.takeIf { it.id != film.id }?.let { detailHistory.add(it) }
-        detailJob?.cancel(); selected = film; seasons = emptyList(); seasonIndex = 0; detailError = null
+        detailJob?.cancel(); detailsCredits = null; selected = film; seasons = emptyList(); seasonIndex = 0; detailError = null
         detailJob = viewModelScope.launch {
             detailBusy = true
             try {
@@ -330,6 +332,14 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             finally { detailBusy = false }
         }
     }
+    suspend fun loadDetailsCredits() {
+        val film = selected ?: return
+        val credits = try { tmdb.credits(film) }
+        catch(e: CancellationException) { throw e }
+        catch(_: Exception) { null }
+        if(selected?.id == film.id) detailsCredits = credits
+    }
+
     /** Load the selected season on demand; stale requests cannot overwrite another details page. */
     suspend fun enrichSelectedSeason() {
         val show = selected?.takeIf { it.series } ?: return
@@ -365,7 +375,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun closeDetail() { detailJob?.cancel(); selected = null; detailHistory.clear() }
+    fun closeDetail() { detailJob?.cancel(); selected = null; detailsCredits = null; detailHistory.clear() }
     fun backDetail() {
         val previous = detailHistory.removeLastOrNull()
         selected = null
