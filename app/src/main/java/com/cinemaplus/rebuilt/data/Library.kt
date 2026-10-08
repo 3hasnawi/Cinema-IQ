@@ -68,7 +68,7 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
         return if (d > 0) (progress(id).toFloat() / d).coerceIn(0f, 1f) else 0f
     }
     private fun json(f: Film) = JSONObject().put("nb", f.id).put("ar_title", f.title)
-        .put("imgMediumThumbObjUrl", f.poster).put("imgObjUrl", f.backdrop).put("year", f.year).put("stars", f.rating).put("en_title", f.enTitle).put("trailer", f.trailer)
+        .put("imgMediumThumbObjUrl", f.poster).put("imgObjUrl", f.backdrop).put("year", f.year).put("stars", f.rating).put("imdbRating", f.imdbRating).put("en_title", f.enTitle).put("trailer", f.trailer)
         .put("originalTitle", f.originalTitle).put("contentQuality", f.contentQuality).put("edition", f.edition).put("seriesId", f.seriesId).put("kind", if (f.series) 2 else 1).put("season", f.season).put("episodeNummer", f.episode)
     var titleLanguage: TitleLanguage
         get() = TitleLanguage.restore(prefs.getString("title_language", null))

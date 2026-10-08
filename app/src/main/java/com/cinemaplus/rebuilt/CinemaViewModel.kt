@@ -322,6 +322,22 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             finally { detailBusy = false }
         }
     }
+    private val episodeCardCache = mutableMapOf<String, Film>()
+
+    /** Fetch individual episode metadata without changing selection or playback state. */
+    suspend fun episodeCardDetails(episode: Film): Film {
+        episodeCardCache[episode.id]?.let { return it }
+        if(episode.id.startsWith("demo-")) return episode
+        return try {
+            api.detail(episode).copy(seriesId = episode.seriesId, season = episode.season, episode = episode.episode)
+                .also {
+                    if(episodeCardCache.size >= 200) episodeCardCache.remove(episodeCardCache.keys.first())
+                    episodeCardCache[episode.id] = it
+                }
+        } catch(e: CancellationException) { throw e }
+        catch(_: Exception) { episode }
+    }
+
     fun closeDetail() { detailJob?.cancel(); selected = null; detailHistory.clear() }
     fun backDetail() {
         val previous = detailHistory.removeLastOrNull()

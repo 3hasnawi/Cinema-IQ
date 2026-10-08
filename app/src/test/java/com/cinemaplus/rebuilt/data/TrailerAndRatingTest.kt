@@ -20,4 +20,13 @@ class TrailerAndRatingTest {
         assertEquals("", JsonMapper.rating(JSONObject("""{"stars":"0"}""")))
         assertEquals("", JsonMapper.rating(JSONObject("{}")))
     }
+    @Test fun imdbBadgeRequiresAnExplicitProviderField() {
+        assertEquals("", JsonMapper.imdbRating(JSONObject("""{"stars":8.5,"tmdbRate":8.1}""")))
+        assertEquals("8.7", JsonMapper.imdbRating(JSONObject("""{"imdbRate":87}""")))
+        assertEquals("7.9", JsonMapper.imdbRating(JSONObject("""{"imdbRating":"7,9"}""")))
+        val episode = JsonMapper.film(JSONObject("""{"nb":"episode-1","episode":1,"description":"Episode synopsis","stars":9,"imdb_rate":8.2}"""))!!
+        assertEquals("Episode synopsis", episode.description)
+        assertEquals("8.2", episode.imdbRating)
+        assertEquals("9.0", episode.rating)
+    }
 }

@@ -13,7 +13,7 @@ data class Film(
     // Optional extras: English title (better for trailer search) and a trailer link/id if the source provides one.
     val enTitle: String = "", val trailer: String = "", val seriesId: String = "",
     val originalTitle: String = "", val contentQuality: String = "", val edition: String = "",
-    val genreIds: Set<Int> = emptySet()
+    val genreIds: Set<Int> = emptySet(), val imdbRating: String = ""
 )
 data class Subtitle(val url: String, val language: String = "und", val title: String = "ترجمة", val mimeType: String = "text/vtt")
 data class Stream(val url: String, val resolution: String)
@@ -49,7 +49,8 @@ object JsonMapper {
             text(o, "en_title", "title_en", "englishTitle"),
             text(o, "trailer", "trailerUrl", "trailer_url", "youtube", "youtubeUrl", "youtube_url", "youtubeTrailer", "yt"), text(o, "seriesId"), text(o, "original_title", "original_name", "originalTitle"),
             text(o, "videoQuality", "quality", "resolution", "contentQuality"),
-            text(o, "videoVersion", "videoEdition", "edition", "releaseType", "release_type"))
+            text(o, "videoVersion", "videoEdition", "edition", "releaseType", "release_type"),
+            imdbRating = imdbRating(o))
     }
     /** First usable rating among the known keys, normalized to a one-decimal 0-10 string; blank when missing or zero. */
     fun rating(o: JSONObject): String {
@@ -60,6 +61,10 @@ object JsonMapper {
         }
         return ""
     }
+    /** Only explicit IMDb fields may carry the IMDb provider label. */
+    fun imdbRating(o: JSONObject): String = rating(JSONObject().apply {
+        for(key in listOf("imdbRate", "imdb_rate", "imdbRating")) put(key, o.opt(key))
+    })
     fun subtitles(value: Any?): List<Subtitle> = array(value).mapIndexedNotNull { index, t ->
         val url = image(text(t, "file", "url"))
         if(url.isBlank()) return@mapIndexedNotNull null

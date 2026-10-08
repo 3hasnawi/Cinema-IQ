@@ -26,7 +26,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -52,11 +51,10 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
     val related = vm.shelves.flatMap { it.films }.filter { it.id != film.id }.distinctBy { it.id }
-    var seasonsMenu by remember(film.id) { mutableStateOf(false) }
     var showTrailer by remember(film.id) { mutableStateOf(false) }
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
-    BackHandler(enabled = !seasonsMenu && !showTrailer) { vm.backDetail() }
+    BackHandler(enabled = !showTrailer) { vm.backDetail() }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             AsyncImage(ImageRequest.Builder(LocalContext.current).data(film.backdrop.ifBlank { film.poster })
@@ -115,13 +113,22 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                 }
                 if(film.series && vm.seasons.isNotEmpty()) {
                     item(key = "season") {
-                        DetailsControl("الموسم ${season?.number ?: 1}  ⌄", Modifier.padding(start = 24.dp)
-                            .focusRequester(seasonFocus).focusProperties { up = playFocus; if(episodes.isNotEmpty()) down = episodeFocus }, false) {
-                            seasonsMenu = true
+                        LazyRow(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            itemsIndexed(vm.seasons, key = { _, value -> value.number }) { index, value ->
+                                DetailsControl("الموسم ${value.number}",
+                                    Modifier.then(if(index == vm.seasonIndex) Modifier.focusRequester(seasonFocus) else Modifier)
+                                        .focusProperties { up = playFocus; if(episodes.isNotEmpty()) down = episodeFocus },
+                                    primary = false, selected = index == vm.seasonIndex) {
+                                    vm.seasonIndex = index
+                                    scope.launch { delay(80); if(value.episodes.isNotEmpty()) episodeFocus.requestFocus() }
+                                }
+                            }
                         }
                     }
                     item(key = "episodes-${season?.number}") {
-                        DetailsRail(episodes, episodeFocus, seasonFocus, revision, vm, episodes = true) {
+                        DetailsRail(episodes.map { it.copy(seriesId = film.id, season = season?.number ?: it.season) },
+                            episodeFocus, seasonFocus, revision, vm, episodes = true) {
                             vm.play(it.copy(seriesId = film.id, season = season?.number ?: it.season))
                         }
                         if(episodes.isEmpty() && !vm.detailBusy) Label("لا توجد حلقات متاحة لهذا الموسم.", 14, Muted,
@@ -136,19 +143,6 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                     }
                 }
             }
-        }
-        if(seasonsMenu) Dialog(onDismissRequest = { seasonsMenu = false; scope.launch { delay(32); seasonFocus.requestFocus() } }) {
-            val first = remember { FocusRequester() }
-            LazyColumn(Modifier.heightIn(max = 400.dp).clip(RoundedCornerShape(20.dp)).background(Panel).padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                itemsIndexed(vm.seasons) { index, value ->
-                    TvActionButton("الموسم ${value.number}", modifier = if(index == vm.seasonIndex) Modifier.focusRequester(first) else Modifier) {
-                        vm.seasonIndex = index; seasonsMenu = false
-                        scope.launch { delay(80); if(value.episodes.isNotEmpty()) episodeFocus.requestFocus() else seasonFocus.requestFocus() }
-                    }
-                }
-            }
-            LaunchedEffect(Unit) { delay(32); first.requestFocus() }
         }
         if(showTrailer) TrailerOverlay(film) {
             showTrailer = false; scope.launch { delay(32); trailerFocus.requestFocus() }
@@ -166,14 +160,14 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
 }
 
 @Composable
-private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, enabled: Boolean = true, icon: ImageVector? = null, onClick: () -> Unit) {
+private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, enabled: Boolean = true, icon: ImageVector? = null, selected: Boolean = false, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if(focused) 1.05f else 1f,
         spring(stiffness = Spring.StiffnessLow), label = "Details action focus")
     val shape = RoundedCornerShape(50)
     Row(modifier.zIndex(if(focused) 10f else 0f).onFocusChanged { focused = it.isFocused }
         .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if(enabled) 1f else .5f }
-        .clip(shape).background(if(primary || focused) Color.White else Color.White.copy(alpha = .08f))
+        .clip(shape).background(if(primary || focused) Color.White else Color.White.copy(alpha = if(selected) .22f else .08f))
         .border(if(focused) 2.dp else 1.dp, Color.White.copy(alpha = if(focused) 1f else .12f), shape)
         .clickable(enabled = enabled, onClick = onClick).padding(horizontal = if(icon == null) 16.dp else 0.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -188,6 +182,11 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
     vm: CinemaViewModel, episodes: Boolean, onClick: (Film) -> Unit) {
     LazyRow(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
+            var episodeDetails by remember(item.id) { mutableStateOf(item) }
+            LaunchedEffect(item.id, episodes) {
+                if(episodes) episodeDetails = vm.episodeCardDetails(item)
+            }
+            val card = if(episodes) episodeDetails else item
             var focused by remember { mutableStateOf(false) }
             val scale by animateFloatAsState(if(focused) 1.08f else 1f,
                 spring(stiffness = Spring.StiffnessLow), label = "Details card focus")
@@ -204,10 +203,13 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if(episodes) Label("S${item.season}E${item.episode}", 10, Color.White, true)
                     Label(mediaTitle(item), 17, Color.White, true, lines = 1)
-                    if(item.description.isNotBlank()) Label(item.description, 12, Color.White.copy(alpha = .8f), lines = 2)
+                    if(episodes || card.description.isNotBlank()) Label(card.description.ifBlank { "لا يتوفر وصف لهذه الحلقة." }, 12, Color.White.copy(alpha = .8f), lines = 2)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Label(formatContentDuration(item.duration), 11, Color(0xFFAAAAAA))
-                        RatingChip(item.rating, size = 11)
+                        Label(formatContentDuration(card.duration), 11, Color(0xFFAAAAAA))
+                        if(episodes && card.imdbRating.isNotBlank()) {
+                            Label("IMDb", 10, Color(0xFFF5C518), true)
+                            Label(card.imdbRating, 11, Color.White, true)
+                        } else if(!episodes) RatingChip(card.rating, size = 11)
                     }
                 }
             }
