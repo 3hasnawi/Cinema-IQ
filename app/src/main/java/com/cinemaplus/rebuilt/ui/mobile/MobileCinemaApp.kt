@@ -81,7 +81,6 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
         }
     }
     var compactBar by remember { mutableStateOf(false) }
-    val barScale by animateFloatAsState(if (compactBar) .9f else 1f, spring(), label = "floating-navigation")
     val scrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -110,20 +109,10 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
                 dismissButton = { TextButton(onClick = { exit = false }) { Text("إلغاء") } })
             if (playback) MobilePlayerScreen(vm)
             else if (vm.selected != null) MobileDetails(vm)
-            else Scaffold(containerColor = Ink, bottomBar = {
-                NavigationBar(containerColor = Panel.copy(alpha = .96f),
-                    modifier = Modifier.navigationBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp).height(64.dp)
-                        .scale(barScale).clip(RoundedCornerShape(28.dp)), windowInsets = WindowInsets(0, 0, 0, 0)) {
-                    val destinations = listOf(Page.Home to Icons.Rounded.Home, Page.Search to Icons.Rounded.Search, Page.Explore to Icons.Rounded.Star,
-                        Page.Library to Icons.Rounded.Favorite, Page.Settings to Icons.Rounded.Settings)
-                    destinations.forEach { (page, icon) ->
-                        NavigationBarItem(selected = vm.page == page || (page == Page.Home && vm.page in listOf(Page.Movies, Page.Series)),
-                            onClick = { vm.navigate(page) }, icon = { Icon(icon, page.label) })
-                    }
-                }
-            }) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollConnection)) {
+            else Scaffold(containerColor = Ink) { padding ->
+                Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()).nestedScroll(scrollConnection)) {
                     when (vm.page) { Page.Settings -> MobileSettings(vm); Page.Explore -> MobileExplore(vm); else -> MobileBrowse(vm) }
+                    MobileGlassNavigation(vm, compactBar, Modifier.align(Alignment.BottomCenter))
                 }
             }
         }
@@ -144,7 +133,7 @@ private fun MobileBrowse(vm: CinemaViewModel) {
     LaunchedEffect(featured, vm.shelves) {
         vm.enrich(featured + vm.shelves.take(4).flatMap { it.films.take(6) })
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp),
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 132.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -271,7 +260,7 @@ private fun MobileDetails(vm: CinemaViewModel) {
 private fun MobileSettings(vm: CinemaViewModel) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("الإعدادات", fontSize = 26.sp, fontWeight = FontWeight.Bold) }
         item { Text("المصادر", fontWeight = FontWeight.Bold) }
         SourceChoice.entries.forEach { choice ->
@@ -329,7 +318,7 @@ private fun MobileChoice(title: String, value: String, onClick: () -> Unit) {
 @Composable
 private fun MobileExplore(vm: CinemaViewModel) {
     val mood = vm.exploreMood
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { PageHeader(mood?.title ?: "استكشاف", mood?.subtitle ?: pageSubtitle(Page.Explore)) }
         if (mood == null) {
             items(com.cinemaplus.rebuilt.data.Moods.all.chunked(2), key = { it.first().id }) { row ->

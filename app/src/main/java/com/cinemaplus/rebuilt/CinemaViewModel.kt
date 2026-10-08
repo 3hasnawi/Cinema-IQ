@@ -57,7 +57,9 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             finally { updateBusy = false }
         }
     }
-    val profile: Profile = ProfileStore(app).active()
+    var profile by mutableStateOf(ProfileStore(app).active())
+        private set
+    fun refreshProfile() { profile = ProfileStore(getApplication()).active() }
     val library = Library(app, profile.id)
     private val account = SourceAccount(app)
     private val api = CinemanaApi { account.token() }

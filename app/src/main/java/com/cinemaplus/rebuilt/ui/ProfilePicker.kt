@@ -1,5 +1,6 @@
 package com.cinemaplus.rebuilt.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -46,9 +47,14 @@ fun ProfilePicker(store: ProfileStore, onChosen: (Profile) -> Unit) {
     var profiles by remember { mutableStateOf(store.profiles()) }
     var adding by remember { mutableStateOf(false) }
     var managing by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
+    var editing by remember { mutableStateOf<Profile?>(null) }
     val firstFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { delay(80); runCatching { firstFocus.requestFocus() } }
+    BackHandler(enabled = !adding && editing == null) {
+        if(managing) managing = false else onChosen(store.active())
+    }
+    LaunchedEffect(adding, editing?.id, managing) {
+        if(!adding && editing == null) { delay(80); runCatching { firstFocus.requestFocus() } }
+    }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel)) {
@@ -67,10 +73,10 @@ fun ProfilePicker(store: ProfileStore, onChosen: (Profile) -> Unit) {
                             Row(horizontalArrangement = Arrangement.spacedBy(ProfileGridLayout.Gap.dp), verticalAlignment = Alignment.Top) {
                                 row.forEachIndexed { column, profile ->
                                     val first = if (rowIndex == 0 && column == 0) Modifier.focusRequester(firstFocus) else Modifier
-                                    if (profile == null) AddTile { name = ""; adding = true }
-                                    else ProfileTile(profile, removable = managing && profile.id != ProfileList.MAIN, modifier = first) {
+                                    if (profile == null) AddTile { adding = true }
+                                    else ProfileTile(profile, removable = managing, modifier = first) {
                                         if (!managing) onChosen(profile)
-                                        else if (profile.id != ProfileList.MAIN) { store.remove(profile.id); profiles = store.profiles() }
+                                        else editing = profile
                                     }
                                 }
                             }
@@ -78,22 +84,8 @@ fun ProfilePicker(store: ProfileStore, onChosen: (Profile) -> Unit) {
                         Action(if (managing) "تم" else "إدارة الملفات") { managing = !managing }
                     }
                     }
-                    if (adding) AlertDialog(
-                        onDismissRequest = { adding = false },
-                        containerColor = GlassStrong,
-                        title = { Label("ملف جديد", 20, bold = true) },
-                        text = {
-                            OutlinedTextField(name, { name = it.take(16) }, singleLine = true,
-                                label = { Label("الاسم") },
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done))
-                        },
-                        confirmButton = {
-                            TextButton(enabled = name.isNotBlank(), onClick = {
-                                store.add(name)?.let { profiles = store.profiles() }
-                                adding = false
-                            }) { Label("إضافة", 15, bold = true) }
-                        },
-                        dismissButton = { TextButton(onClick = { adding = false }) { Label("إلغاء", 15) } })
+                    if(adding || editing != null) ProfileEditor(store, editing,
+                        onClose = { adding = false; editing = null }, onChanged = { profiles = store.profiles() })
                 }
             }
         }
@@ -109,13 +101,10 @@ private fun ProfileTile(profile: Profile, removable: Boolean, modifier: Modifier
         .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
         .clickable(onClick = onClick).padding(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.size(112.dp).clip(CircleShape).background(Color(profile.color))
-            // A zero-width border would still draw a hairline, so the ring is only added while focused.
-            .then(if (focused) Modifier.border(4.dp, Color.White, CircleShape) else Modifier), contentAlignment = Alignment.Center) {
-            Label(profile.name.first().toString(), 44, OnAccent, true)
-        }
+        ProfileAvatar(profile, Modifier.size(112.dp)
+            .then(if(focused) Modifier.border(4.dp, Color.White, CircleShape) else Modifier))
         Label(profile.name, 17, if (focused) Color.White else Muted, true, lines = 1, modifier = Modifier.widthIn(max = (ProfileGridLayout.TileWidth - 16).dp))
-        if (removable) Label("حذف", 14, Signal, true)
+        if (removable) Label("تعديل", 14, Muted, true)
     }
 }
 
