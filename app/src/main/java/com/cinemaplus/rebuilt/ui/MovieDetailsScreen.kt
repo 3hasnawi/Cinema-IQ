@@ -35,7 +35,7 @@ import com.cinemaplus.rebuilt.data.Film
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** Physical placement follows the TV reference; Arabic text retains Cairo shaping. */
+/** TV details use RTL placement with the information and actions on the right. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQuality: String? = null) {
@@ -56,12 +56,12 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
     BackHandler(enabled = !showTrailer) { vm.backDetail() }
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             AsyncImage(ImageRequest.Builder(LocalContext.current).data(film.backdrop.ifBlank { film.poster })
                 .crossfade(true).build(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(
-                Color.Black.copy(alpha = .92f), Color.Black.copy(alpha = .60f), Color.Black.copy(alpha = .12f)))))
+                Color.Black.copy(alpha = .12f), Color.Black.copy(alpha = .60f), Color.Black.copy(alpha = .92f)))))
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
                 Color.Black.copy(alpha = .12f), Color.Black.copy(alpha = .20f), Color.Black))))
             val heroHeight = (maxHeight * .60f).coerceAtLeast(350.dp)
@@ -71,7 +71,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                 item(key = "hero") {
                     Column(Modifier.fillMaxWidth().heightIn(min = heroHeight).padding(start = 24.dp, top = 20.dp, end = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        DetailsControl("‹", Modifier.size(44.dp).focusRequester(backFocus), false, onClick = vm::backDetail)
+                        DetailsControl("›", Modifier.size(44.dp).focusRequester(backFocus), false, onClick = vm::backDetail)
                         Column(Modifier.width(infoWidth), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Label(mediaTitle(film), 64, Color.White, true, lines = 2)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
