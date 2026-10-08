@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -63,6 +64,10 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     LaunchedEffect(film.id) { vm.loadDetailsCredits() }
     val infoFocus = remember(film.id) { FocusRequester() }
     val listState = rememberLazyListState()
+    val seasonRowState = rememberLazyListState()
+    val episodeRowState = rememberLazyListState()
+    val castRowState = rememberLazyListState()
+    val relatedRowState = rememberLazyListState()
     var focusedSection by remember(film.id) { mutableStateOf("hero") }
     val navigationJob = remember(film.id) { arrayOfNulls<kotlinx.coroutines.Job>(1) }
     val relatedFocus = remember(film.id) { FocusRequester() }
@@ -131,7 +136,13 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                     navigationJob[0] = scope.launch {
                         val (key, target) = sections[next]
                         val index = itemKeys.indexOf(key)
-                        if(index >= 0) scrollToTvFocus(listState, index, target)
+                        val horizontal = when(key) {
+                            "season" -> seasonRowState
+                            "cast" -> castRowState
+                            "related" -> relatedRowState
+                            else -> if(key.startsWith("episodes-")) episodeRowState else null
+                        }
+                        if(index >= 0) scrollToTvFocus(listState, index, target, horizontal)
                     }
                 }
                 true
@@ -189,12 +200,13 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                 }
                 if(film.series && vm.seasons.isNotEmpty()) {
                     item(key = "season") {
-                        DetailsHorizontalRow(modifier = Modifier.focusRequester(seasonFocus).onFocusChanged { if(it.hasFocus) focusedSection = "season" }.focusGroup(),
+                        DetailsHorizontalRow(state = seasonRowState, modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "season" }.focusGroup(),
                             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             itemsIndexed(vm.seasons, key = { _, value -> value.number }) { index, value ->
                                 DetailsControl("الموسم ${value.number}",
-                                    Modifier.focusProperties { up = playFocus; if(episodes.isNotEmpty()) down = episodeFocus },
+                                    Modifier.then(if(index == 0) Modifier.focusRequester(seasonFocus) else Modifier)
+                                        .focusProperties { up = playFocus; if(episodes.isNotEmpty()) down = episodeFocus },
                                     primary = false, selected = index == vm.seasonIndex) {
                                     vm.seasonIndex = index
                                     scope.launch {
@@ -202,7 +214,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                                         if(value.episodes.isNotEmpty()) {
                                             val target = listState.layoutInfo.totalItemsCount
                                             val episodeIndex = if(value.description.isNotBlank()) 3 else 2
-                                            if(episodeIndex < target) scrollToTvFocus(listState, episodeIndex, episodeFocus)
+                                            if(episodeIndex < target) scrollToTvFocus(listState, episodeIndex, episodeFocus, episodeRowState)
                                         }
                                     }
                                 }
@@ -214,7 +226,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                     }
                     item(key = "episodes-${season?.number}") {
                         DetailsRail(episodes.map { it.copy(seriesId = film.id, season = season?.number ?: it.season) },
-                            episodeFocus, seasonFocus, revision, vm, episodes = true,
+                            episodeFocus, seasonFocus, revision, vm, episodes = true, rowState = episodeRowState,
                             modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "episodes-${season?.number}" }) {
                             vm.play(it.copy(seriesId = film.id, season = season?.number ?: it.season))
                         }
@@ -235,11 +247,11 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                         }
                     }
                     if(hasCast) item(key = "cast") {
-                        DetailsHorizontalRow(modifier = Modifier.focusRequester(castFocus).onFocusChanged { if(it.hasFocus) focusedSection = "cast" }.focusGroup(),
+                        DetailsHorizontalRow(state = castRowState, modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "cast" }.focusGroup(),
                             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                             itemsIndexed(credits.cast, key = { _, actor -> actor.id }) { index, actor ->
                                 var focused by remember { mutableStateOf(false) }
-                                Column(Modifier.width(112.dp)
+                                Column(Modifier.width(112.dp).then(if(index == 0) Modifier.focusRequester(castFocus) else Modifier)
                                     .focusProperties { up = if(episodes.isNotEmpty()) episodeFocus else playFocus
                                         if(related.isNotEmpty()) down = relatedFocus }
                                     .onFocusChanged { focused = it.isFocused }.focusable(),
@@ -259,7 +271,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                     item(key = "related-title") { Label("أعمال مشابهة", 22, Color.White, true, Modifier.padding(horizontal = 24.dp)) }
                     item(key = "related") {
                         DetailsRail(related, relatedFocus, if(hasCast) castFocus else if(episodes.isNotEmpty()) episodeFocus else playFocus, revision, vm,
-                            episodes = false, modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "related" }, onClick = vm::open)
+                            episodes = false, rowState = relatedRowState, modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "related" }, onClick = vm::open)
                     }
                 }
             }
@@ -286,6 +298,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DetailsHorizontalRow(
+    state: LazyListState,
     modifier: Modifier,
     contentPadding: PaddingValues,
     horizontalArrangement: Arrangement.Horizontal,
@@ -296,7 +309,7 @@ private fun DetailsHorizontalRow(
             offset - (containerSize - size) / 2f
     } }
     CompositionLocalProvider(LocalBringIntoViewSpec provides centered) {
-        LazyRow(modifier = modifier, contentPadding = contentPadding,
+        LazyRow(state = state, modifier = modifier, contentPadding = contentPadding,
             horizontalArrangement = horizontalArrangement, content = content)
     }
 }
@@ -321,8 +334,8 @@ private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, e
 
 @Composable
 private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRequester, revision: Int,
-    vm: CinemaViewModel, episodes: Boolean, modifier: Modifier = Modifier, onClick: (Film) -> Unit) {
-    DetailsHorizontalRow(modifier = modifier.focusRequester(first).focusGroup(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    vm: CinemaViewModel, episodes: Boolean, rowState: LazyListState, modifier: Modifier = Modifier, onClick: (Film) -> Unit) {
+    DetailsHorizontalRow(state = rowState, modifier = modifier.focusGroup(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
             var episodeDetails by remember(item.id) { mutableStateOf(item) }
             LaunchedEffect(item.id, episodes) {
@@ -338,6 +351,7 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
             val shape = RoundedCornerShape(12.dp)
             val complete = remember(revision, item.id) { vm.library.isCompleted(item.id) }
             Box(Modifier.width(240.dp).aspectRatio(16f / 9f).zIndex(if(focused) 10f else 0f)
+                .then(if(index == 0) Modifier.focusRequester(first) else Modifier)
                 .focusProperties { up = upper }
                 .onFocusChanged { focused = it.isFocused }.graphicsLayer { scaleX = scale; scaleY = scale }
                 .clip(shape).background(Panel).border(if(focused) 2.dp else 1.dp,

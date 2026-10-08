@@ -352,12 +352,14 @@ fun TvShelfRow(
     width: Dp = if (wide) TvMetrics.ContinueWidth else TvMetrics.PosterWidth,
     firstRequester: FocusRequester? = null,
     entryRequester: FocusRequester? = null,
+    suppliedRowState: LazyListState? = null,
     cardModifier: (Int) -> Modifier = { Modifier },
     preview: Boolean = true,
     onCardClick: (Film) -> Unit = { vm.open(it) }
 ) {
     if (shelf.films.isEmpty()) return
-    val rowState = rememberLazyListState()
+    val localRowState = rememberLazyListState()
+    val rowState = suppliedRowState ?: localRowState
     // Plain holder, not state: moving focus along the row must not recompose the cards.
     val memory = rememberSaveable(shelf.id, saver = RowMemorySaver) { RowMemory() }
     val describe = remember(vm) { val lookup: suspend (Film) -> String = { film -> vm.describe(film) }; lookup }
