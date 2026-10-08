@@ -108,7 +108,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
         // A separate view model per profile keeps lists, history and settings from leaking between viewers.
         val vm: CinemaViewModel = viewModel(key = "profile-$activeId")
         // Another profile may have signed the shared account in or out while this one was in the background.
-        LaunchedEffect(vm) { vm.refreshAccount() }
+        LaunchedEffect(vm) { vm.refreshAccount(); vm.refreshProfile() }
         CompositionLocalProvider(LocalProfileSwitch provides { picking = true }) { CinemaApp(vm, television) }
     }
 }
@@ -215,11 +215,15 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     val shape = RoundedCornerShape(32.dp)
     // A floating capsule centred on the edge; it widens over the page and never reflows it.
     Box(modifier.fillMaxHeight().width(width).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-        Column(Modifier.fillMaxWidth().clip(shape).background(PanelHi.copy(alpha = .94f))
-            .border(1.dp, Color.White.copy(alpha = .10f), shape)
+        Column(Modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(
+                Color(0xFF252525).copy(alpha = .88f), Color(0xFF545454).copy(alpha = .78f))))
+            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .22f), Color.White.copy(alpha = .04f))), shape)
             .onFocusChanged { bar.hasFocus = it.hasFocus }.focusGroup()
             .padding(horizontal = 7.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val switchProfile = LocalProfileSwitch.current
+            RailProfileItem(vm.profile, labels) { switchProfile() }
+            TicketDivider(Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
             items.forEach { p ->
                 RailItem(p, railPage == p, labels, if (p == railPage) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(p) }
             }
@@ -230,11 +234,24 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     }
 }
 
+@Composable private fun RailProfileItem(profile: Profile, labelled: Boolean, onClick: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().height(46.dp).clip(CircleShape)
+        .background(if(focused) Color.White.copy(alpha = .20f) else Color.Transparent)
+        .onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
+        .semantics { contentDescription = "الملف الشخصي: ${profile.name}" }.padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if(labelled) Arrangement.Start else Arrangement.Center) {
+        ProfileAvatar(profile, Modifier.size(30.dp).then(if(focused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier))
+        if(labelled) { Spacer(Modifier.width(10.dp)); Label("الملف الشخصي", 15, Color.White, focused, lines = 1) }
+    }
+}
+
 @Composable private fun RailItem(page: Page, selected: Boolean, labelled: Boolean, modifier: Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    // Focused = gold pill with dark content; the current page is drawn in gold.
-    val fg = when { focused -> OnAccent; selected -> Accent; else -> Color.White.copy(alpha = .85f) }
-    Row(modifier.fillMaxWidth().height(46.dp).clip(CircleShape).background(if (focused) Accent else Color.Transparent)
+    // Glass navigation keeps focused controls bright and the current destination subtly highlighted.
+    val fg = when { focused -> Color.Black; selected -> Color.White; else -> Color.White.copy(alpha = .65f) }
+    Row(modifier.fillMaxWidth().height(46.dp).clip(CircleShape).background(if(focused) Color.White else if(selected) Color.White.copy(alpha = .14f) else Color.Transparent)
         .onFocusChanged { focused = it.isFocused }
         .clickable(onClick = onClick)
         .semantics { contentDescription = page.label }

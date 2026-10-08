@@ -46,4 +46,33 @@ class ProfileListTest {
         val list = ProfileList.add(ProfileList.decode(null), "  " + "ا".repeat(40) + "  ", "p1")!!
         assertEquals(16, list[1].name.length)
     }
+    @Test fun legacyProfilesAcquireADefaultAvatarWithoutChangingIdentity() {
+        val result = ProfileList.decode("""[{"id":"main","name":"Viewer","color":123}]""")
+        assertEquals("main", result[0].id)
+        assertEquals("avatar-0", result[0].avatar)
+        assertEquals("cinema_library", ProfileList.prefsName(result[0].id))
+    }
+    @Test fun editsPreserveIdentityColorAndOtherProfiles() {
+        val list = ProfileList.add(ProfileList.decode(null), "Guest", "guest")!!
+        val edited = ProfileList.update(list, "guest", "  New name  ", "avatar-4")!!
+        assertEquals(list[0], edited[0])
+        assertEquals("guest", edited[1].id)
+        assertEquals(list[1].color, edited[1].color)
+        assertEquals("New name", edited[1].name)
+        assertEquals("avatar-4", edited[1].avatar)
+        assertEquals("cinema_library_guest", ProfileList.prefsName(edited[1].id))
+    }
+    @Test fun importedAndBuiltInAvatarsRoundTrip() {
+        val list = listOf(ProfileList.default().copy(avatar = "/private/profile-images/photo.png"),
+            Profile("guest", "Guest", 123, "avatar-5"))
+        assertEquals(list, ProfileList.decode(ProfileList.encode(list)))
+    }
+    @Test fun invalidEditsAreRejectedAndMainCanBeRenamed() {
+        val list = ProfileList.decode(null)
+        assertNull(ProfileList.update(list, "main", " ", "avatar-0"))
+        assertNull(ProfileList.update(list, "unknown", "Name", "avatar-0"))
+        assertNull(ProfileList.update(list, "main", "Name", ""))
+        assertEquals("New", ProfileList.update(list, "main", "New", "avatar-2")!![0].name)
+        assertEquals(list, ProfileList.remove(list, "main"))
+    }
 }
