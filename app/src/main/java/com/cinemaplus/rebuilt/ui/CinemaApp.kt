@@ -75,19 +75,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 @Composable fun CinemaApp() {
     val context = LocalContext.current
     val store = remember { ProfileStore(context) }
-    // Testing only: ask once per launch and retain the answer across activity recreation.
-    var interfaceName by rememberSaveable { mutableStateOf<String?>(null) }
-    val chosenInterface = TestInterface.entries.firstOrNull { it.name == interfaceName }
-    if (chosenInterface == null) {
-        BackHandler { (context as? android.app.Activity)?.finish() }
-        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-            InterfaceTestPicker(com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(context)) {
-                interfaceName = it.name
-            }
-        }
-        return
-    }
-    val television = chosenInterface == TestInterface.Television
+    val television = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(context)
     DisposableEffect(television) {
         val activity = context as? android.app.Activity
         activity?.requestedOrientation = if (television) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
