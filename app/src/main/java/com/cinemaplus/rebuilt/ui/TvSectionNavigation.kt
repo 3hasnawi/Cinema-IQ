@@ -5,8 +5,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 
 /** Compose lazy targets before requesting focus; off-screen requesters may not be attached yet. */
-internal suspend fun scrollToTvFocus(state: LazyListState, index: Int, requester: FocusRequester): Boolean {
+internal suspend fun scrollToTvFocus(state: LazyListState, index: Int, requester: FocusRequester, horizontalState: LazyListState? = null): Boolean {
     if(index !in 0 until state.layoutInfo.totalItemsCount) return false
+    // Reset the destination rail before the vertical reveal, avoiding a second sideways animation.
+    horizontalState?.requestScrollToItem(0)
     state.animateScrollToItem(index)
     repeat(12) {
         withFrameNanos { }
