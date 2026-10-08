@@ -100,6 +100,9 @@ fun HomeScreen(vm: CinemaViewModel) {
     val returnMemory = rememberSaveable(saver = ReturnMemorySaver) { ReturnMemory() }
     val heroFocus = remember { FocusRequester() }
     val firstCardFocus = remember { FocusRequester() }
+    val rowEntries = remember { mutableMapOf<String, FocusRequester>() }
+    val rowFocus = rows.mapIndexed { index, row -> if(index == 0) firstCardFocus else rowEntries.getOrPut(row.id) { FocusRequester() } }
+    val navigationJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
     val firstRowId = rows.firstOrNull()?.id
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -118,7 +121,21 @@ fun HomeScreen(vm: CinemaViewModel) {
                 else (1f - listState.firstVisibleItemScrollOffset / (size.height * .7f)).coerceIn(0f, 1f)
         }) { HeroBackdropLayer(vm, featured, heroIndex, Modifier.fillMaxSize()) }
         WithoutFocusScroll {
-        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 40.dp),
+        LazyColumn(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+            val down = event.key == Key.DirectionDown
+            if(!down && event.key != Key.DirectionUp) return@onPreviewKeyEvent false
+            val destination = adjacentTvSection(anchor[0] + 1, rows.size + 1, down) ?: return@onPreviewKeyEvent false
+            if(event.type == KeyEventType.KeyDown && navigationJob[0]?.isActive != true) {
+                navigationJob[0] = scope.launch {
+                    val previous = anchor[0]
+                    anchor[0] = destination - 1
+                    val success = scrollToTvFocus(listState, if(destination == 0) 0 else headItems + destination - 1,
+                        if(destination == 0) heroFocus else rowFocus[destination - 1])
+                    if(!success) anchor[0] = previous
+                }
+            }
+            true
+        }, state = listState, contentPadding = PaddingValues(bottom = 40.dp),
             verticalArrangement = Arrangement.spacedBy(TvMetrics.RowGap)) {
             item(key = "hero", contentType = "hero") {
                 // The whole page is one focus target: Left / Right change the title, OK opens its page, Down reaches the shelves.
@@ -169,7 +186,7 @@ fun HomeScreen(vm: CinemaViewModel) {
             itemsIndexed(rows, key = { _, shelf -> shelf.id }, contentType = { _, _ -> "shelf" }) { index, shelf ->
                 // Continue watching uses landscape cards; the other shelves are posters with their details.
                 ContentRailRow(shelf, vm, wide = shelf.id == "recent",
-                    firstRequester = if (shelf.id == firstRowId) firstCardFocus else null,
+                    firstRequester = rowFocus[index],
                     heroFocus = if (shelf.id == firstRowId) heroFocus else null,
                     returnId = returnMemory.id,
                     onFocused = {
@@ -434,11 +451,8 @@ internal fun RoundLabelButton(label: String, icon: ImageVector, modifier: Modifi
 @Composable
 fun ContentRailRow(shelf: Shelf, vm: CinemaViewModel, firstRequester: FocusRequester?,
     heroFocus: FocusRequester?, returnId: String? = null, wide: Boolean = true, onFocused: (Film) -> Unit) {
-    val returnIndex = shelf.films.indexOfFirst { it.id == returnId }
-    TvShelfRow(shelf, vm, wide = wide || shelf.id == "recent", firstRequester = if (returnIndex < 0) firstRequester else null,
-        cardModifier = { index -> Modifier
-            .then(if (index == returnIndex && firstRequester != null) Modifier.focusRequester(firstRequester) else Modifier)
-            .focusProperties { if (heroFocus != null) up = heroFocus } },
+    TvShelfRow(shelf, vm, wide = wide || shelf.id == "recent", entryRequester = firstRequester,
+        cardModifier = { Modifier.focusProperties { if (heroFocus != null) up = heroFocus } },
         onFilmFocused = onFocused,
         onCardClick = { if (shelf.id == "recent") vm.play(it) else vm.open(it) })
 }

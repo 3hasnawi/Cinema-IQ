@@ -351,6 +351,7 @@ fun TvShelfRow(
     onFilmFocused: (Film) -> Unit = {},
     width: Dp = if (wide) TvMetrics.ContinueWidth else TvMetrics.PosterWidth,
     firstRequester: FocusRequester? = null,
+    entryRequester: FocusRequester? = null,
     cardModifier: (Int) -> Modifier = { Modifier },
     preview: Boolean = true,
     onCardClick: (Film) -> Unit = { vm.open(it) }
@@ -367,7 +368,7 @@ fun TvShelfRow(
             LazyRow(state = rowState, contentPadding = PaddingValues(
                 horizontal = TvMetrics.EdgeInset, vertical = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(TvMetrics.CardGap),
-                modifier = Modifier.fillMaxWidth().focusGroup()) {
+                modifier = Modifier.fillMaxWidth().then(if(entryRequester != null) Modifier.focusRequester(entryRequester) else Modifier).focusGroup()) {
                 itemsIndexed(shelf.films, key = { _, film -> film.id }, contentType = { _, _ -> "film-card" }) { index, film ->
                     FilmCard(film, vm.library.fraction(film.id), wide, width,
                         modifier = cardModifier(index),
