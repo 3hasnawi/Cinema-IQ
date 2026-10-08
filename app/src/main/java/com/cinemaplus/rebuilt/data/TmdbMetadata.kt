@@ -2,6 +2,8 @@ package com.cinemaplus.rebuilt.data
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -13,7 +15,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /** Artwork and synopsis for one title as published by TMDB. Any field may be blank. */
-data class ArtworkMatch(val backdrop: String, val poster: String, val overview: String, val rating: String, val originalTitle: String = "", val genreIds: Set<Int> = emptySet())
+data class ArtworkMatch(val backdrop: String, val poster: String, val overview: String, val rating: String, val originalTitle: String = "", val genreIds: Set<Int> = emptySet(), val tmdbId: Int = 0)
 
 /**
  * Looks titles up on TMDB (themoviedb.org) to replace weak source artwork with sharp backdrops and posters, and
@@ -28,6 +30,67 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
     private class Entry(val at: Long, val match: ArtworkMatch?)
     private val known = HashMap<String, Entry>()
     private var loaded = false
+    private val seasonLock = Mutex()
+    private val seasonFile = cacheFile?.let { File(it.parentFile, "tmdb-seasons.json") }
+    private val seasonCache = mutableMapOf<String, Pair<Long, JSONObject>>()
+    private var seasonsLoaded = false
+
+    /** Resolve the parent first, then request the exact source season. Cache successful responses for six hours. */
+    suspend fun season(show: Film, number: Int): Season? {
+        if(!enabled || !show.series || number < 0) return null
+        val match = lookup(show) ?: return null
+        if(match.tmdbId <= 0) return null
+        return withContext(Dispatchers.IO) {
+            seasonLock.withLock {
+                if(!seasonsLoaded) {
+                    seasonsLoaded = true
+                    runCatching {
+                        val root = JSONObject(seasonFile?.takeIf { it.exists() }?.readText() ?: "{}")
+                        root.keys().forEach { key -> root.optJSONObject(key)?.let { entry ->
+                            entry.optJSONObject("data")?.let { seasonCache[key] = entry.optLong("at") to it }
+                        } }
+                    }
+                }
+                val key = "${match.tmdbId}:$number"
+                val cached = seasonCache[key]?.takeIf { System.currentTimeMillis() - it.first < 6 * 60 * 60 * 1000L }
+                val data = cached?.second ?: run {
+                    fun request(language: String): JSONObject {
+                        val url = HttpUrl.Builder().scheme("https").host("api.themoviedb.org")
+                            .addPathSegments("3/tv/${match.tmdbId}/season/$number")
+                            .addQueryParameter("api_key", apiKey).addQueryParameter("language", language).build()
+                        return client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                            if(!response.isSuccessful) throw IOException("TMDB season ${response.code}")
+                            JSONObject(response.body?.string() ?: throw IOException("TMDB empty season"))
+                        }
+                    }
+                    val arabic = request("ar")
+                    val episodes = arabic.optJSONArray("episodes") ?: JSONArray()
+                    val needsFallback = JsonMapper.text(arabic, "overview").isBlank() ||
+                        (0 until episodes.length()).any { JsonMapper.text(episodes.getJSONObject(it), "overview").isBlank() }
+                    if(needsFallback) {
+                        val english = runCatching { request("en") }.getOrDefault(JSONObject())
+                        if(JsonMapper.text(arabic, "overview").isBlank()) arabic.put("overview", JsonMapper.text(english, "overview"))
+                        val fallback = english.optJSONArray("episodes") ?: JSONArray()
+                        for(i in 0 until episodes.length()) {
+                            val episode = episodes.getJSONObject(i)
+                            val other = (0 until fallback.length()).map { fallback.getJSONObject(it) }
+                                .firstOrNull { it.optInt("episode_number") == episode.optInt("episode_number") } ?: continue
+                            for(field in listOf("name", "overview")) if(JsonMapper.text(episode, field).isBlank()) episode.put(field, JsonMapper.text(other, field))
+                        }
+                    }
+                    seasonCache[key] = System.currentTimeMillis() to arabic
+                    if(seasonCache.size > 100) seasonCache.remove(seasonCache.minBy { it.value.first }.key)
+                    runCatching {
+                        val root = JSONObject()
+                        seasonCache.forEach { (id, entry) -> root.put(id, JSONObject().put("at", entry.first).put("data", entry.second)) }
+                        seasonFile?.writeText(root.toString())
+                    }
+                    arabic
+                }
+                parseSeason(data)
+            }
+        }
+    }
 
     /** Returns the match, null when TMDB has no reliable match. Network failures throw and are not cached. */
     suspend fun lookup(film: Film): ArtworkMatch? = withContext(Dispatchers.IO) {
@@ -70,8 +133,8 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             val root = JSONObject(file.readText())
             root.keys().forEach { id ->
                 val o = root.getJSONObject(id)
-                known[id] = Entry(if (!o.optBoolean("none") && (!o.has("original") || !o.has("genres"))) 0L else o.optLong("t"), if (o.optBoolean("none")) null
-                    else ArtworkMatch(o.optString("b"), o.optString("p"), o.optString("o"), o.optString("r"), o.optString("original"), genreIds(o.optJSONArray("genres"))))
+                known[id] = Entry(if (!o.optBoolean("none") && (!o.has("original") || !o.has("genres") || !o.has("tmdbId"))) 0L else o.optLong("t"), if (o.optBoolean("none")) null
+                    else ArtworkMatch(o.optString("b"), o.optString("p"), o.optString("o"), o.optString("r"), o.optString("original"), genreIds(o.optJSONArray("genres")), o.optInt("tmdbId")))
             }
         }
     }
@@ -83,7 +146,7 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             known.forEach { (id, entry) ->
                 root.put(id, JSONObject().put("t", entry.at).apply {
                     val m = entry.match
-                    if (m == null) put("none", true) else put("b", m.backdrop).put("p", m.poster).put("o", m.overview).put("r", m.rating).put("original", m.originalTitle).put("genres", JSONArray(m.genreIds.toList()))
+                    if (m == null) put("none", true) else put("b", m.backdrop).put("p", m.poster).put("o", m.overview).put("r", m.rating).put("original", m.originalTitle).put("genres", JSONArray(m.genreIds.toList())).put("tmdbId", m.tmdbId)
                 })
             }
             file.writeText(root.toString())
@@ -120,6 +183,42 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             return null
         }
 
+        /** Parse episode-specific metadata; TMDB scores are deliberately separate from IMDb. */
+        fun parseSeason(data: JSONObject): Season {
+            val number = data.optInt("season_number")
+            val episodes = data.optJSONArray("episodes") ?: JSONArray()
+            return Season(number, (0 until episodes.length()).mapNotNull { index ->
+                val episode = episodes.optJSONObject(index) ?: return@mapNotNull null
+                val n = episode.optInt("episode_number")
+                if(n <= 0) return@mapNotNull null
+                val still = JsonMapper.text(episode, "still_path")
+                val score = episode.optDouble("vote_average", 0.0)
+                val runtime = episode.optInt("runtime")
+                Film("tmdb-episode:${episode.optInt("id")}", JsonMapper.text(episode, "name"),
+                    backdrop = if(still.isBlank()) "" else ImageBase + "w780" + still,
+                    description = JsonMapper.text(episode, "overview"), season = number, episode = n,
+                    duration = if(runtime > 0) (runtime.toLong() * 60).toString() else "",
+                    airDate = JsonMapper.text(episode, "air_date"),
+                    tmdbRating = if(episode.optInt("vote_count") > 0 && score.isFinite() && score > 0 && score <= 10)
+                        String.format(Locale.US, "%.1f", score) else "")
+            }, title = JsonMapper.text(data, "name"), description = JsonMapper.text(data, "overview"),
+                poster = JsonMapper.text(data, "poster_path").let { if(it.isBlank()) "" else ImageBase + "w780" + it },
+                airDate = JsonMapper.text(data, "air_date"))
+        }
+
+        /** Enrich only episodes available on the source; never create playable TMDB-only entries. */
+        fun mergeSeason(source: Season, metadata: Season): Season {
+            if(source.number != metadata.number) return source
+            return source.copy(title = metadata.title, description = metadata.description, poster = metadata.poster,
+                airDate = metadata.airDate, episodes = source.episodes.map { original ->
+                    val match = metadata.episodes.singleOrNull { it.episode == original.episode } ?: return@map original
+                    original.copy(description = match.description.ifBlank { original.description },
+                        backdrop = match.backdrop.ifBlank { original.backdrop },
+                        duration = original.duration.ifBlank { match.duration },
+                        airDate = match.airDate, tmdbRating = match.tmdbRating)
+                })
+        }
+
         private fun genreIds(array: JSONArray?): Set<Int> = if (array == null) emptySet() else
             (0 until array.length()).map { array.optInt(it) }.filter { it > 0 }.toSet()
 
@@ -129,6 +228,7 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             val votes = r.optInt("vote_count", 0)
             val average = r.optDouble("vote_average", 0.0)
             return ArtworkMatch(
+                tmdbId = r.optInt("id"),
                 backdrop = if (backdrop.isBlank()) "" else ImageBase + "w1280" + backdrop,
                 poster = if (poster.isBlank()) "" else ImageBase + "w780" + poster,
                 overview = JsonMapper.text(r, "overview"),

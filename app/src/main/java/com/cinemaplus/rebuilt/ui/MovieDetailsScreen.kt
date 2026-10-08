@@ -50,6 +50,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val relatedFocus = remember(film.id) { FocusRequester() }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
+    LaunchedEffect(film.id, season?.number) { if(season != null) vm.enrichSelectedSeason() }
     val related = vm.shelves.flatMap { it.films }.filter { it.id != film.id }.distinctBy { it.id }
     var showTrailer by remember(film.id) { mutableStateOf(false) }
     val revision = vm.libraryRevision
@@ -126,6 +127,9 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                             }
                         }
                     }
+                    if(!season?.description.isNullOrBlank()) item(key = "season-description") {
+                        Label(season!!.description, 14, Muted, modifier = Modifier.padding(horizontal = 24.dp).widthIn(max = 650.dp), lines = 2)
+                    }
                     item(key = "episodes-${season?.number}") {
                         DetailsRail(episodes.map { it.copy(seriesId = film.id, season = season?.number ?: it.season) },
                             episodeFocus, seasonFocus, revision, vm, episodes = true) {
@@ -186,7 +190,10 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
             LaunchedEffect(item.id, episodes) {
                 if(episodes) episodeDetails = vm.episodeCardDetails(item)
             }
-            val card = if(episodes) episodeDetails else item
+            val card = if(episodes) episodeDetails.copy(
+                description = item.description.ifBlank { episodeDetails.description },
+                backdrop = item.backdrop, duration = item.duration.ifBlank { episodeDetails.duration },
+                tmdbRating = item.tmdbRating, airDate = item.airDate) else item
             var focused by remember { mutableStateOf(false) }
             val scale by animateFloatAsState(if(focused) 1.08f else 1f,
                 spring(stiffness = Spring.StiffnessLow), label = "Details card focus")
@@ -197,7 +204,7 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
                 .onFocusChanged { focused = it.isFocused }.graphicsLayer { scaleX = scale; scaleY = scale }
                 .clip(shape).background(Panel).border(if(focused) 2.dp else 1.dp,
                     Color.White.copy(alpha = if(focused) 1f else .2f), shape).clickable { onClick(item) }) {
-                AsyncImage(vm.withArtwork(item).let { it.backdrop.ifBlank { it.poster } }, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                AsyncImage(vm.withArtwork(card).let { it.backdrop.ifBlank { it.poster } }, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .5f), Color.Black))))
                 if(complete) Icon(Icons.Rounded.Check, "تمت المشاهدة", Modifier.align(Alignment.TopEnd).padding(12.dp).size(20.dp), Color.White)
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -209,6 +216,9 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
                         if(episodes && card.imdbRating.isNotBlank()) {
                             Label("IMDb", 10, Color(0xFFF5C518), true)
                             Label(card.imdbRating, 11, Color.White, true)
+                        } else if(episodes && card.tmdbRating.isNotBlank()) {
+                            Label("TMDB", 10, Color(0xFF90CEA1), true)
+                            Label(card.tmdbRating, 11, Color.White, true)
                         } else if(!episodes) RatingChip(card.rating, size = 11)
                     }
                 }

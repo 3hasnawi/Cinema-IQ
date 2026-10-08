@@ -322,6 +322,17 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             finally { detailBusy = false }
         }
     }
+    /** Load the selected season on demand; stale requests cannot overwrite another details page. */
+    suspend fun enrichSelectedSeason() {
+        val show = selected?.takeIf { it.series } ?: return
+        val source = seasons.getOrNull(seasonIndex) ?: return
+        val metadata = try { tmdb.season(show, source.number) }
+        catch(e: CancellationException) { throw e }
+        catch(_: Exception) { null } ?: return
+        if(selected?.id != show.id) return
+        seasons = seasons.map { if(it.number == source.number) TmdbMetadata.mergeSeason(it, metadata) else it }
+    }
+
     private val episodeCardCache = mutableMapOf<String, Film>()
 
     /** Fetch individual episode metadata without changing selection or playback state. */

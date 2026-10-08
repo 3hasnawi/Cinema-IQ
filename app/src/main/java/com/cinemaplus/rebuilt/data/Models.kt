@@ -13,12 +13,12 @@ data class Film(
     // Optional extras: English title (better for trailer search) and a trailer link/id if the source provides one.
     val enTitle: String = "", val trailer: String = "", val seriesId: String = "",
     val originalTitle: String = "", val contentQuality: String = "", val edition: String = "",
-    val genreIds: Set<Int> = emptySet(), val imdbRating: String = ""
+    val genreIds: Set<Int> = emptySet(), val imdbRating: String = "", val tmdbRating: String = "", val airDate: String = ""
 )
 data class Subtitle(val url: String, val language: String = "und", val title: String = "ترجمة", val mimeType: String = "text/vtt")
 data class Stream(val url: String, val resolution: String)
 data class Shelf(val id: String, val title: String, val films: List<Film>)
-data class Season(val number: Int, val episodes: List<Film>)
+data class Season(val number: Int, val episodes: List<Film>, val title: String = "", val description: String = "", val poster: String = "", val airDate: String = "")
 /** Content category (genre) as listed by the source. */
 data class Category(val id: String, val title: String)
 
