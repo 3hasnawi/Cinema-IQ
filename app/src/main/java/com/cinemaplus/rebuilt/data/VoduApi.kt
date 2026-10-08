@@ -106,7 +106,7 @@ object VoduParser {
             contentQuality = metadata["Quality"].orEmpty().ifBlank { availableQuality(anchor?.let(::streams).orEmpty()) },
             edition = metadata["Version"].orEmpty().ifBlank { metadata["Source"].orEmpty() },
             year = metadata["Year"].orEmpty(), duration = metadata["Runtime"].orEmpty(),
-            rating = metadata["IMdB Rating"].orEmpty(), series = film.series || content.select(".episodes").isNotEmpty(),
+            imdbRating = metadata["IMdB Rating"].orEmpty(), rating = metadata["IMdB Rating"].orEmpty(), series = film.series || content.select(".episodes").isNotEmpty(),
             subtitles = subtitles(anchor), trailer = content.selectFirst("iframe[src]")?.absUrl("src").orEmpty())
     }
 

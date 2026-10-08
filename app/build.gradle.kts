@@ -16,6 +16,8 @@ val youtubeApiKey: String = (localProps.getProperty("youtube.api.key") ?: System
 // Empty means the app keeps using the source's own artwork.
 val tmdbApiKey: String = (localProps.getProperty("tmdb.api.key") ?: System.getenv("TMDB_API_KEY") ?: "").trim()
 
+val omdbApiKey = (localProps.getProperty("omdb.api.key") ?: System.getenv("OMDB_API_KEY") ?: "").trim()
+
 android {
     namespace = "com.cinemaplus.rebuilt"
     compileSdk = 36
@@ -24,10 +26,11 @@ android {
         applicationId = "com.cinemaplus.rebuilt"
         minSdk = 24
         targetSdk = 36
-        versionCode = 54
-        versionName = "4.12"
+        versionCode = 55
+        versionName = "4.13"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"$youtubeApiKey\"")
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
+        buildConfigField("String", "OMDB_API_KEY", "\"$omdbApiKey\"")
         testInstrumentationRunner = "com.cinemaplus.rebuilt.ui.PlayerSmokeInstrumentation"
     }
     buildFeatures { compose = true; buildConfig = true }

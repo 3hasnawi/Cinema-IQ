@@ -65,7 +65,7 @@ class CinemanaApi(private val tokenProvider: () -> String? = { null }) {
         return parsed.copy(poster = parsed.poster.ifBlank { film.poster }, backdrop = parsed.backdrop.ifBlank { film.backdrop },
             title = parsed.title.takeUnless { it == "عمل ${film.id}" } ?: film.title,
             year = parsed.year.ifBlank { film.year }, duration = parsed.duration.ifBlank { film.duration },
-            rating = parsed.rating.ifBlank { film.rating }, description = parsed.description.ifBlank { film.description },
+            imdbRating = parsed.imdbRating.ifBlank { film.imdbRating }, rating = parsed.rating.ifBlank { film.rating }, description = parsed.description.ifBlank { film.description },
             enTitle = parsed.enTitle.ifBlank { film.enTitle }, originalTitle = parsed.originalTitle.ifBlank { film.originalTitle },
             contentQuality = parsed.contentQuality.ifBlank { film.contentQuality }, edition = parsed.edition.ifBlank { film.edition })
     }
