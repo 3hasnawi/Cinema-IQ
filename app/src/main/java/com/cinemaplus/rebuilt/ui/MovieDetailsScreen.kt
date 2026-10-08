@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
@@ -46,17 +47,16 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val playFocus = remember(film.id) { FocusRequester() }
     val seasonFocus = remember(film.id) { FocusRequester() }
     val episodeFocus = remember(film.id) { FocusRequester() }
-    val menuFocus = remember(film.id) { FocusRequester() }
+    val trailerFocus = remember(film.id) { FocusRequester() }
     val relatedFocus = remember(film.id) { FocusRequester() }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
     val related = vm.shelves.flatMap { it.films }.filter { it.id != film.id }.distinctBy { it.id }
-    var menu by remember(film.id) { mutableStateOf(false) }
     var seasonsMenu by remember(film.id) { mutableStateOf(false) }
     var showTrailer by remember(film.id) { mutableStateOf(false) }
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
-    BackHandler(enabled = !menu && !seasonsMenu && !showTrailer) { vm.backDetail() }
+    BackHandler(enabled = !seasonsMenu && !showTrailer) { vm.backDetail() }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             AsyncImage(ImageRequest.Builder(LocalContext.current).data(film.backdrop.ifBlank { film.poster })
@@ -95,10 +95,15 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                                     if(film.series) episodes.firstOrNull()?.let { vm.play(it.copy(seriesId = film.id, season = season?.number ?: it.season)) }
                                     else vm.play(film)
                                 }
-                                DetailsControl("•••", Modifier.size(52.dp).focusRequester(menuFocus).focusProperties {
+                                DetailsControl("عرض التريلر", Modifier.size(52.dp).focusRequester(trailerFocus).focusProperties {
                                     if(episodes.isNotEmpty()) down = seasonFocus
                                     else if(related.isNotEmpty()) down = relatedFocus
-                                }, false) { menu = true }
+                                }, false, icon = TrailerIcon) { showTrailer = true }
+                                DetailsControl(if(saved) "إزالة من قائمتي" else "إضافة إلى قائمتي",
+                                    Modifier.size(52.dp).focusProperties {
+                                        if(episodes.isNotEmpty()) down = seasonFocus
+                                        else if(related.isNotEmpty()) down = relatedFocus
+                                    }, false, icon = if(saved) Icons.Rounded.Check else Icons.Rounded.Add) { vm.toggle(film) }
                             }
                             if(vm.detailBusy) Label("جارٍ تحميل التفاصيل والحلقات…", 12, Muted)
                             vm.detailError?.let {
@@ -132,16 +137,6 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                 }
             }
         }
-        if(menu) Dialog(onDismissRequest = { menu = false; scope.launch { delay(32); menuFocus.requestFocus() } }) {
-            val first = remember { FocusRequester() }
-            Column(Modifier.clip(RoundedCornerShape(20.dp)).background(Panel).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                TvActionButton(if(saved) "إزالة من قائمتي" else "إضافة إلى قائمتي", modifier = Modifier.focusRequester(first)) {
-                    vm.toggle(film); menu = false; scope.launch { delay(32); menuFocus.requestFocus() }
-                }
-                TvActionButton("عرض التريلر") { menu = false; showTrailer = true }
-            }
-            LaunchedEffect(Unit) { delay(32); first.requestFocus() }
-        }
         if(seasonsMenu) Dialog(onDismissRequest = { seasonsMenu = false; scope.launch { delay(32); seasonFocus.requestFocus() } }) {
             val first = remember { FocusRequester() }
             LazyColumn(Modifier.heightIn(max = 400.dp).clip(RoundedCornerShape(20.dp)).background(Panel).padding(24.dp),
@@ -156,7 +151,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
             LaunchedEffect(Unit) { delay(32); first.requestFocus() }
         }
         if(showTrailer) TrailerOverlay(film) {
-            showTrailer = false; scope.launch { delay(32); menuFocus.requestFocus() }
+            showTrailer = false; scope.launch { delay(32); trailerFocus.requestFocus() }
         }
     }
     // Background updates must not move focus away from a selected episode or season.
@@ -171,7 +166,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
 }
 
 @Composable
-private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, enabled: Boolean = true, icon: ImageVector? = null, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if(focused) 1.05f else 1f,
         spring(stiffness = Spring.StiffnessLow), label = "Details action focus")
@@ -180,10 +175,11 @@ private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, e
         .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if(enabled) 1f else .5f }
         .clip(shape).background(if(primary || focused) Color.White else Color.White.copy(alpha = .08f))
         .border(if(focused) 2.dp else 1.dp, Color.White.copy(alpha = if(focused) 1f else .12f), shape)
-        .clickable(enabled = enabled, onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        .clickable(enabled = enabled, onClick = onClick).padding(horizontal = if(icon == null) 16.dp else 0.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         if(primary) { Icon(Icons.Rounded.PlayArrow, null, Modifier.size(24.dp), Color.Black); Spacer(Modifier.width(8.dp)) }
-        Label(text, if(primary) 16 else 18, if(primary || focused) Color.Black else Color.White, true, lines = 1)
+        if(icon != null) Icon(icon, text, Modifier.size(24.dp), if(focused) Color.Black else Color.White)
+        else Label(text, if(primary) 16 else 18, if(primary || focused) Color.Black else Color.White, true, lines = 1)
     }
 }
 
