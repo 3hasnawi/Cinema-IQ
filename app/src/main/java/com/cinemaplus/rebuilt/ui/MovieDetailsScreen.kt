@@ -32,6 +32,7 @@ import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.Film
+import com.cinemaplus.rebuilt.data.relatedFilms
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -51,7 +52,12 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
     LaunchedEffect(film.id, season?.number) { if(season != null) vm.enrichSelectedSeason() }
-    val related = vm.shelves.flatMap { it.films }.filter { it.id != film.id }.distinctBy { it.id }
+    val candidates = vm.shelves.map { it.copy(films = it.films.map(vm::withArtwork)) }
+    val related = relatedFilms(film, candidates)
+    LaunchedEffect(film.id, vm.shelves) {
+        vm.enrich(vm.shelves.flatMap { it.films }.filter { it.series == film.series && it.episode == 0 && it.id != film.id }
+            .distinctBy { it.id }.take(36))
+    }
     var showTrailer by remember(film.id) { mutableStateOf(false) }
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }

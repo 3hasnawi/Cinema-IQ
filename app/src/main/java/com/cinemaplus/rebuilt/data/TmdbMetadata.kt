@@ -15,7 +15,7 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /** Artwork and synopsis for one title as published by TMDB. Any field may be blank. */
-data class ArtworkMatch(val backdrop: String, val poster: String, val overview: String, val rating: String, val originalTitle: String = "", val genreIds: Set<Int> = emptySet(), val tmdbId: Int = 0)
+data class ArtworkMatch(val backdrop: String, val poster: String, val overview: String, val rating: String, val originalTitle: String = "", val genreIds: Set<Int> = emptySet(), val tmdbId: Int = 0, val originalLanguage: String = "")
 
 /**
  * Looks titles up on TMDB (themoviedb.org) to replace weak source artwork with sharp backdrops and posters, and
@@ -155,8 +155,8 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             val root = JSONObject(file.readText())
             root.keys().forEach { id ->
                 val o = root.getJSONObject(id)
-                known[id] = Entry(if (!o.optBoolean("none") && (!o.has("original") || !o.has("genres") || !o.has("tmdbId"))) 0L else o.optLong("t"), if (o.optBoolean("none")) null
-                    else ArtworkMatch(o.optString("b"), o.optString("p"), o.optString("o"), o.optString("r"), o.optString("original"), genreIds(o.optJSONArray("genres")), o.optInt("tmdbId")))
+                known[id] = Entry(if (!o.optBoolean("none") && (!o.has("original") || !o.has("genres") || !o.has("tmdbId") || !o.has("language"))) 0L else o.optLong("t"), if (o.optBoolean("none")) null
+                    else ArtworkMatch(o.optString("b"), o.optString("p"), o.optString("o"), o.optString("r"), o.optString("original"), genreIds(o.optJSONArray("genres")), o.optInt("tmdbId"), o.optString("language")))
             }
         }
     }
@@ -168,7 +168,7 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             known.forEach { (id, entry) ->
                 root.put(id, JSONObject().put("t", entry.at).apply {
                     val m = entry.match
-                    if (m == null) put("none", true) else put("b", m.backdrop).put("p", m.poster).put("o", m.overview).put("r", m.rating).put("original", m.originalTitle).put("genres", JSONArray(m.genreIds.toList())).put("tmdbId", m.tmdbId)
+                    if (m == null) put("none", true) else put("b", m.backdrop).put("p", m.poster).put("o", m.overview).put("r", m.rating).put("original", m.originalTitle).put("genres", JSONArray(m.genreIds.toList())).put("tmdbId", m.tmdbId).put("language", m.originalLanguage)
                 })
             }
             file.writeText(root.toString())
@@ -250,7 +250,7 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             val votes = r.optInt("vote_count", 0)
             val average = r.optDouble("vote_average", 0.0)
             return ArtworkMatch(
-                tmdbId = r.optInt("id"),
+                tmdbId = r.optInt("id"), originalLanguage = JsonMapper.text(r, "original_language"),
                 backdrop = if (backdrop.isBlank()) "" else ImageBase + "w1280" + backdrop,
                 poster = if (poster.isBlank()) "" else ImageBase + "w780" + poster,
                 overview = JsonMapper.text(r, "overview"),

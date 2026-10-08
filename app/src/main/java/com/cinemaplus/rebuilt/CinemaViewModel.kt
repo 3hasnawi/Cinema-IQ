@@ -146,7 +146,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         val match = artwork[film.id] ?: return film
         return film.copy(backdrop = match.backdrop.ifBlank { film.backdrop }, poster = match.poster.ifBlank { film.poster },
             description = film.description.ifBlank { match.overview }, rating = film.rating.ifBlank { match.rating },
-            originalTitle = film.originalTitle.ifBlank { match.originalTitle }, genreIds = film.genreIds + match.genreIds)
+            originalTitle = film.originalTitle.ifBlank { match.originalTitle }, genreIds = film.genreIds + match.genreIds, originalLanguage = film.originalLanguage.ifBlank { match.originalLanguage })
     }
     /** Looks the titles up in the background; failures leave the source data untouched. */
     fun enrich(films: List<Film>) {
