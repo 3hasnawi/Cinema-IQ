@@ -135,6 +135,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseSceneFilter(value: Boolean) { sceneFilter = value; library.sceneFilter = value }
     var trailerPreview by mutableStateOf(library.trailerPreview)
     fun chooseTrailerPreview(value: Boolean) { trailerPreview = value; library.trailerPreview = value }
+    private val omdb = OmdbRatings(BuildConfig.OMDB_API_KEY, java.io.File(app.cacheDir, "omdb-ratings.json"))
     private val descriptions = HashMap<String, String>()
     private val tmdb = TmdbMetadata(BuildConfig.TMDB_API_KEY, java.io.File(app.cacheDir, "tmdb-artwork.json"))
     /** True when a TMDB key is configured, so the attribution must be shown. */
@@ -316,6 +317,13 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                         catch (_: Exception) { /* Missing stream metadata must not block details. */ }
                     }
                     if (selected?.series == true) seasons = api.seasons(film.id)
+                    selected?.takeIf { omdb.enabled }?.let { title ->
+                        try {
+                            val score = omdb.rating(tmdb.imdbId(title))
+                            if(score.isNotBlank() && selected?.id == title.id) selected = selected?.copy(imdbRating = score)
+                        } catch(e: CancellationException) { throw e }
+                        catch(_: Exception) { /* Ratings must not block source details or playback. */ }
+                    }
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { detailError = e.message ?: "تعذّر تحميل التفاصيل" }
@@ -339,14 +347,22 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun episodeCardDetails(episode: Film): Film {
         episodeCardCache[episode.id]?.let { return it }
         if(episode.id.startsWith("demo-")) return episode
-        return try {
-            api.detail(episode).copy(seriesId = episode.seriesId, season = episode.season, episode = episode.episode)
-                .also {
-                    if(episodeCardCache.size >= 200) episodeCardCache.remove(episodeCardCache.keys.first())
-                    episodeCardCache[episode.id] = it
-                }
-        } catch(e: CancellationException) { throw e }
+        val sourceDetails = try { api.detail(episode) }
+        catch(e: CancellationException) { throw e }
         catch(_: Exception) { episode }
+        var details = sourceDetails.copy(seriesId = episode.seriesId, season = episode.season, episode = episode.episode)
+        val show = selected?.takeIf { it.id == episode.seriesId && it.series }
+        if(omdb.enabled && show != null && details.imdbRating.isBlank()) {
+            try {
+                val score = omdb.rating(tmdb.imdbId(show), episode.season, episode.episode)
+                if(score.isNotBlank()) details = details.copy(imdbRating = score)
+            } catch(e: CancellationException) { throw e }
+            catch(_: Exception) { /* Keep the source and TMDB metadata if OMDb is unavailable. */ }
+        }
+        return details.also {
+            if(episodeCardCache.size >= 200) episodeCardCache.remove(episodeCardCache.keys.first())
+            episodeCardCache[episode.id] = it
+        }
     }
 
     fun closeDetail() { detailJob?.cancel(); selected = null; detailHistory.clear() }

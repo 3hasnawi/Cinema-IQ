@@ -81,7 +81,10 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                                     Label(it, 14, Color(0xFFAAAAAA), true)
                                 }
                             }
-                            RatingChip(film.rating, size = 14)
+                            if(film.imdbRating.isNotBlank()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Label("IMDb", 14, Color(0xFFF5C518), true)
+                                Label(film.imdbRating, 14, Color.White, true)
+                            } else RatingChip(film.rating, size = 14)
                             Label(if(film.series) "مسلسل" else "فيلم", 13, Color(0xFFAAAAAA))
                             Label(film.description.ifBlank { if(vm.detailBusy) "جارٍ تحميل التفاصيل…" else "لا يتوفر وصف لهذا العمل." },
                                 15, Color.White.copy(alpha = .86f), lines = 2)

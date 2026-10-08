@@ -30,6 +30,28 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
     private class Entry(val at: Long, val match: ArtworkMatch?)
     private val known = HashMap<String, Entry>()
     private var loaded = false
+    private val imdbLock = Mutex()
+    private val imdbIds = mutableMapOf<String, String>()
+
+    /** Resolve the trusted TMDB match to its official external IMDb identifier. */
+    suspend fun imdbId(film: Film): String = withContext(Dispatchers.IO) {
+        imdbLock.withLock {
+            imdbIds[film.id]?.let { return@withLock it }
+            val match = lookup(film) ?: return@withLock ""
+            if(match.tmdbId <= 0) return@withLock ""
+            val path = if(film.series) "3/tv/${match.tmdbId}/external_ids" else "3/movie/${match.tmdbId}"
+            val url = HttpUrl.Builder().scheme("https").host("api.themoviedb.org").addPathSegments(path)
+                .addQueryParameter("api_key", apiKey).build()
+            val id = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if(!response.isSuccessful) throw IOException("TMDB external IDs ${response.code}")
+                JsonMapper.text(JSONObject(response.body?.string() ?: throw IOException("TMDB empty")), "imdb_id")
+                    .takeIf { it.matches(Regex("tt\\d+")) }.orEmpty()
+            }
+            imdbIds[film.id] = id
+            id
+        }
+    }
+
     private val seasonLock = Mutex()
     private val seasonFile = cacheFile?.let { File(it.parentFile, "tmdb-seasons.json") }
     private val seasonCache = mutableMapOf<String, Pair<Long, JSONObject>>()
