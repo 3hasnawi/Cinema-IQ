@@ -17,6 +17,9 @@ import java.util.concurrent.TimeUnit
 /** Artwork and synopsis for one title as published by TMDB. Any field may be blank. */
 data class ArtworkMatch(val backdrop: String, val poster: String, val overview: String, val rating: String, val originalTitle: String = "", val genreIds: Set<Int> = emptySet(), val tmdbId: Int = 0, val originalLanguage: String = "")
 
+data class CastMember(val id: Int, val name: String, val image: String)
+data class WorkCredits(val cast: List<CastMember>, val directors: List<String>, val creators: List<String>, val year: String)
+
 /**
  * Looks titles up on TMDB (themoviedb.org) to replace weak source artwork with sharp backdrops and posters, and
  * to fill a missing synopsis. A title is only accepted when its name (and year, when known) really match, so a
@@ -30,6 +33,49 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
     private class Entry(val at: Long, val match: ArtworkMatch?)
     private val known = HashMap<String, Entry>()
     private var loaded = false
+    private val creditsLock = Mutex()
+    private val creditsCache = mutableMapOf<String, Pair<Long, JSONObject>>()
+    private val creditsFile = cacheFile?.let { File(it.parentFile, "tmdb-credits.json") }
+    private var creditsLoaded = false
+
+    /** Cast and directors belong to the exact matched title, not a previous details page. */
+    suspend fun credits(film: Film): WorkCredits? {
+        val match = lookup(film) ?: return null
+        if(match.tmdbId <= 0) return null
+        return withContext(Dispatchers.IO) { creditsLock.withLock {
+            if(!creditsLoaded) {
+                creditsLoaded = true
+                runCatching {
+                    val root = JSONObject(creditsFile?.takeIf { it.exists() }?.readText() ?: "{}")
+                    root.keys().forEach { key -> root.optJSONObject(key)?.let { entry ->
+                        entry.optJSONObject("data")?.let { creditsCache[key] = entry.optLong("at") to it }
+                    } }
+                }
+            }
+            val key = "${film.series}:${match.tmdbId}"
+            val cached = creditsCache[key]?.takeIf { System.currentTimeMillis() - it.first < 7 * 24 * 60 * 60 * 1000L }
+            val data = cached?.second ?: run {
+                val url = HttpUrl.Builder().scheme("https").host("api.themoviedb.org")
+                    .addPathSegments("3/${if(film.series) "tv" else "movie"}/${match.tmdbId}")
+                    .addQueryParameter("api_key", apiKey).addQueryParameter("language", "ar")
+                    .addQueryParameter("append_to_response", "credits").build()
+                val responseData = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                    if(!response.isSuccessful) throw IOException("TMDB credits ${response.code}")
+                    JSONObject(response.body?.string() ?: throw IOException("TMDB empty credits"))
+                }
+                creditsCache[key] = System.currentTimeMillis() to responseData
+                if(creditsCache.size > 100) creditsCache.remove(creditsCache.minBy { it.value.first }.key)
+                runCatching {
+                    val root = JSONObject()
+                    creditsCache.forEach { (id, entry) -> root.put(id, JSONObject().put("at", entry.first).put("data", entry.second)) }
+                    creditsFile?.writeText(root.toString())
+                }
+                responseData
+            }
+            parseCredits(data, film.series)
+        } }
+    }
+
     private val imdbLock = Mutex()
     private val imdbIds = mutableMapOf<String, String>()
 
@@ -203,6 +249,24 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
                 if (exact || loose) return r
             }
             return null
+        }
+
+        fun parseCredits(data: JSONObject, series: Boolean): WorkCredits {
+            val credits = data.optJSONObject("credits") ?: JSONObject()
+            val cast = JsonMapper.array(credits.opt("cast")).mapNotNull { actor ->
+                val id = actor.optInt("id")
+                val name = JsonMapper.text(actor, "name", "original_name")
+                if(id <= 0 || name.isBlank()) return@mapNotNull null
+                val path = JsonMapper.text(actor, "profile_path")
+                CastMember(id, name, if(path.isBlank()) "" else ImageBase + "w185" + path)
+            }.distinctBy { it.id }.take(30)
+            val directors = JsonMapper.array(credits.opt("crew")).filter { JsonMapper.text(it, "job") == "Director" }
+                .map { JsonMapper.text(it, "name", "original_name") }.filter { it.isNotBlank() }.distinct()
+            val creators = if(series) JsonMapper.array(data.opt("created_by"))
+                .map { JsonMapper.text(it, "name", "original_name") }.filter { it.isNotBlank() }.distinct() else emptyList()
+            val year = JsonMapper.text(data, if(series) "first_air_date" else "release_date").take(4)
+                .takeIf { it.length == 4 && it.all(Char::isDigit) }.orEmpty()
+            return WorkCredits(cast, directors, creators, year)
         }
 
         /** Parse episode-specific metadata; TMDB scores are deliberately separate from IMDb. */
