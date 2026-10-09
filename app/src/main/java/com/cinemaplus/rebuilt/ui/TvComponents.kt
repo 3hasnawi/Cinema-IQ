@@ -363,6 +363,8 @@ fun TvShelfRow(
     onFilmFocused: (Film) -> Unit = {},
     width: Dp = if (wide) TvMetrics.ContinueWidth else TvMetrics.PosterWidth,
     firstRequester: FocusRequester? = null,
+    /** Which card carries [firstRequester]; the first one unless the caller restores another. */
+    firstRequesterIndex: Int = 0,
     entryRequester: FocusRequester? = null,
     suppliedRowState: LazyListState? = null,
     cardModifier: (Int) -> Modifier = { Modifier },
@@ -403,7 +405,7 @@ fun TvShelfRow(
                 itemsIndexed(shelf.films, key = { _, film -> film.id }, contentType = { _, _ -> "film-card" }) { index, film ->
                     FilmCard(film, vm.library.fraction(film.id), wide, width,
                         modifier = cardModifier(index),
-                        requester = if (index == 0) firstRequester else null,
+                        requester = if (index == firstRequesterIndex) firstRequester else null,
                         restoreFocus = memory.returning && memory.focusedId == film.id,
                         preview = preview,
                         describe = describe,

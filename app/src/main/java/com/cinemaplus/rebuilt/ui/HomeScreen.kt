@@ -133,10 +133,24 @@ fun HomeScreen(vm: CinemaViewModel) {
         if (rowIndex.intValue >= 0) awaitTvFocus { rows.getOrNull(rowIndex.intValue)?.let { entryRequesters[it.id] } }
         else awaitTvFocus { heroFocus }
     }
+    // The list can change under the viewer (a shelf appears or goes). Stay on the same shelf, or the nearest one.
+    val shownShelf = remember { arrayOfNulls<String>(1) }
+    LaunchedEffect(rows) {
+        val current = rowIndex.intValue
+        if (current < 0) { shownShelf[0] = null; return@LaunchedEffect }
+        val id = shownShelf[0] ?: rows.getOrNull(current)?.id
+        val moved = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: current.coerceAtMost(rows.size - 1)
+        shownShelf[0] = rows.getOrNull(moved)?.id
+        if (moved != current) {
+            rowIndex.intValue = moved; memory.row = moved
+            if (moved >= 0) awaitTvFocus { entryRequesters[rows[moved].id] } else awaitTvFocus { heroFocus }
+        }
+    }
     fun go(destination: Int) {
         if (navigationJob[0]?.isActive == true) return
         navigationJob[0] = scope.launch {
             rowIndex.intValue = destination; memory.row = destination
+            shownShelf[0] = rows.getOrNull(destination)?.id
             if (destination < 0) awaitTvFocus { heroFocus } else awaitTvFocus { entryRequesters[rows[destination].id] }
         }
     }
@@ -215,7 +229,7 @@ private fun ShelfStage(rows: List<Shelf>, rowIndex: IntState, vm: CinemaViewMode
             val entryIndex = remember(shelf.id) { (memory.cards[shelf.id] ?: 0).coerceIn(0, shelf.films.lastIndex) }
             val state = rowStates.getOrPut(shelf.id) { androidx.compose.foundation.lazy.LazyListState(entryIndex) }
             TvShelfRow(shelf, vm, wide = shelf.id == "recent", suppliedRowState = state, preview = false,
-                cardModifier = { cardIndex -> if (cardIndex == entryIndex) Modifier.focusRequester(entry) else Modifier },
+                firstRequester = entry, firstRequesterIndex = entryIndex,
                 onFilmFocused = { film ->
                     memory.cards[shelf.id] = shelf.films.indexOfFirst { it.id == film.id }.coerceAtLeast(0)
                     focused.value = film
