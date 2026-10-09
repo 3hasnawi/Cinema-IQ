@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.drawOutline
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -257,6 +258,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                                 }
                             }
                             "cast" -> Column(Modifier.fillMaxSize().padding(bottom = 28.dp), verticalArrangement = Arrangement.Bottom) {
+                              credits?.let { credits ->
                         Column(Modifier.padding(horizontal = 24.dp).then(if(!hasCast) Modifier.focusRequester(infoFocus)
                             .onFocusChanged { if(it.isFocused) focusedSection = "credits-info" }.focusable() else Modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Label("طاقم العمل", 22, Color.White, true)
@@ -284,6 +286,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                                 }
                             }
                         }
+                              }
                             }
                             else -> Column(Modifier.fillMaxSize().padding(bottom = 28.dp), verticalArrangement = Arrangement.Bottom) {
                                 Label("أعمال مشابهة", 22, Color.White, true, Modifier.padding(horizontal = 24.dp))
