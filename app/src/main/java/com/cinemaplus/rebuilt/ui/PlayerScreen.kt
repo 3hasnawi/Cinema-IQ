@@ -65,6 +65,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.Film
+import com.cinemaplus.rebuilt.data.PlaybackSpeed
 import com.cinemaplus.rebuilt.data.SceneFilter
 import kotlinx.coroutines.delay
 import java.util.Locale
@@ -95,6 +96,9 @@ fun PlayerScreen(vm: CinemaViewModel) {
     val nextEpisodeFocus = remember { FocusRequester() }
     var nextEpisodeFocused by remember { mutableStateOf(false) }
     var ended by remember(film.id) { mutableStateOf(false) }
+    // Playback speed is a viewing habit, not a per-film setting, so it survives episode changes.
+    var speed by remember { mutableFloatStateOf(1f) }
+    var countdown by remember(film.id) { mutableStateOf<Int?>(null) }
     val qualityFocus = remember { FocusRequester() }
     var streamIndex by remember(film.id, vm.streams) { mutableIntStateOf(
         vm.streams.indexOfFirst { it.resolution.removeSuffix("p") == vm.quality.removeSuffix("p") }.coerceAtLeast(0)) }
@@ -183,6 +187,15 @@ fun PlayerScreen(vm: CinemaViewModel) {
     }
     fun closePanel() { panel = null; reveal() }
     fun playEpisode(episode: Film) { saveProgress(); panel = null; vm.play(episode) }
+    LaunchedEffect(speed) { player.setPlaybackSpeed(speed) }
+    // After an episode ends, count down and start the next one unless the viewer turns it off or leaves.
+    LaunchedEffect(ended, next?.id, vm.autoNext) {
+        if (ended && next != null && film.episode > 0 && vm.autoNext) {
+            for (left in PlaybackSpeed.AUTO_NEXT_SECONDS downTo 1) { countdown = left; delay(1000) }
+            countdown = null
+            playEpisode(next)
+        } else countdown = null
+    }
 
     BackHandler {
         when {
@@ -491,7 +504,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
         }
         if(offerNext && next != null && panel == null && !episodesShown) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                TvActionButton("الحلقة التالية", icon = Icons.Rounded.PlayArrow, modifier = Modifier.align(Alignment.BottomEnd)
+                TvActionButton(countdown?.let { "الحلقة التالية ($it)" } ?: "الحلقة التالية", icon = Icons.Rounded.PlayArrow, modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = TvMetrics.EdgeInset, bottom = 142.dp)
                     .focusRequester(nextEpisodeFocus)
                     .onFocusChanged { nextEpisodeFocused = it.isFocused }
@@ -511,21 +524,29 @@ fun PlayerScreen(vm: CinemaViewModel) {
             .background(GlassStrong, RoundedCornerShape(24.dp)).padding(28.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Label(error, 15, Color.White, lines = 3)
             if(playerError != null) Action("أعد المحاولة") { playerError = null; reveal(); player.prepare(); player.play() }
+            else if(vm.playbackError != null) Action("أعد المحاولة") { vm.play(film) }
         }
     }
     panel?.let { shown ->
         PlayerOptionsDialog(title = when(shown) {
-            PlayerPanel.Quality -> "جودة الفيديو"; PlayerPanel.Tracks -> "الصوت والترجمة"; PlayerPanel.SubtitleStyle -> "مظهر الترجمة"
+            PlayerPanel.Quality -> "الجودة والسرعة"; PlayerPanel.Tracks -> "الصوت والترجمة"; PlayerPanel.SubtitleStyle -> "مظهر الترجمة"
         },
             anchor = panelAnchor,
             width = when(shown) { PlayerPanel.Quality -> 240.dp; PlayerPanel.Tracks -> 340.dp; PlayerPanel.SubtitleStyle -> 320.dp },
             onDismiss = ::closePanel,
             onMediaToggle = { interact(); togglePlayback() }) { firstFocus ->
             when(shown) {
-                PlayerPanel.Quality -> vm.streams.forEachIndexed { index, stream ->
-                    PlayerOption(stream.resolution, selected = index == streamIndex,
-                        modifier = if(index == 0) Modifier.focusRequester(firstFocus) else Modifier) {
-                        saveProgress(); vm.chooseQuality(stream.resolution); streamIndex = index; closePanel()
+                PlayerPanel.Quality -> {
+                    vm.streams.forEachIndexed { index, stream ->
+                        PlayerOption(stream.resolution, selected = index == streamIndex,
+                            modifier = if(index == 0) Modifier.focusRequester(firstFocus) else Modifier) {
+                            saveProgress(); vm.chooseQuality(stream.resolution); streamIndex = index; closePanel()
+                        }
+                    }
+                    // Cycles and stays open so the change is felt immediately.
+                    PlayerOption("السرعة: ${PlaybackSpeed.label(speed)}", false,
+                        if(vm.streams.isEmpty()) Modifier.focusRequester(firstFocus) else Modifier) {
+                        interact(); speed = PlaybackSpeed.next(speed)
                     }
                 }
                 PlayerPanel.SubtitleStyle -> {

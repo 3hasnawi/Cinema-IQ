@@ -45,6 +45,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.PlayerView
 import com.cinemaplus.rebuilt.CinemaViewModel
+import com.cinemaplus.rebuilt.data.PlaybackSpeed
 import com.cinemaplus.rebuilt.data.SceneFilter
 import com.cinemaplus.rebuilt.ui.mediaTitle
 import kotlinx.coroutines.CancellationException
@@ -66,6 +67,8 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     var qualityChosen by remember(film.id) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
     var ended by remember(film.id) { mutableStateOf(false) }
+    var speed by remember { mutableFloatStateOf(1f) }
+    var countdown by remember(film.id) { mutableStateOf<Int?>(null) }
     var offerNext by remember(film.id) { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
@@ -161,6 +164,15 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
             delay(400)
         }
     }
+    LaunchedEffect(speed) { player.setPlaybackSpeed(speed) }
+    // After an episode ends, count down and start the next one unless the viewer turns it off or leaves.
+    LaunchedEffect(ended, next?.id, vm.autoNext) {
+        if (ended && next != null && film.episode > 0 && vm.autoNext) {
+            for (left in PlaybackSpeed.AUTO_NEXT_SECONDS downTo 1) { countdown = left; delay(1000) }
+            countdown = null
+            saveProgress(); vm.play(next)
+        } else countdown = null
+    }
     LaunchedEffect(player, film.id, next?.id) {
         while (true) {
             offerNext = player.currentMediaItem?.mediaId == film.id && film.episode > 0 &&
@@ -255,7 +267,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                     .displayCutoutPadding().navigationBarsPadding().padding(end = 20.dp, bottom = 138.dp)) {
                     PlayerTransportIcon("▶|", Color.Black, 20.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text("الحلقة التالية")
+                    Text(countdown?.let { "الحلقة التالية ($it)" } ?: "الحلقة التالية")
                 }
             }
         }
@@ -276,15 +288,18 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     }
     panel?.let { shown ->
         MobileOptionsPopup(title = when (shown) {
-            MobilePanel.Quality -> "جودة الفيديو"; MobilePanel.Tracks -> "الصوت والترجمة"; MobilePanel.SubtitleStyle -> "مظهر الترجمة"
+            MobilePanel.Quality -> "الجودة والسرعة"; MobilePanel.Tracks -> "الصوت والترجمة"; MobilePanel.SubtitleStyle -> "مظهر الترجمة"
         }, anchor = anchors[shown] ?: IntRect.Zero,
             width = when (shown) { MobilePanel.Quality -> 200.dp; MobilePanel.Tracks -> 300.dp; MobilePanel.SubtitleStyle -> 280.dp },
             onDismiss = { panel = null; interact() }) {
             when (shown) {
-                MobilePanel.Quality -> vm.streams.forEachIndexed { index, stream ->
-                    MobileOption(stream.resolution, index == qualityIndex) {
-                        saveProgress(); qualityChosen = true; vm.chooseQuality(stream.resolution); qualityIndex = index; panel = null
+                MobilePanel.Quality -> {
+                    vm.streams.forEachIndexed { index, stream ->
+                        MobileOption(stream.resolution, index == qualityIndex) {
+                            saveProgress(); qualityChosen = true; vm.chooseQuality(stream.resolution); qualityIndex = index; panel = null
+                        }
                     }
+                    MobileOption("السرعة: ${PlaybackSpeed.label(speed)}", false) { interact(); speed = PlaybackSpeed.next(speed) }
                 }
                 MobilePanel.SubtitleStyle -> {
                     // Each row cycles to the next value and stays open, so the sample below shows the change at once.

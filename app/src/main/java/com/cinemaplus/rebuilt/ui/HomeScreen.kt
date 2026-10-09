@@ -458,6 +458,7 @@ fun ContentRailRow(shelf: Shelf, vm: CinemaViewModel, firstRequester: FocusReque
     TvShelfRow(shelf, vm, wide = wide || shelf.id == "recent", firstRequester = firstRequester, suppliedRowState = rowState,
         cardModifier = { Modifier.focusProperties { if (heroFocus != null) up = heroFocus } },
         onFilmFocused = onFocused,
+        onCardLongClick = if (shelf.id == "recent") { film -> vm.showRecentOptions(film) } else null,
         onCardClick = { if (shelf.id == "recent") vm.play(it) else vm.open(it) })
 }
 

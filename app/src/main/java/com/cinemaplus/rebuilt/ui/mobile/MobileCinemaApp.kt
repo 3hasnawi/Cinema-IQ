@@ -104,6 +104,14 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
             labelSmall = t.labelSmall.copy(fontFamily = Cairo)) }
         MaterialTheme(colorScheme = darkColorScheme(primary = Accent, onPrimary = OnAccent,
             background = Ink, surface = Panel, onBackground = Color.White, onSurface = Color.White), typography = typography) {
+            vm.recentOptions?.let { film ->
+                AlertDialog(onDismissRequest = { vm.dismissRecentOptions() }, title = { Text(film.title, maxLines = 2) },
+                    text = { Column {
+                        TextButton(onClick = { vm.removeRecent(film) }) { Text("إزالة من تابع المشاهدة") }
+                        TextButton(onClick = { vm.markWatched(film) }) { Text("تعليم كمشاهَد") }
+                    } },
+                    confirmButton = {}, dismissButton = { TextButton(onClick = { vm.dismissRecentOptions() }) { Text("إلغاء") } })
+            }
             if (exit) AlertDialog(onDismissRequest = { exit = false }, title = { Text("الخروج من التطبيق؟") },
                 confirmButton = { TextButton(onClick = { activity?.finish() }) { Text("خروج") } },
                 dismissButton = { TextButton(onClick = { exit = false }) { Text("إلغاء") } })
@@ -157,7 +165,8 @@ private fun MobileBrowse(vm: CinemaViewModel) {
                 SectionHeader(shelf.title, Modifier.padding(horizontal = 16.dp), count = shelf.films.size)
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(shelf.films, key = { it.id }) { film ->
-                        MobileCard(vm.withArtwork(film), vm.library.fraction(film.id), shelf.id == "recent") {
+                        MobileCard(vm.withArtwork(film), vm.library.fraction(film.id), shelf.id == "recent",
+                            onLongClick = if (shelf.id == "recent") { { vm.showRecentOptions(film) } } else null) {
                             if (shelf.id == "recent") vm.play(film) else vm.open(film)
                         }
                     }
@@ -175,8 +184,11 @@ private fun MobileBrowse(vm: CinemaViewModel) {
 }
 
 @Composable
-private fun MobileCard(film: Film, progress: Float, wide: Boolean, width: androidx.compose.ui.unit.Dp = if (wide) 230.dp else 132.dp, click: () -> Unit) {
-    Column(Modifier.width(width).clickable(onClick = click), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun MobileCard(film: Film, progress: Float, wide: Boolean, width: androidx.compose.ui.unit.Dp = if (wide) 230.dp else 132.dp,
+    onLongClick: (() -> Unit)? = null, click: () -> Unit) {
+    Column(Modifier.width(width).then(if (onLongClick != null) Modifier.combinedClickable(onClick = click, onLongClick = onLongClick)
+        else Modifier.clickable(onClick = click)), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box {
             AsyncImage(if (wide) film.backdrop.ifBlank { film.poster } else film.poster, mediaTitle(film),
                 Modifier.fillMaxWidth().aspectRatio(if (wide) 16f / 9f else 2f / 3f).clip(RoundedCornerShape(10.dp)).background(Panel),
@@ -198,6 +210,14 @@ private fun MobileDetails(vm: CinemaViewModel) {
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
+    // The episode Play starts: the one in progress, else the first not yet watched.
+    val resume = remember(film.id, vm.seasons, revision) { if (film.series) vm.resumeEpisode(film) else null }
+    val playLabel = when {
+        resume == null -> "شاهد الآن"
+        vm.library.progress(resume.id) > 0 -> "استئناف الحلقة ${resume.episode}"
+        resume.episode > 1 || resume.season > 1 -> "تشغيل الحلقة ${resume.episode}"
+        else -> "شاهد الآن"
+    }
     var showTrailer by remember(film.id) { mutableStateOf(false) }
     val candidates = vm.shelves.map { shelf -> shelf.copy(films = shelf.films.map(vm::withArtwork)) }
     val related = phoneRelatedFilms(film, candidates)
@@ -224,8 +244,8 @@ private fun MobileDetails(vm: CinemaViewModel) {
                     listOf(film.year, formatContentDuration(film.duration), film.contentQuality, film.edition).forEach { InfoChip(it) }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(enabled = !film.series || season?.episodes?.isNotEmpty() == true,
-                        onClick = { vm.play(if (film.series) season?.episodes?.firstOrNull()?.copy(seriesId = film.id, season = season.number) ?: film else film) }) { Icon(Icons.Rounded.PlayArrow, null); Text("شاهد الآن") }
+                    Button(enabled = !film.series || resume != null,
+                        onClick = { vm.play(if (film.series) resume ?: film else film) }) { Icon(Icons.Rounded.PlayArrow, null); Text(playLabel) }
                     OutlinedButton(onClick = { vm.toggle(film) }) { Text(if (saved) "إزالة من قائمتي" else "قائمتي") }
                     IconButton(onClick = { showTrailer = true }) { Icon(TrailerIcon, "التريلر") }
                 }
@@ -292,6 +312,7 @@ private fun MobileSettings(vm: CinemaViewModel) {
         } }
         item { MobileChoice("ارتفاع الترجمة", "${(vm.subtitleHeight * 100).toInt()}%") { vm.chooseSubtitleHeight(if (vm.subtitleHeight >= .25f) .08f else vm.subtitleHeight + .04f) } }
         item { MobileChoice("الجودة المفضلة", vm.quality) { val qualities = listOf("تلقائي", "1080p", "720p", "480p"); vm.chooseQuality(qualities[(qualities.indexOf(vm.quality) + 1) % qualities.size]) } }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Text("تشغيل الحلقة التالية تلقائيًا", Modifier.weight(1f)); Switch(vm.autoNext, vm::chooseAutoNext) } }
         item { Row(verticalAlignment = Alignment.CenterVertically) { Text("المشاهدة العائلية", Modifier.weight(1f)); Switch(vm.sceneFilter, vm::chooseSceneFilter) } }
         item { Text("تحديث التطبيق", fontWeight = FontWeight.Bold)
             TextButton(enabled = !vm.updateBusy, onClick = { vm.checkUpdates(manual = true) }) { Text("فحص التحديثات") }

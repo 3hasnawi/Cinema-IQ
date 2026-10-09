@@ -90,6 +90,15 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     }
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
+    // The episode Play starts: the one in progress, else the first not yet watched.
+    val resume = remember(film.id, vm.seasons, revision) { if (film.series) vm.resumeEpisode(film) else null }
+    val playLabel = when {
+        !film.series -> if (vm.library.progress(film.id) > 0) "استئناف" else "تشغيل"
+        resume == null -> "تشغيل"
+        vm.library.progress(resume.id) > 0 -> "استئناف الحلقة ${resume.episode}"
+        resume.episode > 1 || resume.season > 1 -> "تشغيل الحلقة ${resume.episode}"
+        else -> "تشغيل"
+    }
     BackHandler(enabled = !showTrailer) { vm.backDetail() }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
@@ -159,12 +168,10 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                             horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.Bottom) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    DetailsControl(if(vm.library.progress(film.id) > 0) "استئناف" else "تشغيل",
+                                    DetailsControl(playLabel,
                                         Modifier.width(210.dp).height(52.dp).focusRequester(playFocus),
-                                        true, enabled = !film.series || episodes.isNotEmpty()) {
-                                        if(film.series) episodes.firstOrNull()?.let {
-                                            vm.play(it.copy(seriesId = film.id, season = season?.number ?: it.season))
-                                        } else vm.play(film)
+                                        true, enabled = !film.series || resume != null) {
+                                        if(film.series) resume?.let { vm.play(it) } else vm.play(film)
                                     }
                                     DetailsControl("عرض التريلر", Modifier.size(52.dp).focusRequester(trailerFocus),
                                         false, icon = TrailerIcon) { showTrailer = true }

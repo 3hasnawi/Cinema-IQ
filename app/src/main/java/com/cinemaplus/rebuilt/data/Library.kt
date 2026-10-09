@@ -83,6 +83,13 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
         edit.apply()
     }
     fun recent(): List<Film> = films("recent")
+    /** Takes a title out of continue watching and stops following its series; its progress is reset. */
+    fun removeFromContinueWatching(film: Film) {
+        recentHead = null
+        prefs.edit().putString("recent", JSONArray(ContinueWatching.remove(recent(), film).map(::json)).toString())
+            .putString("followed_series", JSONArray(ContinueWatching.unfollow(followedSeries(), film).map(::json)).toString())
+            .putLong("position_${film.id}", 0).putLong("duration_${film.id}", 0).apply()
+    }
     fun fraction(id: String): Float {
         val d = prefs.getLong("duration_$id", 0)
         return if (d > 0) (progress(id).toFloat() / d).coerceIn(0f, 1f) else 0f
@@ -117,6 +124,10 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
     var subtitleLanguage: String
         get() = prefs.getString("subtitle_language", "ar") ?: "ar"
         set(v) { prefs.edit().putString("subtitle_language", v).apply() }
+    /** Start the next episode on its own after a short countdown. */
+    var autoNext: Boolean
+        get() = prefs.getBoolean("auto_next", true)
+        set(v) { prefs.edit().putBoolean("auto_next", v).apply() }
     var subtitleBackground: Float
         get() = prefs.getFloat("subtitle_background", .5f)
         set(v) { prefs.edit().putFloat("subtitle_background", v.coerceIn(0f, 1f)).apply() }

@@ -125,6 +125,8 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     var subtitleSize by mutableFloatStateOf(library.subtitleSize)
     var subtitleLanguage by mutableStateOf(library.subtitleLanguage)
     var subtitleBackground by mutableFloatStateOf(library.subtitleBackground)
+    var autoNext by mutableStateOf(library.autoNext)
+    fun chooseAutoNext(value: Boolean) { autoNext = value; library.autoNext = value }
     fun chooseSubtitleSize(value: Float) { subtitleSize = value; library.subtitleSize = value }
     fun chooseSubtitleLanguage(value: String) { subtitleLanguage = value; library.subtitleLanguage = value }
     fun chooseSubtitleBackground(value: Float) { subtitleBackground = value; library.subtitleBackground = value }
@@ -416,6 +418,17 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
     fun stop() { playJob?.cancel(); playing = null; streams = emptyList(); playbackBusy = false }
+    /** The episode a series' Play button starts, based on this profile's progress. */
+    fun resumeEpisode(film: Film): Film? =
+        ContinueWatching.resume(seasons, library::isCompleted, library::progress)?.copy(seriesId = film.id)
+    /** Title whose continue-watching options dialog is open (long press on a card). */
+    var recentOptions by mutableStateOf<Film?>(null)
+        private set
+    fun showRecentOptions(film: Film) { recentOptions = film }
+    fun dismissRecentOptions() { recentOptions = null }
+    fun removeRecent(film: Film) { library.removeFromContinueWatching(film); libraryRevision++; recentOptions = null }
+    /** Marks the title watched; for an episode the next one takes its place in the list. */
+    fun markWatched(film: Film) { completePlayback(film); recentOptions = null }
     fun nextEpisode(): Film? = ContinueWatching.next(seasons, playing?.id.orEmpty())
     fun recordProgress(film: Film, position: Long, duration: Long) {
         library.saveProgress(film, position, duration)
