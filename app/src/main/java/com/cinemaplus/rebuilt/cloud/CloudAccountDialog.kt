@@ -6,6 +6,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -14,7 +17,7 @@ import kotlinx.coroutines.launch
 
 /** Touch and D-pad accessible email account controls, independent of source login. */
 @Composable
-fun CloudAccountDialog(sourceSignedIn: Boolean = true, onSourceLogin: ((String, String) -> Unit)? = null, onDismiss: () -> Unit) {
+fun CloudAccountDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf(CloudAccount.email.orEmpty()) }
@@ -22,21 +25,18 @@ fun CloudAccountDialog(sourceSignedIn: Boolean = true, onSourceLogin: ((String, 
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var showImport by remember { mutableStateOf(false) }
-    // One screen signs in to both accounts. The source password stays on this device and never goes to Firebase.
-    var sourceUser by remember { mutableStateOf("") }
-    var sourcePassword by remember { mutableStateOf("") }
-    val askSource = !sourceSignedIn && onSourceLogin != null
-    fun signInSource() {
-        if(askSource && sourceUser.isNotBlank() && sourcePassword.isNotEmpty()) onSourceLogin?.invoke(sourceUser.trim(), sourcePassword)
-        sourcePassword = ""
+    val emailFocus = remember { FocusRequester() }
+    val passwordFocus = remember { FocusRequester() }
+    val primaryFocus = remember { FocusRequester() }
+    val registerFocus = remember { FocusRequester() }
+    val resetFocus = remember { FocusRequester() }
+    val closeFocus = remember { FocusRequester() }
+    val secondaryFocus = remember { FocusRequester() }
+    val logoutFocus = remember { FocusRequester() }
+    LaunchedEffect(CloudAccount.email, CloudAccount.verified) {
+        com.cinemaplus.rebuilt.ui.awaitTvFocus { if(CloudAccount.email == null) emailFocus else primaryFocus }
     }
-    @Composable fun SourceFields() {
-        if(!askSource) return
-        Text("حساب سينمانا (اختياري، يبقى على هذا الجهاز فقط)")
-        OutlinedTextField(sourceUser, { sourceUser = it }, label = { Text("اسم مستخدم سينمانا") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        OutlinedTextField(sourcePassword, { sourcePassword = it }, label = { Text("كلمة مرور سينمانا") }, singleLine = true,
-            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-    }
+
     fun action(block: suspend () -> Unit) {
         if(busy) return
         scope.launch {
@@ -55,31 +55,32 @@ fun CloudAccountDialog(sourceSignedIn: Boolean = true, onSourceLogin: ((String, 
                 Text(CloudAccount.email.orEmpty())
                 if(!CloudAccount.verified) {
                     Text("أكد البريد من الرسالة التي وصلتك، ثم اضغط تحقق.")
-                    TextButton(enabled = !busy, onClick = { action { CloudAccount.verifyAgain(); message = if(CloudAccount.verified) "تم تأكيد الحساب" else "البريد لم يؤكد بعد" } }) { Text("تحقق من تأكيد البريد") }
-                    TextButton(enabled = !busy, onClick = { action { CloudAccount.resendVerification(); message = "أُرسلت رسالة التأكيد" } }) { Text("إعادة إرسال التأكيد") }
+                    TextButton(modifier = Modifier.focusRequester(primaryFocus).focusProperties { up = closeFocus; down = secondaryFocus }, enabled = !busy, onClick = { action { CloudAccount.verifyAgain(); message = if(CloudAccount.verified) "تم تأكيد الحساب" else "البريد لم يؤكد بعد" } }) { Text("تحقق من تأكيد البريد") }
+                    TextButton(modifier = Modifier.focusRequester(secondaryFocus).focusProperties { up = primaryFocus; down = logoutFocus }, enabled = !busy, onClick = { action { CloudAccount.resendVerification(); message = "أُرسلت رسالة التأكيد" } }) { Text("إعادة إرسال التأكيد") }
                 } else {
                     Text(CloudLibrarySync.status)
                     CloudProfileSync.error?.let { Text(it) }
-                    TextButton(enabled = !busy, onClick = { showImport = true }) { Text("ضم بيانات هذا الجهاز إلى الحساب") }
-                    SourceFields()
-                    if(askSource) TextButton(enabled = sourceUser.isNotBlank() && sourcePassword.isNotEmpty(),
-                        onClick = { signInSource(); message = "جارٍ تسجيل الدخول إلى سينمانا" }) { Text("دخول سينمانا") }
+                    TextButton(modifier = Modifier.focusRequester(primaryFocus).focusProperties { up = closeFocus; down = logoutFocus }, enabled = !busy, onClick = { showImport = true }) { Text("ضم بيانات هذا الجهاز إلى الحساب") }
                 }
-                TextButton(enabled = !busy, onClick = { CloudAccount.logout(); onDismiss() }) { Text("تسجيل الخروج") }
+                TextButton(modifier = Modifier.focusRequester(logoutFocus).focusProperties { up = if(CloudAccount.verified) primaryFocus else secondaryFocus; down = closeFocus }, enabled = !busy, onClick = { CloudAccount.logout(); onDismiss() }) { Text("تسجيل الخروج") }
             } else {
-                OutlinedTextField(email, { email = it }, label = { Text("البريد الإلكتروني") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(password, { password = it }, label = { Text("كلمة المرور") }, singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                SourceFields()
+                AccountTextField(email, { email = it }, "البريد الإلكتروني", emailFocus, closeFocus, passwordFocus, Modifier.fillMaxWidth(), email = true, enabled = !busy)
+                AccountTextField(password, { password = it }, "كلمة المرور", passwordFocus, emailFocus, primaryFocus, Modifier.fillMaxWidth(), password = true, done = true, enabled = !busy)
                 Row {
-                    TextButton(enabled = !busy && email.isNotBlank() && password.isNotEmpty(), onClick = { action { CloudAccount.login(email,password); signInSource(); message = if(CloudAccount.verified) "تم تسجيل الدخول" else "أكد بريدك لتفعيل المزامنة" } }) { Text("دخول") }
-                    TextButton(enabled = !busy && email.isNotBlank() && password.length >= 6, onClick = { action { CloudAccount.register(email,password); signInSource(); message = "أُرسلت رسالة لتأكيد بريدك" } }) { Text("إنشاء حساب") }
+                    TextButton(modifier = Modifier.focusRequester(primaryFocus).focusProperties { up = passwordFocus; down = resetFocus; left = registerFocus }, enabled = !busy, onClick = {
+                        if(email.isBlank() || password.isEmpty()) message = "أدخل البريد وكلمة المرور" else action { CloudAccount.login(email,password); message = if(CloudAccount.verified) "تم تسجيل الدخول" else "أكد بريدك لتفعيل المزامنة" }
+                    }) { Text("دخول") }
+                    TextButton(modifier = Modifier.focusRequester(registerFocus).focusProperties { up = passwordFocus; down = resetFocus; right = primaryFocus }, enabled = !busy, onClick = {
+                        if(email.isBlank() || password.length < 6) message = "أدخل بريدك وكلمة مرور من 6 أحرف على الأقل" else action { CloudAccount.register(email,password); message = "أُرسلت رسالة لتأكيد بريدك" }
+                    }) { Text("إنشاء حساب") }
                 }
-                TextButton(enabled = !busy && email.isNotBlank(), onClick = { action { CloudAccount.reset(email); message = "إذا كان البريد مسجلاً فستصلك رسالة استعادة" } }) { Text("نسيت كلمة المرور") }
+                TextButton(modifier = Modifier.focusRequester(resetFocus).focusProperties { up = primaryFocus; down = closeFocus }, enabled = !busy, onClick = {
+                    if(email.isBlank()) message = "أدخل بريدك الإلكتروني أولاً" else action { CloudAccount.reset(email); message = "إذا كان البريد مسجلاً فستصلك رسالة استعادة" }
+                }) { Text("نسيت كلمة المرور") }
             }
             if(busy) CircularProgressIndicator()
             message?.let { Text(it) }
-        } }, confirmButton = { TextButton(enabled = !busy, onClick = onDismiss) { Text("إغلاق") } })
+        } }, confirmButton = { TextButton(modifier = Modifier.focusRequester(closeFocus).focusProperties { up = if(CloudAccount.email == null) resetFocus else logoutFocus; down = if(CloudAccount.email == null) emailFocus else primaryFocus }, enabled = !busy, onClick = onDismiss) { Text("إغلاق") } })
     if(showImport) AlertDialog(onDismissRequest = { showImport = false }, title = { Text("ضم بيانات الجهاز؟") },
         text = { Text("ستُضاف قوائم وبيانات المشاهدة المحلية إلى هذا الحساب. قد تحل بيانات الجهاز محل تقدم العمل نفسه في الحساب.") },
         confirmButton = { TextButton(onClick = { CloudImport.importLocal(context); showImport = false; message = "أُضيفت البيانات؛ تُزامن عند الاتصال" }) { Text("ضم البيانات") } },
