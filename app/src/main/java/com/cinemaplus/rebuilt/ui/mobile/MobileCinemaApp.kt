@@ -297,7 +297,7 @@ private fun MobileDetails(vm: CinemaViewModel) {
 @Composable
 private fun MobileSettings(vm: CinemaViewModel) {
     var cloudDialog by remember { mutableStateOf(false) }
-    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog(vm.signedIn, vm::login) { cloudDialog = false }
+    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog() { cloudDialog = false }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -313,7 +313,7 @@ private fun MobileSettings(vm: CinemaViewModel) {
         }
         item { MobileChoice("لغة أسماء الأعمال", vm.titleLanguage.label) { vm.chooseTitleLanguage(TitleLanguage.entries[(vm.titleLanguage.ordinal + 1) % TitleLanguage.entries.size]) } }
         item {
-            Text("الحساب", fontWeight = FontWeight.Bold)
+            Text("حساب سينمانا", fontWeight = FontWeight.Bold)
             if (vm.signedIn) TextButton(onClick = { vm.logout() }, enabled = !vm.accountBusy) { Text("تسجيل الخروج") }
             else Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(username, { username = it }, label = { Text("اسم المستخدم") }, singleLine = true, modifier = Modifier.fillMaxWidth())

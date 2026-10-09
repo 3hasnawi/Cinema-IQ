@@ -493,7 +493,7 @@ private enum class SettingsSection(val title: String) {
 /** Settings as a hub of cards; each card opens its own short page, and Back returns to the hub. */
 @Composable private fun SettingsScreen(vm: CinemaViewModel) {
     var cloudDialog by remember { mutableStateOf(false) }
-    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog(vm.signedIn, vm::login) { cloudDialog = false }
+    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog() { cloudDialog = false }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     val section = SettingsSection.entries.firstOrNull { it.name == sectionName }
     BackHandler(enabled = section != null) { sectionName = null }
@@ -572,25 +572,7 @@ private enum class SettingsSection(val title: String) {
                 }
             }
             if (section == SettingsSection.Account) SettingsGroup("الحساب") {
-                Action("حساب Cinema iQ والمزامنة") { cloudDialog = true }
-                Label("حساب مصدر المحتوى (سينمانا)", 14, Muted)
-                var username by remember { mutableStateOf("") }
-                var password by remember { mutableStateOf("") }
-                if(vm.signedIn) {
-                    Label("تم تسجيل الدخول", 14, Muted)
-                    Action(if(vm.accountBusy) "جارٍ تسجيل الخروج…" else "تسجيل الخروج") { vm.logout() }
-                } else {
-                    OutlinedTextField(username, { username = it }, singleLine = true, enabled = !vm.accountBusy,
-                        label = { Label("اسم المستخدم") })
-                    OutlinedTextField(password, { password = it }, singleLine = true, enabled = !vm.accountBusy,
-                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password),
-                        label = { Label("كلمة المرور") })
-                    Action(if(vm.accountBusy) "جارٍ تسجيل الدخول…" else "تسجيل الدخول") {
-                        vm.login(username, password); password = ""
-                    }
-                }
-                vm.accountError?.let { Label(it, 12, Muted, lines = 2) }
+                TvAccountSection(vm, cloudDialog) { cloudDialog = true }
             }
             if (section == SettingsSection.Subtitles) SettingsGroup("الترجمة") {
                 SettingRow("حجم الخط", "${vm.subtitleSize.toInt()}") { vm.chooseSubtitleSize(next(sizes, vm.subtitleSize)) }
