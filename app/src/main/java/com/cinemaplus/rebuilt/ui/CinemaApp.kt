@@ -604,6 +604,7 @@ private enum class SettingsSection(val title: String) {
             if (section == SettingsSection.Playback) SettingsGroup("التشغيل") {
                 SettingRow("الجودة المفضلة", vm.quality) { vm.chooseQuality(next(qualities, vm.quality)) }
                 SettingRow("تشغيل الحلقة التالية تلقائيًا", if (vm.autoNext) "مفعّل (عدّاد 8 ثوانٍ)" else "معطّل") { vm.chooseAutoNext(!vm.autoNext) }
+                SettingRow("فلترة المشاهد غير اللائقة", if (vm.sceneFilter) "مفعّلة" else "متوقفة") { vm.chooseSceneFilter(!vm.sceneFilter) }
             }
         }
     }
