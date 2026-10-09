@@ -225,10 +225,20 @@ fun FilmCard(
     // Posters grow into 16:9 at the same height; landscape cards grow 1.5x in both directions.
     val targetWidth = if (!expanded) width else if (wide) width * 1.5f else artHeight * TvMetrics.LandscapeRatio
     val targetHeight = if (expanded && wide) artHeight * 1.5f else artHeight
-    val cardWidth by animateDpAsState(targetWidth, smooth, label = "TV card width")
-    val cardHeight by animateDpAsState(targetHeight, smooth, label = "TV card height")
-    val expandAlpha by animateFloatAsState(if (expanded) 1f else 0f, tween(520), label = "TV card expand")
-    val trailerAlpha by animateFloatAsState(if (trailerPlaying) 1f else 0f, tween(700), label = "TV trailer fade")
+    // The expanding-card design is switched off, so plain values avoid four animation states on every card.
+    val cardWidth: Dp
+    val cardHeight: Dp
+    val expandAlpha: Float
+    val trailerAlpha: Float
+    if (CardExpansionEnabled) {
+        val animatedWidth by animateDpAsState(targetWidth, smooth, label = "TV card width")
+        val animatedHeight by animateDpAsState(targetHeight, smooth, label = "TV card height")
+        val animatedExpand by animateFloatAsState(if (expanded) 1f else 0f, tween(520), label = "TV card expand")
+        val animatedTrailer by animateFloatAsState(if (trailerPlaying) 1f else 0f, tween(700), label = "TV trailer fade")
+        cardWidth = animatedWidth; cardHeight = animatedHeight; expandAlpha = animatedExpand; trailerAlpha = animatedTrailer
+    } else {
+        cardWidth = width; cardHeight = artHeight; expandAlpha = 0f; trailerAlpha = 0f
+    }
     val shape = RoundedCornerShape(TvMetrics.CardRadius)
     val image = if (wide || expanded) f.backdrop.ifBlank { f.poster } else f.poster.ifBlank { f.backdrop }
     val subtitle = if (f.episode > 0) formatContentDuration(f.duration)
@@ -366,6 +376,22 @@ fun TvShelfRow(
     // Plain holder, not state: moving focus along the row must not recompose the cards.
     val memory = rememberSaveable(shelf.id, saver = RowMemorySaver) { RowMemory() }
     val describe = remember(vm) { val lookup: suspend (Film) -> String = { film -> vm.describe(film) }; lookup }
+    // Warm the next cards' artwork while the viewer is still on the current ones, at the exact size the cards use.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val density = LocalDensity.current
+    LaunchedEffect(shelf.id, shelf.films.size, wide, width) {
+        val imageLoader = coil.Coil.imageLoader(context)
+        val widthPx = with(density) { width.roundToPx() }
+        val heightPx = with(density) { (if (wide) width / TvMetrics.LandscapeRatio else width * 1.5f).roundToPx() }
+        snapshotFlow { rowState.firstVisibleItemIndex }.collect { first ->
+            val from = (first + 5).coerceAtMost(shelf.films.size)
+            shelf.films.subList(from, (from + 6).coerceAtMost(shelf.films.size)).forEach { film ->
+                val url = if (wide) film.backdrop.ifBlank { film.poster } else film.poster.ifBlank { film.backdrop }
+                if (url.isNotBlank()) imageLoader.enqueue(coil.request.ImageRequest.Builder(context).data(url)
+                    .size(widthPx, heightPx).scale(coil.size.Scale.FILL).build())
+            }
+        }
+    }
     Column {
         SectionHeader(shelf.title, Modifier.padding(horizontal = TvMetrics.EdgeInset), count = shelf.films.size)
         CompositionLocalProvider(LocalBringIntoViewSpec provides CenteredTvBringIntoView) {
