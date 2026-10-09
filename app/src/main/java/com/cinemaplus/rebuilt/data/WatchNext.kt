@@ -14,9 +14,13 @@ import com.cinemaplus.rebuilt.MainActivity
  */
 object WatchNext {
     const val EXTRA_FILM_ID = "open_film_id"
+    const val EXTRA_PROFILE_ID = "open_profile_id"
+    private val syncLock = Any()
 
-    fun sync(context: Context, library: Library) {
-        if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)) return
+    fun sync(context: Context, library: Library) = synchronized(syncLock) {
+        // View models survive profile changes. Never let an old profile republish its row.
+        if(ProfileStore(context).activeId != library.profileId) return@synchronized
+        if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)) return@synchronized
         try {
             val resolver = context.contentResolver
             val existing = mutableMapOf<String, Long>()
@@ -47,6 +51,7 @@ object WatchNext {
 
     private fun build(context: Context, library: Library, film: Film, engagedAt: Long): WatchNextProgram {
         val open = Intent(context, MainActivity::class.java).putExtra(EXTRA_FILM_ID, film.id)
+            .putExtra(EXTRA_PROFILE_ID, library.profileId)
         val art = film.backdrop.ifBlank { film.poster }
         val builder = WatchNextProgram.Builder()
             .setType(if (film.series) TvContractCompat.WatchNextPrograms.TYPE_TV_EPISODE else TvContractCompat.WatchNextPrograms.TYPE_MOVIE)

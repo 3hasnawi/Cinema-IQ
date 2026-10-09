@@ -37,8 +37,10 @@ class MainActivity : ComponentActivity() {
 
     private fun readLaunchRequest(intent: android.content.Intent?) {
         intent?.getStringExtra(com.cinemaplus.rebuilt.data.WatchNext.EXTRA_FILM_ID)?.takeIf { it.isNotBlank() }?.let {
-            com.cinemaplus.rebuilt.ui.LaunchRequest.filmId = it
+            com.cinemaplus.rebuilt.ui.LaunchRequest.pending = com.cinemaplus.rebuilt.ui.WatchNextLaunch(
+                it, intent.getStringExtra(com.cinemaplus.rebuilt.data.WatchNext.EXTRA_PROFILE_ID))
             intent.removeExtra(com.cinemaplus.rebuilt.data.WatchNext.EXTRA_FILM_ID)
+            intent.removeExtra(com.cinemaplus.rebuilt.data.WatchNext.EXTRA_PROFILE_ID)
         }
     }
 }
