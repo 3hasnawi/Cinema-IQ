@@ -32,6 +32,7 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
     fun isCompleted(id: String) = prefs.getBoolean("completed_$id", false)
 
     fun progress(id: String) = prefs.getLong("position_$id", 0L)
+    fun duration(id: String) = prefs.getLong("duration_$id", 0L)
     fun beginWatching(film: Film) {
         if (prefs.getBoolean("completed_${film.id}", false)) {
             prefs.edit().putBoolean("completed_${film.id}", false)

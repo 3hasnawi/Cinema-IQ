@@ -103,6 +103,14 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 
 @Composable fun CinemaApp(vm: CinemaViewModel,
     television: Boolean = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(LocalContext.current)) {
+    // A Watch Next card from the TV home screen opens straight into playback of that title.
+    val requested = LaunchRequest.filmId
+    LaunchedEffect(requested, vm) {
+        if (requested != null) {
+            vm.library.recent().firstOrNull { it.id == requested }?.let { vm.play(it) }
+            LaunchRequest.filmId = null
+        }
+    }
     if (television) TvCinemaApp(vm)
     else com.cinemaplus.rebuilt.ui.mobile.MobileCinemaApp(vm)
 }
@@ -112,6 +120,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     DisposableEffect(lifecycleOwner, vm) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_START) { vm.refreshFollowedSeries(); vm.checkUpdates() }
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) vm.syncWatchNext()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
