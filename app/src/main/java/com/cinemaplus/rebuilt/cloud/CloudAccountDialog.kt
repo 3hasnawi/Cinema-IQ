@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 
 /** Touch and D-pad accessible email account controls, independent of source login. */
 @Composable
-fun CloudAccountDialog(onDismiss: () -> Unit) {
+fun CloudAccountDialog(sourceSignedIn: Boolean = true, onSourceLogin: ((String, String) -> Unit)? = null, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf(CloudAccount.email.orEmpty()) }
@@ -22,6 +22,21 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var showImport by remember { mutableStateOf(false) }
+    // One screen signs in to both accounts. The source password stays on this device and never goes to Firebase.
+    var sourceUser by remember { mutableStateOf("") }
+    var sourcePassword by remember { mutableStateOf("") }
+    val askSource = !sourceSignedIn && onSourceLogin != null
+    fun signInSource() {
+        if(askSource && sourceUser.isNotBlank() && sourcePassword.isNotEmpty()) onSourceLogin?.invoke(sourceUser.trim(), sourcePassword)
+        sourcePassword = ""
+    }
+    @Composable fun SourceFields() {
+        if(!askSource) return
+        Text("حساب سينمانا (اختياري، يبقى على هذا الجهاز فقط)")
+        OutlinedTextField(sourceUser, { sourceUser = it }, label = { Text("اسم مستخدم سينمانا") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(sourcePassword, { sourcePassword = it }, label = { Text("كلمة مرور سينمانا") }, singleLine = true,
+            visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+    }
     fun action(block: suspend () -> Unit) {
         if(busy) return
         scope.launch {
@@ -46,15 +61,19 @@ fun CloudAccountDialog(onDismiss: () -> Unit) {
                     Text(CloudLibrarySync.status)
                     CloudProfileSync.error?.let { Text(it) }
                     TextButton(enabled = !busy, onClick = { showImport = true }) { Text("ضم بيانات هذا الجهاز إلى الحساب") }
+                    SourceFields()
+                    if(askSource) TextButton(enabled = sourceUser.isNotBlank() && sourcePassword.isNotEmpty(),
+                        onClick = { signInSource(); message = "جارٍ تسجيل الدخول إلى سينمانا" }) { Text("دخول سينمانا") }
                 }
                 TextButton(enabled = !busy, onClick = { CloudAccount.logout(); onDismiss() }) { Text("تسجيل الخروج") }
             } else {
                 OutlinedTextField(email, { email = it }, label = { Text("البريد الإلكتروني") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(password, { password = it }, label = { Text("كلمة المرور") }, singleLine = true,
                     visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                SourceFields()
                 Row {
-                    TextButton(enabled = !busy && email.isNotBlank() && password.isNotEmpty(), onClick = { action { CloudAccount.login(email,password); message = if(CloudAccount.verified) "تم تسجيل الدخول" else "أكد بريدك لتفعيل المزامنة" } }) { Text("دخول") }
-                    TextButton(enabled = !busy && email.isNotBlank() && password.length >= 6, onClick = { action { CloudAccount.register(email,password); message = "أُرسلت رسالة لتأكيد بريدك" } }) { Text("إنشاء حساب") }
+                    TextButton(enabled = !busy && email.isNotBlank() && password.isNotEmpty(), onClick = { action { CloudAccount.login(email,password); signInSource(); message = if(CloudAccount.verified) "تم تسجيل الدخول" else "أكد بريدك لتفعيل المزامنة" } }) { Text("دخول") }
+                    TextButton(enabled = !busy && email.isNotBlank() && password.length >= 6, onClick = { action { CloudAccount.register(email,password); signInSource(); message = "أُرسلت رسالة لتأكيد بريدك" } }) { Text("إنشاء حساب") }
                 }
                 TextButton(enabled = !busy && email.isNotBlank(), onClick = { action { CloudAccount.reset(email); message = "إذا كان البريد مسجلاً فستصلك رسالة استعادة" } }) { Text("نسيت كلمة المرور") }
             }

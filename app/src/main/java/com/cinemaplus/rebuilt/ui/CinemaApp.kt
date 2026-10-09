@@ -493,7 +493,7 @@ private enum class SettingsSection(val title: String) {
 /** Settings as a hub of cards; each card opens its own short page, and Back returns to the hub. */
 @Composable private fun SettingsScreen(vm: CinemaViewModel) {
     var cloudDialog by remember { mutableStateOf(false) }
-    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog { cloudDialog = false }
+    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog(vm.signedIn, vm::login) { cloudDialog = false }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     val section = SettingsSection.entries.firstOrNull { it.name == sectionName }
     BackHandler(enabled = section != null) { sectionName = null }
