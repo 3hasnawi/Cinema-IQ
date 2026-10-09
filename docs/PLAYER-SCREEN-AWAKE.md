@@ -1,0 +1,3 @@
+# Playback screensaver fix
+
+Scope: ui/PlayerScreen.kt, ui/mobile/MobilePlayerScreen.kt, new ui/PlaybackScreenAwake.kt and tests. The TV player currently has no explicit screen-awake guard. Add a shared lifecycle/player guard to prevent screensavers during active playback and buffering, and release it on pause, completion, background or player disposal. No APK or version bump. Local debug tests and release Kotlin compilation passed: 158 tests, zero failures. Added tests for ready/buffering, pause/background/error, and ended/idle states. GitHub checks pending. Physical TV/screensaver testing still required. Existing window flags are restored on disposal; no wake-lock permissions are added.
