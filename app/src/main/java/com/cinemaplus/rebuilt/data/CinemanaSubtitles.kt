@@ -13,8 +13,7 @@ import java.io.ByteArrayOutputStream
 
 /** Resolve one readable external subtitle per language; leave the VODU adapter unchanged. */
 class CinemanaSubtitles {
-    private val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build()
+    private val client = Http.client(8, 10, 15)
     private val cache = LinkedHashMap<String, Subtitle>()
 
     suspend fun resolve(subtitles: List<Subtitle>): List<Subtitle> = coroutineScope {

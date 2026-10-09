@@ -11,8 +11,7 @@ import java.util.concurrent.TimeUnit
 
 /** Native read-only adapter; IDs include the provider and parent title for episodes. */
 class VoduApi {
-    private val client = OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
+    private val client = Http.client(12, 20, 30)
     private val cache = LinkedHashMap<String, Pair<Long, Document>>()
 
     private suspend fun page(params: Map<String, String>, fresh: Boolean = false): Document = withContext(Dispatchers.IO) {
@@ -20,7 +19,7 @@ class VoduApi {
             .addPathSegment("index.php").apply { params.forEach { (key, value) -> addQueryParameter(key, value) } }.build()
         synchronized(cache) { if (fresh) null else cache[url.toString()] }?.takeIf { it.first > System.nanoTime() }?.let { return@withContext it.second }
         val doc = NetworkErrors.retryOnce {
-            client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            client.newCall(Request.Builder().url(url).build()).executeCancellable().use { response ->
                 if (!response.isSuccessful) throw SourceHttpException(response.code, "VODU")
                 if (response.request.url.host != "movie.vodu.me") error("أعاد VODU توجيهاً غير متوقع")
                 Jsoup.parse(response.body?.string() ?: error("استجابة VODU فارغة"), BASE)

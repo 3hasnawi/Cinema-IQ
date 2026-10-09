@@ -20,7 +20,7 @@ class OmdbRatings(private val apiKey: String, private val file: File? = null) {
     private val lock = Mutex()
     private val cache = mutableMapOf<String, Pair<Long, String>>()
     private var loaded = false
-    private val client = OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
+    private val client = Http.client(12, 20, 15)
 
     suspend fun rating(imdbId: String, season: Int? = null, episode: Int? = null): String = withContext(Dispatchers.IO) {
         if(apiKey.isBlank() || !imdbId.matches(Regex("tt\\d+"))) return@withContext ""

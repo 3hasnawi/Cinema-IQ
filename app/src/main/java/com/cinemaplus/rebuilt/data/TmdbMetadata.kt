@@ -28,8 +28,7 @@ data class WorkCredits(val cast: List<CastMember>, val directors: List<String>, 
  */
 class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = null) {
     val enabled: Boolean get() = apiKey.isNotBlank()
-    private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS).callTimeout(25, TimeUnit.SECONDS).build()
+    private val client = Http.client(10, 15, 25)
     private class Entry(val at: Long, val match: ArtworkMatch?)
     private val known = HashMap<String, Entry>()
     private var loaded = false

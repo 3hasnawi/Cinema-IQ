@@ -10,8 +10,7 @@ import okhttp3.Request
 import org.json.JSONObject
 
 class UpdateRepository {
-    private val client = OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS).callTimeout(180, TimeUnit.SECONDS).build()
+    private val client = com.cinemaplus.rebuilt.data.Http.client(12, 30, 180)
 
     suspend fun latest(): UpdateManifest? = withContext(Dispatchers.IO) {
         val url = "https://api.github.com/repos/${UpdateManifest.REPOSITORY}/releases/latest"

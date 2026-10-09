@@ -48,8 +48,7 @@ object TrailerResolver {
     private const val MaxCandidates = 5
     private val cache = ConcurrentHashMap<String, List<String>>() // film id -> candidate video ids
     private var prefs: android.content.SharedPreferences? = null
-    private val client = OkHttpClient.Builder().connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS).callTimeout(15, TimeUnit.SECONDS).build()
+    private val client = com.cinemaplus.rebuilt.data.Http.client(8, 12, 15)
     private val idPattern = Regex("""(?:v=|youtu\.be/|embed/|shorts/)([\w-]{11})""")
     private val resultPattern = Regex(""""videoId":"([\w-]{11})"""")
 

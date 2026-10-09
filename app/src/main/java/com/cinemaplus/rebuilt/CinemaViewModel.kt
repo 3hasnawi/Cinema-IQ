@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.cinemaplus.rebuilt.data.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.withPermit
 import com.cinemaplus.rebuilt.update.*
 
 enum class Page(val label: String) { Home("الرئيسية"), Explore("استكشاف"), Movies("أفلام"), Series("مسلسلات"), Search("بحث"), Library("قائمتي"), Settings("الإعدادات") }
@@ -158,11 +159,17 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     fun enrich(films: List<Film>) {
         if (!tmdb.enabled) return
         viewModelScope.launch {
-            for (film in films) {
-                if (film.episode > 0 || film.id.startsWith("demo-") || film.id in artwork) continue
-                val match = try { tmdb.lookup(film) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
-                if (match != null) artwork[film.id] = match
-            }
+            // A few lookups at a time: sharp artwork arrives sooner without flooding the connection.
+            val gate = kotlinx.coroutines.sync.Semaphore(4)
+            films.filter { !(it.episode > 0 || it.id.startsWith("demo-") || it.id in artwork) }.map { film ->
+                launch {
+                    gate.withPermit {
+                        if (film.id in artwork) return@withPermit
+                        val match = try { tmdb.lookup(film) } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+                        if (match != null) artwork[film.id] = match
+                    }
+                }
+            }.forEach { it.join() }
         }
     }
     /** Description for an expanded card. List endpoints often omit it, so it is fetched once and cached. */
@@ -206,6 +213,16 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+    /** A page that was shown before; revisiting it is instant while the network refreshes it quietly. */
+    private class CachedPage(val at: Long, val shelves: List<Shelf>)
+    private val pageCache = HashMap<String, CachedPage>()
+    private val pageFreshMillis = 2 * 60_000L
+    private fun cacheKey(): String? =
+        if (!demo && pageNumber == 1 && (page == Page.Home || page == Page.Explore)) "${page.name}|${sourceChoice.name}" else null
+    private fun snapshotFile(key: String) =
+        java.io.File(getApplication<Application>().cacheDir, "shelves-${key.replace('|', '-')}.json")
+    /** Forces a network refresh, for the manual refresh button. */
+    fun refresh() { pageCache.clear(); reload() }
     /** Mirrors continue watching to the Android TV home screen (no effect on phones). */
     fun syncWatchNext() { viewModelScope.launch(Dispatchers.IO) { WatchNext.sync(getApplication(), library) } }
     init { library.demo = false; reload() }
@@ -239,8 +256,19 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         loadJob?.cancel()
         if (page == Page.Settings) { busy = false; error = null; return }
         loadJob = viewModelScope.launch {
-            busy = true; error = null
-            if (!append) shelves = emptyList()
+            error = null
+            val key = if (append) null else cacheKey()
+            // Stale-while-revalidate: show what we have at once, then refresh it unless it is still fresh.
+            val cached = key?.let { pageCache[it] ?: withContext(Dispatchers.IO) {
+                ShelfSnapshot.decode(snapshotFile(it).takeIf { f -> f.exists() }?.readText())?.takeIf { l -> l.isNotEmpty() }
+            }?.let { saved -> CachedPage(0L, saved).also { entry -> pageCache[it] = entry } } }
+            if (cached != null) {
+                shelves = cached.shelves; busy = false
+                if (android.os.SystemClock.elapsedRealtime() - cached.at < pageFreshMillis && cached.at != 0L) return@launch
+            } else {
+                busy = true
+                if (!append) shelves = emptyList()
+            }
             try {
                 val data = when {
                     page == Page.Library -> listOf(Shelf("saved", "المحفوظة على هذا الجهاز", library.favorites()))
@@ -273,6 +301,10 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                     old.copy(films = (old.films + data.firstOrNull { it.id == old.id }?.films.orEmpty()).distinctBy { it.id })
                 } + data.filter { next -> shelves.none { it.id == next.id } }) else data
                 if (page == Page.Search && !append && data.any { it.films.isNotEmpty() }) rememberSearch(query)
+                if (key != null && error == null && data.any { it.films.isNotEmpty() }) {
+                    pageCache[key] = CachedPage(android.os.SystemClock.elapsedRealtime(), data)
+                    launch(Dispatchers.IO) { runCatching { snapshotFile(key).writeText(ShelfSnapshot.encode(data)) } }
+                }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = NetworkErrors.message(e, "تعذّر تحميل المحتوى. تحقق من الشبكة المحلية.") }
             finally { if(currentCoroutineContext().isActive) busy = false }

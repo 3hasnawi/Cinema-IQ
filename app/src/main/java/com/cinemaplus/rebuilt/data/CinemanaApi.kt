@@ -14,13 +14,12 @@ import java.util.concurrent.TimeUnit
 class CinemanaApi(private val tokenProvider: () -> String? = { null }) {
     private val vodu = VoduApi()
     suspend fun voduCatalog(series: Boolean, query: String, page: Int) = vodu.catalog(series, query, page)
-    private val client = OkHttpClient.Builder().connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
+    private val client = Http.client(12, 20, 30)
     private val base = "https://cinemana.shabakaty.cc/api/android/"
     private suspend fun get(path: String): Any = withContext(Dispatchers.IO) {
         // Idempotent read: one retry for brief network hiccups or a 5xx answer.
         NetworkErrors.retryOnce {
-            client.newCall(Request.Builder().url(base + path).apply { tokenProvider()?.let { header("Authorization", it) } }.get().build()).execute().use {
+            client.newCall(Request.Builder().url(base + path).apply { tokenProvider()?.let { header("Authorization", it) } }.get().build()).executeCancellable().use {
                 if (!it.isSuccessful) throw SourceHttpException(it.code)
                 val body = it.body?.string() ?: error("استجابة فارغة من المصدر")
                 runCatching { JSONTokener(body).nextValue() }.getOrElse { error("استجابة غير صالحة من المصدر") }
