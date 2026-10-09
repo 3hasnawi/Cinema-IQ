@@ -136,7 +136,9 @@ private fun MobileBrowse(vm: CinemaViewModel) {
     }
     val revision = vm.libraryRevision
     val recent = remember(revision) { vm.library.recent() }
-    val shelves = if (vm.page == Page.Home && recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) + vm.shelves else vm.shelves
+    val base = if (vm.page == Page.Home && recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) + vm.shelves else vm.shelves
+    val filtered = vm.page == Page.Library || vm.page == Page.Search
+    val shelves = if (filtered) base.map { it.copy(films = vm.filter.apply(it.films)) } else base
     val featured = remember(vm.shelves) { phoneFeaturedFilms(vm.shelves) }
     // Sharper artwork and missing synopses from TMDB for what is on screen first; bounded so a long list stays cheap.
     LaunchedEffect(featured, vm.shelves) {
@@ -153,6 +155,21 @@ private fun MobileBrowse(vm: CinemaViewModel) {
             if (vm.page == Page.Search) OutlinedTextField(typed, { typed = it }, singleLine = true,
                 label = { Text("اسم الفيلم أو المسلسل") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+            if (vm.page == Page.Search && typed.isBlank() && vm.searchHistory.isNotEmpty()) Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("عمليات البحث الأخيرة", color = Muted, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { vm.clearSearchHistory() }) { Text("مسح") }
+                }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    vm.searchHistory.forEach { text -> AssistChip(onClick = { typed = text; vm.search(text) }, label = { Text(text) }) }
+                }
+            }
+            val hasResults = base.any { it.films.isNotEmpty() }
+            if (filtered && (hasResults || vm.filter.active)) Row(Modifier.horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = vm.filter.kind != KindFilter.All, onClick = { vm.cycleKind() }, label = { Text("النوع: ${vm.filter.kind.label}") })
+                FilterChip(selected = vm.filter.sort != SortMode.Default, onClick = { vm.cycleSort() }, label = { Text("الترتيب: ${vm.filter.sort.label}") })
+            }
         }
         if (vm.page == Page.Home && featured.isNotEmpty()) item(key = "hero") { MobileHero(vm, featured) }
         if (vm.busy) item { Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator() } }

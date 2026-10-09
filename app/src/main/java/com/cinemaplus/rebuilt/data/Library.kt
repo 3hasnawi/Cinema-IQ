@@ -83,6 +83,13 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
         edit.apply()
     }
     fun recent(): List<Film> = films("recent")
+    /** Recent search texts, newest first. */
+    var searchHistory: List<String>
+        get() = try {
+            val array = JSONArray(prefs.getString("search_history", "[]") ?: "[]")
+            List(array.length()) { array.getString(it) }
+        } catch (_: Exception) { emptyList() }
+        set(v) { prefs.edit().putString("search_history", JSONArray(v).toString()).apply() }
     /** Takes a title out of continue watching and stops following its series; its progress is reset. */
     fun removeFromContinueWatching(film: Film) {
         recentHead = null
