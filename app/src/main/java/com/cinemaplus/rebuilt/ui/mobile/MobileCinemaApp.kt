@@ -296,10 +296,13 @@ private fun MobileDetails(vm: CinemaViewModel) {
 
 @Composable
 private fun MobileSettings(vm: CinemaViewModel) {
+    var cloudDialog by remember { mutableStateOf(false) }
+    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog { cloudDialog = false }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("الإعدادات", fontSize = 26.sp, fontWeight = FontWeight.Bold) }
+        item { MobileChoice("حساب Cinema iQ والمزامنة", com.cinemaplus.rebuilt.cloud.CloudAccount.email ?: "تسجيل الدخول") { cloudDialog = true } }
         item { Text("المصادر", fontWeight = FontWeight.Bold) }
         SourceChoice.entries.forEach { choice ->
             item(key = "source-${choice.name}") { MobileChoice(choice.label, if (vm.sourceChoice == choice) "✓ مختار" else "") { vm.chooseSource(choice) } }

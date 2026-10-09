@@ -77,7 +77,9 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 /** App shell: shows the profile picker when several profiles exist, then runs one view model per profile. */
 @Composable fun CinemaApp() {
     val context = LocalContext.current
-    val store = remember { ProfileStore(context) }
+    val cloudUid = com.cinemaplus.rebuilt.cloud.CloudAccount.uid
+    val store = remember(cloudUid) { ProfileStore(context) }
+    com.cinemaplus.rebuilt.cloud.CloudProfilesEffect(cloudUid)
     val television = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(context)
     DisposableEffect(television) {
         val activity = context as? android.app.Activity
@@ -91,15 +93,18 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
         }
         onDispose { }
     }
-    var activeId by rememberSaveable { mutableStateOf(store.activeId) }
-    var picking by rememberSaveable { mutableStateOf(store.profiles().size > 1) }
+    var activeId by rememberSaveable(cloudUid) { mutableStateOf(store.activeId) }
+    var picking by rememberSaveable(cloudUid) { mutableStateOf(store.profiles().size > 1) }
+    val cloudProfilesRevision = com.cinemaplus.rebuilt.cloud.CloudProfileSync.revision
+    LaunchedEffect(cloudProfilesRevision, cloudUid) { activeId = store.activeId }
     if (picking) {
         ProfilePicker(store) { chosen -> store.activeId = chosen.id; activeId = chosen.id; picking = false }
     } else {
         // A separate view model per profile keeps lists, history and settings from leaking between viewers.
-        val vm: CinemaViewModel = viewModel(key = "profile-$activeId")
+        val vm: CinemaViewModel = viewModel(key = "profile-${cloudUid ?: "local"}-$activeId")
+        com.cinemaplus.rebuilt.cloud.CloudLibraryEffect(cloudUid, vm)
         // Another profile may have signed the shared account in or out while this one was in the background.
-        LaunchedEffect(vm) { vm.refreshAccount(); vm.refreshProfile(); vm.syncWatchNext() }
+        LaunchedEffect(vm, cloudProfilesRevision) { vm.refreshAccount(); vm.refreshProfile(); vm.syncWatchNext() }
         CompositionLocalProvider(LocalProfileSwitch provides { picking = true }) { CinemaApp(vm, television) }
     }
 }
@@ -487,6 +492,8 @@ private enum class SettingsSection(val title: String) {
 
 /** Settings as a hub of cards; each card opens its own short page, and Back returns to the hub. */
 @Composable private fun SettingsScreen(vm: CinemaViewModel) {
+    var cloudDialog by remember { mutableStateOf(false) }
+    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog { cloudDialog = false }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     val section = SettingsSection.entries.firstOrNull { it.name == sectionName }
     BackHandler(enabled = section != null) { sectionName = null }
@@ -565,6 +572,8 @@ private enum class SettingsSection(val title: String) {
                 }
             }
             if (section == SettingsSection.Account) SettingsGroup("الحساب") {
+                Action("حساب Cinema iQ والمزامنة") { cloudDialog = true }
+                Label("حساب مصدر المحتوى (سينمانا)", 14, Muted)
                 var username by remember { mutableStateOf("") }
                 var password by remember { mutableStateOf("") }
                 if(vm.signedIn) {

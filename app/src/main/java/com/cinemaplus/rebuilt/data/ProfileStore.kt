@@ -76,7 +76,7 @@ object ProfileList {
 
 class ProfileStore(context: Context) {
     private val appContext = context.applicationContext
-    private val prefs = appContext.getSharedPreferences("cinema_profiles", Context.MODE_PRIVATE)
+    private val prefs = appContext.getSharedPreferences(com.cinemaplus.rebuilt.cloud.CloudAccount.prefsName("cinema_profiles"), Context.MODE_PRIVATE)
 
     /**
      * A damaged list falls back to the last good copy; the damaged text is kept aside and never overwritten
