@@ -26,8 +26,8 @@ android {
         applicationId = "com.cinemaplus.rebuilt"
         minSdk = 24
         targetSdk = 36
-        versionCode = 64
-        versionName = "4.22"
+        versionCode = 65
+        versionName = "4.23"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"$youtubeApiKey\"")
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
         buildConfigField("String", "OMDB_API_KEY", "\"$omdbApiKey\"")
