@@ -139,15 +139,14 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     }
     val context = LocalContext.current
     val browseState = rememberSaveableStateHolder()
-    var confirmExit by remember { mutableStateOf(false) }
     val tabBar = remember { TabBarState() }
     val railFocus = remember { FocusRequester() }
     // Focus moves into the page once after launch, when the first page has loaded.
     var pendingFocus by remember { mutableStateOf(true) }
     BackHandler(enabled = vm.playing == null && vm.selected == null) {
-        // Back first returns to the section rail; from there it goes back a page, then asks to exit.
+        // Back first returns to the section rail; from there it goes back a page, and on Home it exits without asking.
         if (!tabBar.hasFocus) runCatching { railFocus.requestFocus() }
-        else if (vm.page != Page.Home) vm.backPage() else confirmExit = true
+        else if (vm.page != Page.Home) vm.backPage() else (context as? android.app.Activity)?.finish()
     }
     val fonts = Typography().let { t -> t.copy(
         headlineLarge = t.headlineLarge.copy(fontFamily = Cairo, fontWeight = FontWeight.Bold),
@@ -160,11 +159,6 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
         MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel), typography = fonts) {
             TvTheme {
                 Box(Modifier.fillMaxSize().background(Ink)) {
-                    if (confirmExit) AlertDialog(onDismissRequest = { confirmExit = false },
-                        containerColor = GlassStrong,
-                        title = { Label("الخروج من التطبيق؟", 20, bold = true) },
-                        confirmButton = { TextButton(onClick = { (context as? android.app.Activity)?.finish() }) { Label("خروج", 15, bold = true) } },
-                        dismissButton = { TextButton(onClick = { confirmExit = false }) { Label("إلغاء", 15) } })
                     // Long press on a continue-watching card: remove it, or mark it watched.
                     vm.recentOptions?.let { film ->
                         // The OK key is still held when this dialog opens; its key repeats must not press a button.
