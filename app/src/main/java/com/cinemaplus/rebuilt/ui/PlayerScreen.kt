@@ -86,6 +86,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     val player = remember { ExoPlayer.Builder(context).build() }
+    PlaybackScreenAwake(player)
     val keyRouter = remember { TvRemoteKeyRouter() }
     val rootFocus = remember { FocusRequester() }
     val playFocus = remember { FocusRequester() }
