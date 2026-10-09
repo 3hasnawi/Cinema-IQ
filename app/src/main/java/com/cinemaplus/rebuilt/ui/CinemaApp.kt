@@ -189,8 +189,12 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                         val contentFocus = remember(vm.page, vm.demo) { FocusRequester() }
                         val latestContentFocus by rememberUpdatedState(contentFocus)
                         LaunchedEffect(pendingFocus, vm.busy, vm.page) {
-                            if (pendingFocus && !vm.busy) {
-                                delay(60); runCatching { latestContentFocus.requestFocus() }; pendingFocus = false
+                            if (pendingFocus) {
+                                // Take focus as soon as the page has something focusable, so the rail folds at once;
+                                // otherwise wait for loading to finish and try again.
+                                delay(60)
+                                val moved = runCatching { latestContentFocus.requestFocus() }.getOrDefault(false)
+                                if (moved || !vm.busy) pendingFocus = false
                             }
                         }
                         // When a select press removes the focused item (a settings card, a section tab), the system drops
