@@ -73,6 +73,8 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val relatedFocus = remember(film.id) { FocusRequester() }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
+    // A series shows the selected season's year; it falls back to the series year when TMDB gave no season date.
+    val seasonYear = if(film.series) season?.airDate?.take(4)?.takeIf { y -> y.length == 4 && y.all { it.isDigit() } } else null
     LaunchedEffect(film.id, season?.number) { if(season != null) vm.enrichSelectedSeason() }
     val candidates = vm.shelves.map { it.copy(films = it.films.map(vm::withArtwork)) }
     val related = relatedFilms(film, candidates)
@@ -187,7 +189,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                             }
                             Column(Modifier.width(infoWidth), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                                 FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    listOf(film.year, if(film.series && vm.seasons.isNotEmpty()) "${vm.seasons.size} مواسم" else "",
+                                    listOf(seasonYear ?: film.year, if(film.series && vm.seasons.isNotEmpty()) "${vm.seasons.size} مواسم" else "",
                                         formatContentDuration(film.duration), ageRating.orEmpty(), film.contentQuality,
                                         film.edition, displayQuality.orEmpty()).filter { it.isNotBlank() }.distinct().forEach {
                                         Label(it, 14, Color(0xFFAAAAAA), true)
@@ -248,7 +250,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                             Label("طاقم العمل", 22, Color.White, true)
                             val directorText = if(credits.directors.isNotEmpty()) "المخرج: " + credits.directors.joinToString("، ")
                                 else if(credits.creators.isNotEmpty()) "صنّاع العمل: " + credits.creators.joinToString("، ") else ""
-                            val year = film.year.ifBlank { credits.year }
+                            val year = seasonYear ?: film.year.ifBlank { credits.year }
                             Label(listOf(directorText, if(year.isNotBlank()) "سنة الإنتاج: $year" else "")
                                 .filter { it.isNotBlank() }.joinToString("   •   "), 14, Muted, lines = 2)
                         }
