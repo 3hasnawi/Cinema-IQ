@@ -10,12 +10,25 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
     var sourceChoice: SourceChoice
         get() = SourceChoice.restore(prefs.getString("content_source", null))
         set(value) { prefs.edit().putString("content_source", value.name).apply() }
-    fun favorites(): List<Film> = JsonMapper.films(JSONArray(prefs.getString("favorites", "[]")))
+    fun favorites(): List<Film> = films("favorites")
     fun toggle(film: Film) {
         val all = favorites().toMutableList()
         if (!all.removeAll { it.id == film.id }) all.add(film)
         prefs.edit().putString("favorites", JSONArray(all.map(::json)).toString()).apply()
     }
+    /**
+     * Reads a stored film list. Damaged text is kept under "<key>_damaged" and treated as empty, so one bad
+     * write can never crash the app at every launch.
+     */
+    private fun films(key: String): List<Film> {
+        val raw = prefs.getString(key, null)
+        return SavedFilms.parse(raw) ?: run {
+            prefs.edit().putString("${key}_damaged", raw).remove(key).apply()
+            emptyList()
+        }
+    }
+    /** Id of the film currently first in "recent"; lets frequent progress saves skip rewriting the list. */
+    private var recentHead: String? = null
     fun isCompleted(id: String) = prefs.getBoolean("completed_$id", false)
 
     fun progress(id: String) = prefs.getLong("position_$id", 0L)
@@ -26,10 +39,11 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
         }
     }
     /** Durable checkpoints retain shows even when their last available episode is finished. */
-    fun followedSeries(): List<Film> = JsonMapper.films(JSONArray(prefs.getString("followed_series", "[]")))
+    fun followedSeries(): List<Film> = films("followed_series")
     fun complete(film: Film, next: Film?, episodeIds: Set<String>) {
         if (prefs.getBoolean("completed_${film.id}", false)) return
         val updated = ContinueWatching.replace(recent(), film, next, episodeIds)
+        recentHead = null
         val edit = prefs.edit().putBoolean("completed_${film.id}", true)
             .putString("recent", JSONArray(updated.map(::json)).toString())
         if (film.seriesId.isNotBlank()) {
@@ -51,6 +65,7 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
         val recent = recent()
         if (!ContinueWatching.canOffer(checkpoint, next, recent, playing)) return false
         if (prefs.getBoolean("completed_${next.id}", false)) return false
+        recentHead = null
         prefs.edit().putLong("position_${next.id}", 0).putLong("duration_${next.id}", 0)
             .putString("recent", JSONArray((listOf(next) + recent).take(30).map(::json)).toString()).apply()
         return true
@@ -58,11 +73,16 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
     fun saveProgress(film: Film, position: Long, duration: Long) {
         // End-of-playback callbacks must not restore a completed episode.
         if (prefs.getBoolean("completed_${film.id}", false)) return
-        prefs.edit().putLong("position_${film.id}", position).putLong("duration_${film.id}", duration).apply()
-        val recent = recent().filter { it.id != film.id && (film.seriesId.isBlank() || it.seriesId != film.seriesId) }.toMutableList().apply { add(0, film) }.take(30)
-        prefs.edit().putString("recent", JSONArray(recent.map(::json)).toString()).apply()
+        val edit = prefs.edit().putLong("position_${film.id}", position).putLong("duration_${film.id}", duration)
+        // Progress is saved every few seconds on the main thread; the list only changes when the film changes.
+        if (recentHead != film.id) {
+            val recent = recent().filter { it.id != film.id && (film.seriesId.isBlank() || it.seriesId != film.seriesId) }.toMutableList().apply { add(0, film) }.take(30)
+            edit.putString("recent", JSONArray(recent.map(::json)).toString())
+            recentHead = film.id
+        }
+        edit.apply()
     }
-    fun recent(): List<Film> = JsonMapper.films(JSONArray(prefs.getString("recent", "[]")))
+    fun recent(): List<Film> = films("recent")
     fun fraction(id: String): Float {
         val d = prefs.getLong("duration_$id", 0)
         return if (d > 0) (progress(id).toFloat() / d).coerceIn(0f, 1f) else 0f
@@ -104,4 +124,9 @@ class Library(context: Context, profileId: String = ProfileList.MAIN) {
     var subtitleHeight: Float
         get() = prefs.getFloat("subtitle_height", .08f)
         set(v) { prefs.edit().putFloat("subtitle_height", v.coerceIn(0f, .5f)).apply() }
+}
+
+/** Parses a stored film list; null when the text is damaged, so the caller can set it aside. */
+object SavedFilms {
+    fun parse(raw: String?): List<Film>? = runCatching { JsonMapper.films(JSONArray(raw ?: "[]")) }.getOrNull()
 }

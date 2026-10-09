@@ -75,4 +75,10 @@ class ProfileListTest {
         assertEquals("New", ProfileList.update(list, "main", "New", "avatar-2")!![0].name)
         assertEquals(list, ProfileList.remove(list, "main"))
     }
+
+    @Test fun damagedTextIsDistinguishedFromMissingSoABackupCanBeUsed() {
+        assertNull(ProfileList.decodeOrNull(null))
+        assertNull(ProfileList.decodeOrNull("not json"))
+        assertEquals(listOf(ProfileList.MAIN), ProfileList.decodeOrNull("[]")!!.map { it.id })
+    }
 }
