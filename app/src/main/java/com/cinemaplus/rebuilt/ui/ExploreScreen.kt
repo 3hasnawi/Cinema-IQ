@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,17 +35,21 @@ fun ExploreScreen(vm: CinemaViewModel) {
     // Back from a mood returns to the grid before it leaves the page.
     BackHandler(enabled = mood != null) { vm.chooseMood(null) }
     // Back from a mood puts focus on the card that was opened, not on the side rail.
+    val listState = rememberLazyListState()
     val cardFocus = remember { mutableMapOf<String, FocusRequester>() }
     var openedMood by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(mood) {
         val id = openedMood
         if (mood == null && id != null) {
-            delay(80)
-            if (runCatching { cardFocus[id]?.requestFocus() }.getOrNull() == null) { delay(200); runCatching { cardFocus[id]?.requestFocus() } }
-            openedMood = null
+            withFrameNanos { }
+            val index = Moods.all.indexOfFirst { it.id == id }
+            if(index >= 0) {
+                listState.animateScrollToItem(1 + index / 4)
+                if(awaitTvFocus { cardFocus[id] }) openedMood = null
+            }
         }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = TvMetrics.TabBarSpace, bottom = 48.dp),
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = TvMetrics.TabBarSpace, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(TvMetrics.RowGap)) {
         item(key = "title") {
             PageHeader(mood?.title ?: "استكشاف", mood?.subtitle ?: "اختر مزاجًا وتصفّح أعمالًا تشبهه",
