@@ -63,6 +63,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
         setHandleAudioBecomingNoisy(true)
     } }
+    com.cinemaplus.rebuilt.ui.PlaybackScreenAwake(player)
     var qualityIndex by remember(film.id) { mutableIntStateOf(0) }
     var qualityChosen by remember(film.id) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -193,7 +194,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(factory = { ctx -> PlayerView(ctx).apply {
             // Compose draws every control; Media3 only renders the video and subtitles.
-            this.player = player; keepScreenOn = true; useController = false
+            this.player = player; useController = false
             setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             playerView = this
         } }, modifier = Modifier.fillMaxSize(), update = { view ->
