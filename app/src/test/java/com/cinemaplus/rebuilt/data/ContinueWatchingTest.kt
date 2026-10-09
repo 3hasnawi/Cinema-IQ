@@ -68,4 +68,30 @@ class ContinueWatchingTest {
         assertEquals(listOf(released, unrelated), ContinueWatching.replace(
             listOf(stale, completed, unrelated), completed, released, setOf("a", "b")))
     }
+
+    private val seasons = listOf(Season(1, listOf(episode("a", 1), episode("b", 2), episode("c", 3))))
+    @Test fun resumeStartsAtFirstEpisodeWhenNothingWatched() {
+        assertEquals("a", ContinueWatching.resume(seasons, { false }, { 0L })?.id)
+    }
+    @Test fun resumePrefersEpisodeInProgress() {
+        assertEquals("b", ContinueWatching.resume(seasons, { it == "a" }, { if (it == "b") 5_000L else 0L })?.id)
+    }
+    @Test fun resumeMovesAfterLastFinishedEpisode() {
+        assertEquals("c", ContinueWatching.resume(seasons, { it == "a" || it == "b" }, { 0L })?.id)
+    }
+    @Test fun resumeWrapsWhenEverythingIsFinished() {
+        assertEquals("a", ContinueWatching.resume(seasons, { true }, { 0L })?.id)
+        assertNull(ContinueWatching.resume(emptyList(), { false }, { 0L }))
+    }
+    @Test fun removingEpisodeDropsWholeSeries() {
+        val a = episode("a", 1).copy(seriesId = "show")
+        val other = episode("x", 1).copy(seriesId = "other")
+        assertEquals(listOf(other), ContinueWatching.remove(listOf(a, other), episode("b", 2).copy(seriesId = "show")))
+    }
+    @Test fun unfollowKeepsOtherSeries() {
+        val a = episode("a", 1).copy(seriesId = "show")
+        val other = episode("x", 1).copy(seriesId = "other")
+        assertEquals(listOf(other), ContinueWatching.unfollow(listOf(a, other), a))
+        assertEquals(listOf(a, other), ContinueWatching.unfollow(listOf(a, other), episode("m", 0)))
+    }
 }

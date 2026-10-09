@@ -205,6 +205,7 @@ fun FilmCard(
     restoreFocus: Boolean = false,
     preview: Boolean = false,
     describe: (suspend (Film) -> String)? = null,
+    onLongClick: (() -> Unit)? = null,
     click: () -> Unit
 ) {
     val trailerEnabled = LocalTrailerPreviewEnabled.current
@@ -276,7 +277,8 @@ fun FilmCard(
                             CornerRadius(TvMetrics.CardRadius.toPx() - stroke / 2), style = Stroke(stroke))
                     }
                 }
-                .clickable(onClick = click)
+                .then(if (onLongClick != null) Modifier.combinedClickable(onClick = click, onLongClick = onLongClick)
+                    else Modifier.clickable(onClick = click))
         ) {
             Box(Modifier.fillMaxSize().clip(shape).background(Panel)) {
                 // The trailer sits underneath at full alpha (a WebView at alpha 0 may never start playing);
@@ -355,6 +357,7 @@ fun TvShelfRow(
     suppliedRowState: LazyListState? = null,
     cardModifier: (Int) -> Modifier = { Modifier },
     preview: Boolean = true,
+    onCardLongClick: ((Film) -> Unit)? = null,
     onCardClick: (Film) -> Unit = { vm.open(it) }
 ) {
     if (shelf.films.isEmpty()) return
@@ -378,6 +381,7 @@ fun TvShelfRow(
                         restoreFocus = memory.returning && memory.focusedId == film.id,
                         preview = preview,
                         describe = describe,
+                        onLongClick = onCardLongClick?.let { handler -> { handler(film) } },
                         onFocused = {
                             memory.focusedId = it.id; memory.returning = false
                             onFilmFocused(it)
