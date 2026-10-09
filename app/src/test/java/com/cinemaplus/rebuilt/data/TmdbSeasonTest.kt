@@ -33,6 +33,7 @@ class TmdbSeasonTest {
         assertEquals(listOf("source-1", "source-9"), result.episodes.map { it.id })
         assertEquals("source-show", result.episodes[0].seriesId)
         assertEquals("Source title", result.episodes[0].title)
+        assertEquals("Episode One", result.episodes[0].episodeTitle)
         assertEquals("9.1", result.episodes[0].imdbRating)
         assertEquals("Episode story", result.episodes[0].description)
         assertEquals(unmatched, result.episodes[1])

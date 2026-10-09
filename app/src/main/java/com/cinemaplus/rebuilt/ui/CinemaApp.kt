@@ -31,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -186,8 +188,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                             if (pendingFocus) {
                                 // Take focus as soon as the page has something focusable, so the rail folds at once;
                                 // otherwise wait for loading to finish and try again.
-                                delay(60)
-                                val moved = runCatching { latestContentFocus.requestFocus() }.getOrDefault(false)
+                                val moved = awaitTvFocus { latestContentFocus }
                                 if (moved || !vm.busy) pendingFocus = false
                             }
                         }
@@ -197,7 +198,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                         LaunchedEffect(tabBar.hasFocus) {
                             if (tabBar.hasFocus && !pendingFocus && System.currentTimeMillis() - lastSelectKey < 600) {
                                 delay(60)
-                                if (runCatching { latestContentFocus.requestFocus() }.isFailure) { delay(200); runCatching { latestContentFocus.requestFocus() } }
+                                awaitTvFocus { latestContentFocus }
                             }
                         }
                         CompositionLocalProvider(LocalTabBarState provides tabBar) {
@@ -491,13 +492,14 @@ private enum class SettingsSection(val title: String) {
     BackHandler(enabled = section != null) { sectionName = null }
     // Back from a section puts focus on the card that was opened, not on the side rail.
     val cardFocus = remember { mutableMapOf<String, FocusRequester>() }
+    val cardVisibility = remember { mutableMapOf<String, BringIntoViewRequester>() }
     var openedSection by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(section) {
         val name = openedSection
         if (section == null && name != null) {
-            delay(80)
-            if (runCatching { cardFocus[name]?.requestFocus() }.getOrNull() == null) { delay(200); runCatching { cardFocus[name]?.requestFocus() } }
-            openedSection = null
+            withFrameNanos { }
+            cardVisibility[name]?.bringIntoView()
+            if(awaitTvFocus { cardFocus[name] }) openedSection = null
         }
     }
     fun <T> next(options: List<T>, current: T): T = options[(options.indexOf(current) + 1).mod(options.size)]
@@ -522,7 +524,7 @@ private enum class SettingsSection(val title: String) {
                     SettingsSection.About to if (vm.availableUpdate != null) "تحديث متاح" else "الإصدار ${BuildConfig.VERSION_NAME}")
                 cards.chunked(3).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        row.forEach { (target, summary) -> SettingsCard(target.title, summary, Modifier.weight(1f).focusRequester(cardFocus.getOrPut(target.name) { FocusRequester() })) { openedSection = target.name; sectionName = target.name } }
+                        row.forEach { (target, summary) -> SettingsCard(target.title, summary, Modifier.weight(1f).bringIntoViewRequester(cardVisibility.getOrPut(target.name) { BringIntoViewRequester() }).focusRequester(cardFocus.getOrPut(target.name) { FocusRequester() })) { openedSection = target.name; sectionName = target.name } }
                     }
                 }
                 Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {

@@ -10,13 +10,19 @@ internal suspend fun scrollToTvFocus(state: LazyListState, index: Int, requester
     // Reset the destination rail before the vertical reveal, avoiding a second sideways animation.
     horizontalState?.requestScrollToItem(0)
     state.animateScrollToItem(index)
-    repeat(12) {
-        withFrameNanos { }
-        if(runCatching { requester.requestFocus() }.getOrDefault(false)) return true
-    }
-    return false
+    return awaitTvFocus { requester }
+
 }
 
 /** Never wrap vertical navigation; loading or empty sections do not invent a target. */
 internal fun adjacentTvSection(current: Int, count: Int, down: Boolean): Int? =
     (current + if(down) 1 else -1).takeIf { current in 0 until count && it in 0 until count }
+
+/** Retry on frame boundaries, including a false result; null means the target is not composed yet. */
+internal suspend fun awaitTvFocus(target: () -> FocusRequester?): Boolean {
+    repeat(30) {
+        withFrameNanos { }
+        if(runCatching { target()?.requestFocus() == true }.getOrDefault(false)) return true
+    }
+    return false
+}

@@ -236,6 +236,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                     item(key = "episodes-${season?.number}") {
                         DetailsRail(episodes.map { it.copy(seriesId = film.id, season = season?.number ?: it.season) },
                             episodeFocus, seasonFocus, revision, vm, episodes = true, rowState = episodeRowState,
+                            seriesTitles = setOf(film.title, film.enTitle, film.originalTitle),
                             modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "episodes-${season?.number}" }) {
                             vm.play(it.copy(seriesId = film.id, season = season?.number ?: it.season))
                         }
@@ -343,7 +344,7 @@ private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, e
 
 @Composable
 private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRequester, revision: Int,
-    vm: CinemaViewModel, episodes: Boolean, rowState: LazyListState, modifier: Modifier = Modifier, onClick: (Film) -> Unit) {
+    vm: CinemaViewModel, episodes: Boolean, rowState: LazyListState, seriesTitles: Set<String> = emptySet(), modifier: Modifier = Modifier, onClick: (Film) -> Unit) {
     DetailsHorizontalRow(state = rowState, modifier = modifier.focusGroup(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
             var episodeDetails by remember(item.id) { mutableStateOf(item) }
@@ -351,6 +352,7 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
                 if(episodes) episodeDetails = vm.episodeCardDetails(item)
             }
             val card = if(episodes) episodeDetails.copy(
+                episodeTitle = item.episodeTitle.ifBlank { episodeDetails.episodeTitle },
                 description = item.description.ifBlank { episodeDetails.description },
                 backdrop = item.backdrop, duration = item.duration.ifBlank { episodeDetails.duration },
                 tmdbRating = item.tmdbRating, airDate = item.airDate) else item
@@ -370,8 +372,11 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
                 if(complete) Icon(Icons.Rounded.Check, "تمت المشاهدة", Modifier.align(Alignment.TopEnd).padding(12.dp).size(20.dp), Color.White)
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if(episodes) Label("S${item.season}E${item.episode}", 9, Color.White, true)
-                    // Episode cards omit the series title (it repeats on every card) to leave room for the details.
-                    if(!episodes) Label(mediaTitle(item), 15, Color.White, true, lines = 1)
+                    // Season/episode numbering stays visible even when a genuine title is available.
+                    if(episodes) {
+                        val title = com.cinemaplus.rebuilt.data.EpisodeLabels.title(card.episodeTitle.ifBlank { card.title }, seriesTitles)
+                        if(title.isNotBlank()) Label(title, 15, Color.White, true, lines = 1)
+                    } else Label(mediaTitle(item), 15, Color.White, true, lines = 1)
                     if(episodes || card.description.isNotBlank()) Label(card.description.ifBlank { "لا يتوفر وصف لهذه الحلقة." }, 10, Color.White.copy(alpha = .8f), lines = 2)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Label(formatContentDuration(card.duration), 11, Color(0xFFAAAAAA))

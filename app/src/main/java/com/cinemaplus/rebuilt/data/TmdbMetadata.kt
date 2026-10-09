@@ -297,7 +297,8 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
             return source.copy(title = metadata.title, description = metadata.description, poster = metadata.poster,
                 airDate = metadata.airDate, episodes = source.episodes.map { original ->
                     val match = metadata.episodes.singleOrNull { it.episode == original.episode } ?: return@map original
-                    original.copy(description = match.description.ifBlank { original.description },
+                    original.copy(episodeTitle = match.title.ifBlank { original.episodeTitle },
+                        description = match.description.ifBlank { original.description },
                         backdrop = match.backdrop.ifBlank { original.backdrop },
                         duration = original.duration.ifBlank { match.duration },
                         airDate = match.airDate, tmdbRating = match.tmdbRating)
