@@ -15,6 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import kotlinx.coroutines.delay
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -30,6 +33,17 @@ fun ExploreScreen(vm: CinemaViewModel) {
     val mood = vm.exploreMood
     // Back from a mood returns to the grid before it leaves the page.
     BackHandler(enabled = mood != null) { vm.chooseMood(null) }
+    // Back from a mood puts focus on the card that was opened, not on the side rail.
+    val cardFocus = remember { mutableMapOf<String, FocusRequester>() }
+    var openedMood by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(mood) {
+        val id = openedMood
+        if (mood == null && id != null) {
+            delay(80)
+            if (runCatching { cardFocus[id]?.requestFocus() }.getOrNull() == null) { delay(200); runCatching { cardFocus[id]?.requestFocus() } }
+            openedMood = null
+        }
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = TvMetrics.TabBarSpace, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(TvMetrics.RowGap)) {
         item(key = "title") {
@@ -39,7 +53,7 @@ fun ExploreScreen(vm: CinemaViewModel) {
         if (mood == null) {
             items(Moods.all.chunked(4), key = { it.first().id }) { row ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = TvMetrics.EdgeInset), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    row.forEach { m -> MoodCard(m, Modifier.weight(1f)) { vm.chooseMood(m) } }
+                    row.forEach { m -> MoodCard(m, Modifier.weight(1f).focusRequester(cardFocus.getOrPut(m.id) { FocusRequester() })) { openedMood = m.id; vm.chooseMood(m) } }
                     repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }

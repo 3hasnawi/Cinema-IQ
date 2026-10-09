@@ -475,6 +475,17 @@ private enum class SettingsSection(val title: String) {
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     val section = SettingsSection.entries.firstOrNull { it.name == sectionName }
     BackHandler(enabled = section != null) { sectionName = null }
+    // Back from a section puts focus on the card that was opened, not on the side rail.
+    val cardFocus = remember { mutableMapOf<String, FocusRequester>() }
+    var openedSection by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(section) {
+        val name = openedSection
+        if (section == null && name != null) {
+            delay(80)
+            if (runCatching { cardFocus[name]?.requestFocus() }.getOrNull() == null) { delay(200); runCatching { cardFocus[name]?.requestFocus() } }
+            openedSection = null
+        }
+    }
     fun <T> next(options: List<T>, current: T): T = options[(options.indexOf(current) + 1).mod(options.size)]
     val sizes = listOf(18f, 22f, 26f, 30f)
     val languages = listOf("ar", "en", "off")
@@ -497,7 +508,7 @@ private enum class SettingsSection(val title: String) {
                     SettingsSection.About to if (vm.availableUpdate != null) "تحديث متاح" else "الإصدار ${BuildConfig.VERSION_NAME}")
                 cards.chunked(3).forEach { row ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        row.forEach { (target, summary) -> SettingsCard(target.title, summary, Modifier.weight(1f)) { sectionName = target.name } }
+                        row.forEach { (target, summary) -> SettingsCard(target.title, summary, Modifier.weight(1f).focusRequester(cardFocus.getOrPut(target.name) { FocusRequester() })) { openedSection = target.name; sectionName = target.name } }
                     }
                 }
                 Column(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
