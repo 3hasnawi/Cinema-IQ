@@ -96,7 +96,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
         // A separate view model per profile keeps lists, history and settings from leaking between viewers.
         val vm: CinemaViewModel = viewModel(key = "profile-$activeId")
         // Another profile may have signed the shared account in or out while this one was in the background.
-        LaunchedEffect(vm) { vm.refreshAccount(); vm.refreshProfile() }
+        LaunchedEffect(vm) { vm.refreshAccount(); vm.refreshProfile(); vm.syncWatchNext() }
         CompositionLocalProvider(LocalProfileSwitch provides { picking = true }) { CinemaApp(vm, television) }
     }
 }
@@ -104,11 +104,23 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 @Composable fun CinemaApp(vm: CinemaViewModel,
     television: Boolean = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(LocalContext.current)) {
     // A Watch Next card from the TV home screen opens straight into playback of that title.
-    val requested = LaunchRequest.filmId
+    val launchContext = LocalContext.current
+    val requested = LaunchRequest.pending
     LaunchedEffect(requested, vm) {
         if (requested != null) {
-            vm.library.recent().firstOrNull { it.id == requested }?.let { vm.play(it) }
-            LaunchRequest.filmId = null
+            val recent = vm.library.recent()
+            val result = com.cinemaplus.rebuilt.data.WatchNextLaunchPolicy.resolve(
+                requested.filmId, requested.profileId, vm.library.profileId, recent)
+            when(result) {
+                is com.cinemaplus.rebuilt.data.WatchNextLaunchPolicy.Result.Play -> vm.play(result.film)
+                com.cinemaplus.rebuilt.data.WatchNextLaunchPolicy.Result.WrongProfile ->
+                    android.widget.Toast.makeText(launchContext, "هذا العمل يخص ملفاً شخصياً آخر. اختر ملفه لبدء المشاهدة.", android.widget.Toast.LENGTH_LONG).show()
+                com.cinemaplus.rebuilt.data.WatchNextLaunchPolicy.Result.Missing ->
+                    android.widget.Toast.makeText(launchContext, "لم يعد هذا العمل في متابعة المشاهدة. افتحه من البحث أو المكتبة.", android.widget.Toast.LENGTH_LONG).show()
+            }
+            // Refresh stale home cards without changing the selected profile or starting another title.
+            vm.syncWatchNext()
+            if(LaunchRequest.pending == requested) LaunchRequest.pending = null
         }
     }
     if (television) TvCinemaApp(vm)

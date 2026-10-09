@@ -5,7 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Per-profile storage. The default profile reads the original file, so nothing is lost on upgrade. */
-class Library(context: Context, profileId: String = ProfileList.MAIN) {
+class Library(context: Context, val profileId: String = ProfileList.MAIN) {
     private val prefs = context.getSharedPreferences(ProfileList.prefsName(profileId), Context.MODE_PRIVATE)
     var sourceChoice: SourceChoice
         get() = SourceChoice.restore(prefs.getString("content_source", null))
