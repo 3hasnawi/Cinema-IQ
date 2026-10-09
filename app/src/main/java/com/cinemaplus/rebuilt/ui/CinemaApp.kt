@@ -146,15 +146,19 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                         dismissButton = { TextButton(onClick = { confirmExit = false }) { Label("إلغاء", 15) } })
                     // Long press on a continue-watching card: remove it, or mark it watched.
                     vm.recentOptions?.let { film ->
-                        AlertDialog(onDismissRequest = { vm.dismissRecentOptions() },
+                        // The OK key is still held when this dialog opens; its key repeats must not press a button.
+                        // Buttons stay inert for a moment, and the harmless option comes first.
+                        var armed by remember(film.id) { mutableStateOf(false) }
+                        LaunchedEffect(film.id) { delay(900); armed = true }
+                        AlertDialog(onDismissRequest = { if (armed) vm.dismissRecentOptions() },
                             containerColor = GlassStrong,
                             title = { Label(film.title, 20, bold = true, lines = 2) },
                             text = { Column {
-                                TextButton(onClick = { vm.removeRecent(film) }) { Label("إزالة من تابع المشاهدة", 16, bold = true) }
-                                TextButton(onClick = { vm.markWatched(film) }) { Label("تعليم كمشاهَد", 16, bold = true) }
+                                TextButton(onClick = { if (armed) vm.markWatched(film) }) { Label("تعليم كمشاهَد", 16, bold = true) }
+                                TextButton(onClick = { if (armed) vm.removeRecent(film) }) { Label("إزالة من تابع المشاهدة", 16, bold = true) }
                             } },
                             confirmButton = {},
-                            dismissButton = { TextButton(onClick = { vm.dismissRecentOptions() }) { Label("إلغاء", 15) } })
+                            dismissButton = { TextButton(onClick = { if (armed) vm.dismissRecentOptions() }) { Label("إلغاء", 15) } })
                     }
 
                     if (vm.playing != null) PlayerScreen(vm)
