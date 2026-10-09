@@ -30,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -188,12 +189,31 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                         val contentFocus = remember(vm.page, vm.demo) { FocusRequester() }
                         val latestContentFocus by rememberUpdatedState(contentFocus)
                         LaunchedEffect(pendingFocus, vm.busy, vm.page) {
-                            if (pendingFocus && !vm.busy) {
-                                delay(60); runCatching { latestContentFocus.requestFocus() }; pendingFocus = false
+                            if (pendingFocus) {
+                                // Take focus as soon as the page has something focusable, so the rail folds at once;
+                                // otherwise wait for loading to finish and try again.
+                                delay(60)
+                                val moved = runCatching { latestContentFocus.requestFocus() }.getOrDefault(false)
+                                if (moved || !vm.busy) pendingFocus = false
+                            }
+                        }
+                        // When a select press removes the focused item (a settings card, a section tab), the system drops
+                        // focus onto the rail. That is not the user's choice: send it back into the page.
+                        var lastSelectKey by remember { mutableLongStateOf(0L) }
+                        LaunchedEffect(tabBar.hasFocus) {
+                            if (tabBar.hasFocus && !pendingFocus && System.currentTimeMillis() - lastSelectKey < 600) {
+                                delay(60)
+                                if (runCatching { latestContentFocus.requestFocus() }.isFailure) { delay(200); runCatching { latestContentFocus.requestFocus() } }
                             }
                         }
                         CompositionLocalProvider(LocalTabBarState provides tabBar) {
-                            Box(Modifier.fillMaxSize()) {
+                            Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                                val key = event.nativeKeyEvent.keyCode
+                                if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && (key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
+                                        || key == android.view.KeyEvent.KEYCODE_ENTER || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER))
+                                    lastSelectKey = System.currentTimeMillis()
+                                false
+                            }) {
                                 // The page leaves room for the collapsed rail on the right; the rail widens over it.
                                 Box(Modifier.fillMaxSize().padding(start = TvMetrics.RailCollapsed)
                                     .focusRequester(contentFocus).focusGroup()) {
@@ -203,7 +223,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                                 // Alpha is read in the layer block, so the dimming animates without recomposing the page.
                                 val scrim = animateFloatAsState(if (tabBar.hasFocus) .72f else 0f, tween(220), label = "Rail scrim")
                                 Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim.value }.background(Ink))
-                                SideRail(vm, railFocus, Modifier.align(Alignment.TopStart))
+                                SideRail(vm, railFocus, Modifier.align(Alignment.TopStart)) { pendingFocus = true }
                             }
                         }
                     } }
@@ -229,7 +249,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
  * Section rail on the right edge: icons only while the page has focus, icons and labels while focus is
  * inside it. It widens over the page rather than pushing it, so content never reflows.
  */
-@Composable private fun SideRail(vm: CinemaViewModel, railFocus: FocusRequester, modifier: Modifier = Modifier) {
+@Composable private fun SideRail(vm: CinemaViewModel, railFocus: FocusRequester, modifier: Modifier = Modifier, onNavigated: () -> Unit) {
     val bar = LocalTabBarState.current
     val width by animateDpAsState(if (bar.hasFocus) TvMetrics.RailExpanded else TvMetrics.RailCollapsed,
         tween(220, easing = CubicBezierEasing(.2f, 0f, 0f, 1f)), label = "Rail width")
@@ -250,11 +270,11 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
             RailProfileItem(vm.profile, labels) { switchProfile() }
             TicketDivider(Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
             items.forEach { p ->
-                RailItem(p, railPage == p, labels, if (p == railPage) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(p) }
+                RailItem(p, railPage == p, labels, if (p == railPage) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(p); onNavigated() }
             }
             TicketDivider(Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
             RailItem(Page.Settings, vm.page == Page.Settings, labels,
-                if (vm.page == Page.Settings) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(Page.Settings) }
+                if (vm.page == Page.Settings) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(Page.Settings); onNavigated() }
         }
     }
 }
