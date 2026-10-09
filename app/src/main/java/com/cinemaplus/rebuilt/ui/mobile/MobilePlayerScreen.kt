@@ -175,7 +175,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
             saveProgress(); vm.play(next)
         } else countdown = null
     }
-    LaunchedEffect(player, film.id, next?.id) {
+    LaunchedEffect(player, film.id, next?.id, film.markers) {
         while (true) {
             offerNext = player.currentMediaItem?.mediaId == film.id && film.episode > 0 &&
                 MobilePlayerActions.offerNextEpisode(player.currentPosition, player.duration, next != null, film.markers.creditsStartMs)

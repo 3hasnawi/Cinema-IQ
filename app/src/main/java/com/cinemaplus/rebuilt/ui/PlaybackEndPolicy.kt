@@ -17,7 +17,7 @@ object PlaybackEndPolicy {
     /** Where "skip intro" jumps to, or null when the source gave no intro or playback is outside it. */
     fun skipIntroTarget(position: Long, duration: Long, markers: com.cinemaplus.rebuilt.data.SkipMarkers): Long? {
         val end = markers.introEndMs
-        if (end <= 0 || position < 0 || (duration > 0 && end >= duration)) return null
+        if (duration <= 0 || markers.introStartMs < 0 || end <= markers.introStartMs || position < 0 || end >= duration) return null
         return end.takeIf { position >= markers.introStartMs && position < end - 1_000 }
     }
 

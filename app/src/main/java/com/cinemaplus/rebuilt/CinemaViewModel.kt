@@ -144,6 +144,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseTrailerPreview(value: Boolean) { trailerPreview = value; library.trailerPreview = value }
     private val omdb = OmdbRatings(BuildConfig.OMDB_API_KEY, java.io.File(app.cacheDir, "omdb-ratings.json"))
     private val descriptions = HashMap<String, String>()
+    private val introDb = IntroDb(java.io.File(app.cacheDir, "introdb-timings.json"))
     private val tmdb = TmdbMetadata(BuildConfig.TMDB_API_KEY, java.io.File(app.cacheDir, "tmdb-artwork.json"))
     /** True when a TMDB key is configured, so the attribution must be shown. */
     val artworkFromTmdb: Boolean get() = tmdb.enabled
@@ -466,11 +467,27 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         playJob = viewModelScope.launch {
             playbackBusy = true
             try {
-                val details = api.detail(contextual).copy(seriesId = showId, season = contextual.season, episode = contextual.episode)
+                val sourceDetails = api.detail(contextual)
+                val details = sourceDetails.copy(seriesId = showId, season = contextual.season, episode = contextual.episode,
+                    markers = sourceDetails.markers.withFallback(contextual.markers))
                 playing = if (VoduApi.owns(details.id)) details else
                     details.copy(subtitles = subtitleResolver.resolve(details.subtitles))
                 streams = api.streams(film.id)
                 if (streams.isEmpty()) playbackError = "لم يُرجع المصدر رابط تشغيل صالحًا لهذا العمل."
+                // Optional timings load after streams, with cancellation tied to this playback request.
+                if(streams.isNotEmpty() && (details.markers.introEndMs == 0L || details.markers.creditsStartMs == 0L)) launch intro@{
+                    try {
+                        val episode = details.episode > 0 && details.season > 0 && showId.isNotBlank()
+                        if(!episode && details.series) return@intro
+                        val work = if(episode) selected?.takeIf { it.id == showId && it.series }
+                            ?: api.detail(Film(showId, "", series = true)).copy(series = true) else details
+                        val imdb = tmdb.imdbId(work)
+                        val markers = introDb.lookup(imdb, details.season, details.episode, movie = !episode)
+                        if(playing?.id == details.id) playing = playing?.let { it.copy(markers = it.markers.withFallback(markers)) }
+                    } catch(e: CancellationException) { throw e }
+                    catch(_: Exception) { /* Optional timing failure never stops playback. */ }
+                }
+
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { playbackError = NetworkErrors.message(e, "تعذّر بدء التشغيل") }
             finally { playbackBusy = false }
