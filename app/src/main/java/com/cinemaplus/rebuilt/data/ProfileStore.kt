@@ -33,14 +33,18 @@ object ProfileList {
     }).toString()
 
     /** Always returns at least the main profile, even when the stored value is missing or damaged. */
-    fun decode(raw: String?): List<Profile> {
+    fun decode(raw: String?): List<Profile> = decodeOrNull(raw) ?: listOf(default())
+
+    /** Null when nothing is stored or the text is damaged, so a good backup can be tried first. */
+    fun decodeOrNull(raw: String?): List<Profile>? {
+        if (raw == null) return null
         val parsed = runCatching {
             val array = JSONArray(raw ?: "[]")
             (0 until array.length()).map { array.getJSONObject(it) }.mapNotNull { o ->
                 val id = o.optString("id"); val name = o.optString("name").trim()
                 if (id.isBlank() || name.isEmpty()) null else Profile(id, name, o.optLong("color", palette[0]), o.optString("avatar", "avatar-0"))
             }.distinctBy { it.id }
-        }.getOrDefault(emptyList())
+        }.getOrNull() ?: return null
         return if (parsed.any { it.id == MAIN }) parsed else listOf(default()) + parsed
     }
 
@@ -74,7 +78,21 @@ class ProfileStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("cinema_profiles", Context.MODE_PRIVATE)
 
-    fun profiles(): List<Profile> = ProfileList.decode(prefs.getString("list", null))
+    /**
+     * A damaged list falls back to the last good copy; the damaged text is kept aside and never overwritten
+     * silently, so profiles other than the main one are not lost to a single bad write.
+     */
+    fun profiles(): List<Profile> {
+        val raw = prefs.getString("list", null)
+        ProfileList.decodeOrNull(raw)?.let { return it }
+        if (raw != null) prefs.edit().putString("list_damaged", raw).apply()
+        return ProfileList.decodeOrNull(prefs.getString("list_backup", null)) ?: listOf(ProfileList.default())
+    }
+    private fun save(list: List<Profile>) {
+        val json = ProfileList.encode(list)
+        val previous = prefs.getString("list", null)?.takeIf { ProfileList.decodeOrNull(it) != null } ?: json
+        prefs.edit().putString("list_backup", previous).putString("list", json).apply()
+    }
     var activeId: String
         get() = ProfileList.resolveActive(profiles(), prefs.getString("active", null))
         set(value) { prefs.edit().putString("active", value).apply() }
@@ -84,14 +102,14 @@ class ProfileStore(context: Context) {
     fun add(name: String, avatar: String = "avatar-${profiles().size % 6}"): Profile? {
         val id = "p" + System.currentTimeMillis().toString(36)
         val updated = ProfileList.add(profiles(), name, id, avatar) ?: return null
-        prefs.edit().putString("list", ProfileList.encode(updated)).apply()
+        save(updated)
         return updated.first { it.id == id }
     }
 
     fun update(id: String, name: String, avatar: String): Profile? {
         val old = profiles().firstOrNull { it.id == id } ?: return null
         val updated = ProfileList.update(profiles(), id, name, avatar) ?: return null
-        prefs.edit().putString("list", ProfileList.encode(updated)).apply()
+        save(updated)
         if(old.avatar != avatar) discardImportedImage(old.avatar)
         return updated.first { it.id == id }
     }
@@ -143,7 +161,7 @@ class ProfileStore(context: Context) {
         val old = profiles().firstOrNull { it.id == id }
         val updated = ProfileList.remove(profiles(), id)
         if(id != ProfileList.MAIN) old?.let { discardImportedImage(it.avatar) }
-        prefs.edit().putString("list", ProfileList.encode(updated)).apply()
+        save(updated)
         if (id != ProfileList.MAIN) {
             // Drop the removed profile's own data; the main profile's file is never touched.
             appContext.deleteSharedPreferences(ProfileList.prefsName(id))

@@ -18,10 +18,13 @@ class CinemanaApi(private val tokenProvider: () -> String? = { null }) {
         .readTimeout(20, TimeUnit.SECONDS).callTimeout(30, TimeUnit.SECONDS).build()
     private val base = "https://cinemana.shabakaty.cc/api/android/"
     private suspend fun get(path: String): Any = withContext(Dispatchers.IO) {
-        client.newCall(Request.Builder().url(base + path).apply { tokenProvider()?.let { header("Authorization", it) } }.get().build()).execute().use {
-            if (!it.isSuccessful) error("تعذّر الوصول إلى المصدر (${it.code}). اتصل بالشبكة المحلية ثم أعد المحاولة.")
-            val body = it.body?.string() ?: error("استجابة فارغة من المصدر")
-            runCatching { JSONTokener(body).nextValue() }.getOrElse { error("استجابة غير صالحة من المصدر") }
+        // Idempotent read: one retry for brief network hiccups or a 5xx answer.
+        NetworkErrors.retryOnce {
+            client.newCall(Request.Builder().url(base + path).apply { tokenProvider()?.let { header("Authorization", it) } }.get().build()).execute().use {
+                if (!it.isSuccessful) throw SourceHttpException(it.code)
+                val body = it.body?.string() ?: error("استجابة فارغة من المصدر")
+                runCatching { JSONTokener(body).nextValue() }.getOrElse { error("استجابة غير صالحة من المصدر") }
+            }
         }
     }
     suspend fun home(): List<Shelf> {

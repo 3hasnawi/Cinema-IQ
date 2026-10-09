@@ -53,7 +53,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                 downloadedUpdate = file; updateStatus = "التحديث جاهز. اسمح بالتثبيت إذا طُلب، ثم اضغط تثبيت التحديث."
                 UpdateInstaller.install(getApplication(), file)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { downloadedUpdate?.delete(); downloadedUpdate = null; updateStatus = e.message ?: "تعذّر تثبيت التحديث." }
+            catch (e: Exception) { downloadedUpdate?.delete(); downloadedUpdate = null; updateStatus = NetworkErrors.message(e, "تعذّر تثبيت التحديث.") }
             finally { updateBusy = false }
         }
     }
@@ -75,7 +75,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try { account.login(username, password); signedIn = true }
             catch(e: CancellationException) { throw e }
-            catch(e: Exception) { accountError = e.message ?: "تعذّر تسجيل الدخول." }
+            catch(e: Exception) { accountError = NetworkErrors.message(e, "تعذّر تسجيل الدخول.") }
             finally { accountBusy = false }
         }
     }
@@ -85,7 +85,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try { account.logout(); signedIn = false }
             catch(e: CancellationException) { throw e }
-            catch(e: Exception) { accountError = e.message ?: "تعذّر تسجيل الخروج." }
+            catch(e: Exception) { accountError = NetworkErrors.message(e, "تعذّر تسجيل الخروج.") }
             finally { accountBusy = false }
         }
     }
@@ -257,7 +257,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                     old.copy(films = (old.films + data.firstOrNull { it.id == old.id }?.films.orEmpty()).distinctBy { it.id })
                 } + data.filter { next -> shelves.none { it.id == next.id } }) else data
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = e.message ?: "تعذّر تحميل المحتوى. تحقق من الشبكة المحلية." }
+            catch (e: Exception) { error = NetworkErrors.message(e, "تعذّر تحميل المحتوى. تحقق من الشبكة المحلية.") }
             finally { if(currentCoroutineContext().isActive) busy = false }
         }
     }
@@ -330,7 +330,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { detailError = e.message ?: "تعذّر تحميل التفاصيل" }
+            catch (e: Exception) { detailError = NetworkErrors.message(e, "تعذّر تحميل التفاصيل") }
             finally { detailBusy = false }
         }
     }
@@ -411,7 +411,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                 streams = api.streams(film.id)
                 if (streams.isEmpty()) playbackError = "لم يُرجع المصدر رابط تشغيل صالحًا لهذا العمل."
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { playbackError = e.message ?: "تعذّر بدء التشغيل" }
+            catch (e: Exception) { playbackError = NetworkErrors.message(e, "تعذّر بدء التشغيل") }
             finally { playbackBusy = false }
         }
     }

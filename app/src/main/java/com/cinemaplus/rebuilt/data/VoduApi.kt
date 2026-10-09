@@ -19,10 +19,12 @@ class VoduApi {
         val url = okhttp3.HttpUrl.Builder().scheme("https").host("movie.vodu.me")
             .addPathSegment("index.php").apply { params.forEach { (key, value) -> addQueryParameter(key, value) } }.build()
         synchronized(cache) { if (fresh) null else cache[url.toString()] }?.takeIf { it.first > System.nanoTime() }?.let { return@withContext it.second }
-        val doc = client.newCall(Request.Builder().url(url).build()).execute().use { response ->
-            if (!response.isSuccessful) error("تعذّر الوصول إلى VODU (${response.code})")
-            if (response.request.url.host != "movie.vodu.me") error("أعاد VODU توجيهاً غير متوقع")
-            Jsoup.parse(response.body?.string() ?: error("استجابة VODU فارغة"), BASE)
+        val doc = NetworkErrors.retryOnce {
+            client.newCall(Request.Builder().url(url).build()).execute().use { response ->
+                if (!response.isSuccessful) throw SourceHttpException(response.code, "VODU")
+                if (response.request.url.host != "movie.vodu.me") error("أعاد VODU توجيهاً غير متوقع")
+                Jsoup.parse(response.body?.string() ?: error("استجابة VODU فارغة"), BASE)
+            }
         }
         synchronized(cache) {
             if (cache.size >= 64) cache.remove(cache.keys.first())
