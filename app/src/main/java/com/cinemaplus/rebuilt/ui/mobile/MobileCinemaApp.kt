@@ -149,7 +149,7 @@ private fun MobileBrowse(vm: CinemaViewModel) {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Cinema iQ", fontSize = 24.sp, color = Accent, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = { vm.reload() }) { Icon(Icons.Rounded.Refresh, "تحديث المحتوى") }
+                IconButton(onClick = { vm.refresh() }) { Icon(Icons.Rounded.Refresh, "تحديث المحتوى") }
             }
             if (vm.page != Page.Home) PageHeader(vm.page.label, pageSubtitle(vm.page), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
             if (vm.page == Page.Search) OutlinedTextField(typed, { typed = it }, singleLine = true,

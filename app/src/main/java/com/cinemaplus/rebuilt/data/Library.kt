@@ -102,9 +102,7 @@ class Library(context: Context, val profileId: String = ProfileList.MAIN) {
         val d = prefs.getLong("duration_$id", 0)
         return if (d > 0) (progress(id).toFloat() / d).coerceIn(0f, 1f) else 0f
     }
-    private fun json(f: Film) = JSONObject().put("nb", f.id).put("ar_title", f.title)
-        .put("imgMediumThumbObjUrl", f.poster).put("imgObjUrl", f.backdrop).put("year", f.year).put("stars", f.rating).put("imdbRating", f.imdbRating).put("originalLanguage", f.originalLanguage).put("en_title", f.enTitle).put("trailer", f.trailer)
-        .put("originalTitle", f.originalTitle).put("contentQuality", f.contentQuality).put("edition", f.edition).put("seriesId", f.seriesId).put("kind", if (f.series) 2 else 1).put("season", f.season).put("episodeNummer", f.episode)
+    private fun json(f: Film) = FilmJson.encode(f)
     var titleLanguage: TitleLanguage
         get() = TitleLanguage.restore(prefs.getString("title_language", null))
         set(value) { prefs.edit().putString("title_language", value.name).apply() }
