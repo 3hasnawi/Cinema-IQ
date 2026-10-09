@@ -6,7 +6,7 @@ import org.json.JSONObject
 
 /** Per-profile storage. The default profile reads the original file, so nothing is lost on upgrade. */
 class Library(context: Context, val profileId: String = ProfileList.MAIN) {
-    private val prefs = context.getSharedPreferences(ProfileList.prefsName(profileId), Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences(com.cinemaplus.rebuilt.cloud.CloudAccount.prefsName(ProfileList.prefsName(profileId)), Context.MODE_PRIVATE)
     var sourceChoice: SourceChoice
         get() = SourceChoice.restore(prefs.getString("content_source", null))
         set(value) { prefs.edit().putString("content_source", value.name).apply() }
@@ -29,6 +29,7 @@ class Library(context: Context, val profileId: String = ProfileList.MAIN) {
     }
     /** Id of the film currently first in "recent"; lets frequent progress saves skip rewriting the list. */
     private var recentHead: String? = null
+    fun cloudChanged() { recentHead = null }
     fun isCompleted(id: String) = prefs.getBoolean("completed_$id", false)
 
     fun progress(id: String) = prefs.getLong("position_$id", 0L)

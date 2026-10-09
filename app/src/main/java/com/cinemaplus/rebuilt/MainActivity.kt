@@ -11,6 +11,7 @@ import com.cinemaplus.rebuilt.ui.CinemaApp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.cinemaplus.rebuilt.cloud.CloudAccount.init(applicationContext)
         val television = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(this)
         requestedOrientation = if (television) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

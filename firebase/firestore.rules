@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) {
+      return request.auth != null && request.auth.uid == uid && request.auth.token.email_verified == true;
+    }
+    match /users/{uid}/profiles/{profileId} {
+      allow read: if owner(uid);
+      allow create, update: if owner(uid)
+        && request.resource.data.keys().hasOnly(['name', 'color', 'avatar', 'deleted'])
+        && request.resource.data.name is string && request.resource.data.name.size() <= 64
+        && request.resource.data.color is int && request.resource.data.avatar is string
+        && request.resource.data.avatar.matches('avatar-[0-5]') && request.resource.data.deleted is bool;
+      match /entries/{entryId} {
+        allow read: if owner(uid);
+        allow create, update: if owner(uid)
+          && request.resource.data.keys().hasOnly(['key', 'value', 'updatedAt'])
+          && request.resource.data.key is string && request.resource.data.key.size() <= 256
+          && request.resource.data.key.matches('(favorite|recent|follow|playback)/.+')
+          && request.resource.data.value is string && request.resource.data.value.size() <= 65536
+          && request.resource.data.updatedAt == request.time;
+      }
+    }
+  }
+}
