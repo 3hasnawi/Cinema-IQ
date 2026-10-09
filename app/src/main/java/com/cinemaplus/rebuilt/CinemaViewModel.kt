@@ -260,7 +260,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             val key = if (append) null else cacheKey()
             // Stale-while-revalidate: show what we have at once, then refresh it unless it is still fresh.
             val cached = key?.let { pageCache[it] ?: withContext(Dispatchers.IO) {
-                ShelfSnapshot.decode(snapshotFile(it).takeIf { f -> f.exists() }?.readText())?.takeIf { l -> l.isNotEmpty() }
+                ShelfSnapshot.read(snapshotFile(it))?.takeIf { l -> l.isNotEmpty() }
             }?.let { saved -> CachedPage(0L, saved).also { entry -> pageCache[it] = entry } } }
             if (cached != null) {
                 shelves = cached.shelves; busy = false

@@ -38,7 +38,8 @@ suspend fun Call.executeCancellable(): Response = suspendCancellableCoroutine { 
             if (continuation.isActive) continuation.resumeWithException(e)
         }
         override fun onResponse(call: Call, response: Response) {
-            if (continuation.isActive) continuation.resume(response) else response.close()
+            // The coroutine may be cancelled after resume but before it receives the resource.
+            continuation.resume(response) { _, delivered, _ -> delivered.close() }
         }
     })
 }
