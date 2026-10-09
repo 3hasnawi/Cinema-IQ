@@ -29,12 +29,14 @@ class MobilePlayerActionsTest {
 
     @Test fun nextEpisodeAppearsOnlyNearTheEndWithAKnownDurationAndSuccessor() {
         assertFalse(MobilePlayerActions.offerNextEpisode(1_000_000, 2_000_000, true))
-        assertTrue(MobilePlayerActions.offerNextEpisode(1_910_000, 2_000_000, true))
+        assertTrue(MobilePlayerActions.offerNextEpisode(1_990_000, 2_000_000, true))
+        assertFalse(MobilePlayerActions.offerNextEpisode(1_900_000, 2_000_000, true))
+        assertTrue(MobilePlayerActions.offerNextEpisode(1_900_000, 2_000_000, true, 1_850_000))
         assertTrue(MobilePlayerActions.offerNextEpisode(2_000_000, 2_000_000, true))
         assertFalse(MobilePlayerActions.offerNextEpisode(1_950_000, 2_000_000, false))
         assertFalse(MobilePlayerActions.offerNextEpisode(0, C.TIME_UNSET, true))
         assertFalse(MobilePlayerActions.offerNextEpisode(0, 60_000, true))
-        assertTrue(MobilePlayerActions.offerNextEpisode(54_000, 60_000, true))
+        assertTrue(MobilePlayerActions.offerNextEpisode(50_000, 60_000, true))
     }
 
     @Test fun readyPlaybackStillPausesNormally() {

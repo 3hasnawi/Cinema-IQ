@@ -121,7 +121,10 @@ fun PlayerScreen(vm: CinemaViewModel) {
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
     val isSeries = film.episode > 0 || film.series || vm.selected?.series == true
     val next = vm.nextEpisode()
-    val offerNext = film.episode > 0 && PlaybackEndPolicy.offerNextEpisode(position, duration, next != null)
+    val offerNext = film.episode > 0 && PlaybackEndPolicy.offerNextEpisode(position, duration, next != null, film.markers.creditsStartMs)
+    val introTarget = PlaybackEndPolicy.skipIntroTarget(position, duration, film.markers)
+    // One prompt slot: skip-intro early in the episode, next-episode near its end.
+    val promptShown = introTarget != null || offerNext
     // Episodes of the season being played, shown as a thumbnail strip when the user presses Down.
     val episodes = remember(vm.seasons, film.id) {
         if (!isSeries) emptyList()
@@ -334,8 +337,8 @@ fun PlayerScreen(vm: CinemaViewModel) {
         }
     }
     LaunchedEffect(film.id) { nextEpisodeFocused = false; interact() }
-    LaunchedEffect(offerNext, panel, episodesShown) {
-        if ((!offerNext || panel != null || episodesShown) && nextEpisodeFocused) {
+    LaunchedEffect(promptShown, panel, episodesShown) {
+        if ((!promptShown || panel != null || episodesShown) && nextEpisodeFocused) {
             nextEpisodeFocused = false
             if (panel == null && !episodesShown) runCatching { if(controlsVisible) seekFocus.requestFocus() else rootFocus.requestFocus() }
         }
@@ -366,7 +369,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
         .focusRequester(rootFocus).focusProperties { canFocus = !controlsVisible }
         .onPreviewKeyEvent { event ->
             val native = event.nativeKeyEvent
-            if (offerNext && panel == null && !episodesShown && !nextEpisodeFocused &&
+            if (promptShown && panel == null && !episodesShown && !nextEpisodeFocused &&
                 (seekFocused || !controlsVisible) && native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) {
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) {
                     interact(); runCatching { nextEpisodeFocus.requestFocus() }
@@ -456,7 +459,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                         previewing = previewPosition != null, bufferedPosition = bufferedPosition,
                         speedLabel = if(previewPosition != null && scrubLevel > 0)
                             "${if(scrubDir < 0) "◀◀" else "▶▶"} ×${ScrubSpeeds[scrubLevel]}" else "",
-                        modifier = Modifier.focusRequester(seekFocus).focusProperties { down = playFocus; up = if(offerNext) nextEpisodeFocus else backFocus },
+                        modifier = Modifier.focusRequester(seekFocus).focusProperties { down = playFocus; up = if(promptShown) nextEpisodeFocus else backFocus },
                         onFocusChange = { seekFocused = it },
                         onSelect = { if(previewPosition != null) commitScrub() else { interact(); togglePlayback() } })
                     Spacer(Modifier.height(8.dp))
@@ -503,14 +506,14 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 }
             }
         }
-        if(offerNext && next != null && panel == null && !episodesShown) {
+        if(promptShown && panel == null && !episodesShown) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                TvActionButton(countdown?.let { "الحلقة التالية ($it)" } ?: "الحلقة التالية", icon = Icons.Rounded.PlayArrow, modifier = Modifier.align(Alignment.BottomEnd)
+                TvActionButton(if (introTarget != null) "تخطي المقدمة" else countdown?.let { "الحلقة التالية ($it)" } ?: "الحلقة التالية", icon = Icons.Rounded.PlayArrow, modifier = Modifier.align(Alignment.BottomEnd)
                     .padding(end = TvMetrics.EdgeInset, bottom = 142.dp)
                     .focusRequester(nextEpisodeFocus)
                     .onFocusChanged { nextEpisodeFocused = it.isFocused }
                     .focusProperties { down = if(controlsVisible) seekFocus else rootFocus; up = if(controlsVisible) backFocus else rootFocus }) {
-                    playEpisode(next)
+                    if (introTarget != null) { player.seekTo(introTarget); interact() } else next?.let { playEpisode(it) }
                 }
             }
         }
