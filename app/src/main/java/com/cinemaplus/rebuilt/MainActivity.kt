@@ -22,6 +22,8 @@ class MainActivity : ComponentActivity() {
         // One image loader tuned for weak TV hardware: 16-bit bitmaps halve memory and upload cost, and a
         // capped memory cache keeps the app from competing with the system for RAM.
         coil.Coil.setImageLoader(coil.ImageLoader.Builder(applicationContext)
+            // Artwork URLs are stable; ignore the servers' no-cache headers so images are reused from disk.
+            .respectCacheHeaders(false)
             .allowRgb565(true).crossfade(false)
             .memoryCache { coil.memory.MemoryCache.Builder(applicationContext).maxSizePercent(0.20).build() }
             .build())
