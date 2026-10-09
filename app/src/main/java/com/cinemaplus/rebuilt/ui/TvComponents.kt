@@ -244,6 +244,16 @@ fun FilmCard(
     val subtitle = if (f.episode > 0) listOf("الموسم ${f.season} • الحلقة ${f.episode}", formatContentDuration(f.duration)).filter(String::isNotBlank).joinToString(" • ")
     else listOf(if (f.series) "مسلسل" else "فيلم", f.year).filter(String::isNotBlank).joinToString(" • ")
 
+    val continueStyle = wide && progress > 0f
+    val continueStatus = if (!continueStyle) "" else {
+        val total = if (':' in f.duration) f.duration.split(':').mapNotNull { it.trim().toLongOrNull() }.fold(0L) { t, p -> t * 60 + p }
+            else f.duration.trim().toLongOrNull() ?: 0L
+        val left = if (progress >= .95f) "على وشك الانتهاء"
+            else if (total > 0) "متبقي " + formatContentDuration((total * (1f - progress)).toLong().toString()) else "تابع المشاهدة"
+        val label = if (f.episode > 0) (if (f.season > 1) "الموسم ${f.season} • الحلقة ${f.episode}" else "الحلقة ${f.episode}") else ""
+        listOf(label, left).filter(String::isNotBlank).joinToString(" • ")
+    }
+
     // Focus changes are observed here, outside composition. The gold ring and scale animate immediately;
     // the trailer is resolved while the user dwells, so the card only expands when there is something to play.
     LaunchedEffect(f.id, preview, trailerEnabled) {
@@ -333,9 +343,24 @@ fun FilmCard(
                         if (!trailerPlaying && about.isNotBlank()) Label(about, 12, Color.White.copy(alpha = .8f), lines = if (wide) 3 else 4)
                     }
                 }
-                if (progress > 0f) {
+                if (continueStyle && !expanded) {
+                    // Continue-watching cards carry their own title and a small status pill inside the artwork.
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                        0f to Color.Transparent, .35f to Color.Transparent, 1f to Color.Black.copy(alpha = .88f))))
+                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Label(mediaTitle(f), 16, Color.White, true, lines = 1)
+                        Row(Modifier.background(Color.Black.copy(alpha = .45f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Rounded.PlayArrow, null, Modifier.size(16.dp), tint = Color.White)
+                            Label(continueStatus, 12, Color.White, true, lines = 1)
+                        }
+                    }
+                } else if (progress > 0f) {
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                         0f to Color.Transparent, .7f to Color.Transparent, 1f to Color.Black.copy(alpha = .7f))))
+                }
+                if (progress > 0f) {
                     Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
                         .height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .3f))) {
                         Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).background(Accent))
@@ -344,7 +369,7 @@ fun FilmCard(
             }
         }
         // The caption brightens with the same animation value; the card never recomposes for it.
-        Column(Modifier.fillMaxWidth().graphicsLayer { alpha = .78f + .22f * focusAnim.value }
+        if (!continueStyle) Column(Modifier.fillMaxWidth().graphicsLayer { alpha = .78f + .22f * focusAnim.value }
             .padding(top = 10.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Label(mediaTitle(f), 14, Color.White, true, lines = 1)
             if (subtitle.isNotBlank()) Label(subtitle, 12, Muted, lines = 1)
