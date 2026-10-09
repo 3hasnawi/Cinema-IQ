@@ -297,7 +297,7 @@ private fun MobileDetails(vm: CinemaViewModel) {
 @Composable
 private fun MobileSettings(vm: CinemaViewModel) {
     var cloudDialog by remember { mutableStateOf(false) }
-    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog { cloudDialog = false }
+    if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog(vm.signedIn, vm::login) { cloudDialog = false }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
