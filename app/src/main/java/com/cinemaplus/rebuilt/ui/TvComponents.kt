@@ -241,7 +241,7 @@ fun FilmCard(
     }
     val shape = RoundedCornerShape(TvMetrics.CardRadius)
     val image = if (wide || expanded) f.backdrop.ifBlank { f.poster } else f.poster.ifBlank { f.backdrop }
-    val subtitle = if (f.episode > 0) formatContentDuration(f.duration)
+    val subtitle = if (f.episode > 0) listOf("الموسم ${f.season} • الحلقة ${f.episode}", formatContentDuration(f.duration)).filter(String::isNotBlank).joinToString(" • ")
     else listOf(if (f.series) "مسلسل" else "فيلم", f.year).filter(String::isNotBlank).joinToString(" • ")
 
     // Focus changes are observed here, outside composition. The gold ring and scale animate immediately;
