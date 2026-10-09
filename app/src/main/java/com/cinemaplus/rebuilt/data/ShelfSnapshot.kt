@@ -1,5 +1,7 @@
 package com.cinemaplus.rebuilt.data
 
+import java.io.File
+import java.io.IOException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -12,6 +14,15 @@ object FilmJson {
 
 /** The last page shown, stored on disk so the next launch has something to show before the network answers. */
 object ShelfSnapshot {
+    /** Missing, removed or unreadable cache files are misses, never a fatal catalog error. */
+    fun read(file: File): List<Shelf>? = try {
+        decode(file.readText())
+    } catch (_: IOException) {
+        null
+    } catch (_: SecurityException) {
+        null
+    }
+
     private const val MAX_SHELVES = 12
     private const val MAX_FILMS = 30
 
