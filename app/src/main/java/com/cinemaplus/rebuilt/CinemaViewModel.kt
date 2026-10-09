@@ -219,6 +219,18 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     }
     private fun navigateBack(to: Page) { page = to; pageNumber = 1; reload() }
     fun search(text: String) { query = text.trim(); pageNumber = 1; reload() }
+
+    var searchHistory by mutableStateOf(library.searchHistory)
+    /** Type filter and sort order for search results and the saved list. */
+    var filter by mutableStateOf(FilmFilter())
+    fun cycleKind() { filter = filter.nextKind() }
+    fun cycleSort() { filter = filter.nextSort() }
+    private fun rememberSearch(text: String) {
+        val updated = SearchHistory.add(searchHistory, text)
+        if (updated != searchHistory) { searchHistory = updated; library.searchHistory = updated }
+    }
+    fun forgetSearch(text: String) { searchHistory = SearchHistory.remove(searchHistory, text); library.searchHistory = searchHistory }
+    fun clearSearchHistory() { searchHistory = emptyList(); library.searchHistory = emptyList() }
     fun changeDemo(value: Boolean) { demo = value; library.demo = value; closeDetail(); stop(); reload() }
     fun reload(append: Boolean = false) {
         if (!append) refreshFollowedSeries(force = true)
@@ -258,6 +270,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                 shelves = if(append) (shelves.map { old ->
                     old.copy(films = (old.films + data.firstOrNull { it.id == old.id }?.films.orEmpty()).distinctBy { it.id })
                 } + data.filter { next -> shelves.none { it.id == next.id } }) else data
+                if (page == Page.Search && !append && data.any { it.films.isNotEmpty() }) rememberSearch(query)
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = NetworkErrors.message(e, "تعذّر تحميل المحتوى. تحقق من الشبكة المحلية.") }
             finally { if(currentCoroutineContext().isActive) busy = false }

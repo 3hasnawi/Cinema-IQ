@@ -334,7 +334,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     if ((vm.page == Page.Movies || vm.page == Page.Series) && (vm.demo || vm.shelves.any { it.id.startsWith("genre-") } || vm.busy && vm.shelves.isEmpty())) {
         GenreScreen(vm); return
     }
-    val films = vm.shelves.flatMap { it.films }.distinctBy { it.id }
+    val films = vm.shelves.flatMap { it.films }.distinctBy { it.id }.let { if (vm.page == Page.Library) vm.filter.apply(it) else it }
     val firstFocus = remember { FocusRequester() }
     Column(Modifier.fillMaxSize().padding(top = TvMetrics.TabBarSpace)) {
         PosterGrid(films, vm, firstRequester = firstFocus,
@@ -342,6 +342,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                 Column(Modifier.padding(top = 8.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     PageHeader(vm.page.label, if (vm.page == Page.Library && films.isNotEmpty()) "${films.size} عمل في قائمتك" else pageSubtitle(vm.page))
                     if (vm.demo) Label("عرض تجريبي • الأعمال للتوضيح فقط", 13, Muted)
+                    if (vm.page == Page.Library) FilterBar(vm)
                 }
             },
             footer = {
@@ -361,7 +362,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 }
 
 @Composable private fun SearchScreen(vm: CinemaViewModel) {
-    val films = vm.shelves.flatMap { it.films }.distinctBy { it.id }
+    val films = vm.filter.apply(vm.shelves.flatMap { it.films }.distinctBy { it.id })
     val firstResult = remember { FocusRequester() }
     Column(Modifier.fillMaxSize().padding(top = TvMetrics.TabBarSpace)) {
         PosterGrid(films, vm, firstRequester = firstResult,
@@ -372,9 +373,18 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                     when {
                         vm.busy -> Label("جارٍ البحث…", 15, Muted)
                         vm.error != null -> Label(vm.error!!, 14, Muted, lines = 2)
-                        vm.query.isBlank() -> Label("ابحث عن فيلم أو مسلسل", 17, Muted)
-                        films.isEmpty() -> Label("لا توجد نتائج", 17, Muted)
-                        else -> Label("نتائج «${vm.query}»", 22, bold = true)
+                        vm.query.isBlank() -> {
+                            Label("ابحث عن فيلم أو مسلسل", 17, Muted)
+                            if (vm.searchHistory.isNotEmpty()) {
+                                Label("عمليات البحث الأخيرة", 15, Muted)
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    vm.searchHistory.take(4).forEach { text -> Action(text) { vm.search(text) } }
+                                    Action("مسح السجل") { vm.clearSearchHistory() }
+                                }
+                            }
+                        }
+                        films.isEmpty() -> { Label("لا توجد نتائج", 17, Muted); if (vm.filter.active) FilterBar(vm) }
+                        else -> { Label("نتائج «${vm.query}»", 22, bold = true); FilterBar(vm) }
                     }
                 }
             },
@@ -383,6 +393,14 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                     Action(if (vm.busy) "جارٍ التحميل…" else "عرض المزيد") { if (!vm.busy) vm.more() }
                 }
             })
+    }
+}
+
+/** Type and sort buttons; each press cycles to the next value. */
+@Composable private fun FilterBar(vm: CinemaViewModel) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Action("النوع: ${vm.filter.kind.label}") { vm.cycleKind() }
+        Action("الترتيب: ${vm.filter.sort.label}") { vm.cycleSort() }
     }
 }
 

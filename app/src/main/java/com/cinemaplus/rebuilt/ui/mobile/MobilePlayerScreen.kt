@@ -207,7 +207,16 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         })
         // Tap anywhere on the picture to show or hide the controls.
         Box(Modifier.fillMaxSize().pointerInput(Unit) {
-            detectTapGestures(onTap = { if (controlsVisible) controlsVisible = false else { controlsVisible = true; interact() } })
+            detectTapGestures(
+                onTap = { if (controlsVisible) controlsVisible = false else { controlsVisible = true; interact() } },
+                // Double tap: left half goes back 10 s, right half forward 10 s (physical sides).
+                onDoubleTap = { offset ->
+                    if (MobilePlayerActions.canSeek(player)) {
+                        val forward = offset.x > size.width / 2
+                        seekBy(if (forward) 10_000 else -10_000)
+                        notice = if (forward) "تقديم 10 ثوانٍ" else "رجوع 10 ثوانٍ"
+                    }
+                })
         })
         // Swipe up from the bottom edge to open the episodes (series only).
         if (vm.seasons.isNotEmpty()) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(24.dp)
@@ -248,6 +257,17 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
                             verticalAlignment = Alignment.CenterVertically) {
                             if (vm.seasons.isNotEmpty()) MobileRoundControl("الحلقات", "☷") { interact(); episodesOpen = true }
+                            // Picture-in-picture needs Android 8+; playback keeps running in the small window.
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                MobileRoundControl("نافذة عائمة", "⧉") {
+                                    val activity = context as? android.app.Activity
+                                    controlsVisible = false
+                                    runCatching {
+                                        activity?.enterPictureInPictureMode(android.app.PictureInPictureParams.Builder()
+                                            .setAspectRatio(android.util.Rational(16, 9)).build())
+                                    }
+                                }
+                            }
                             MobileRoundControl(if (vm.sceneFilter) "فلترة المشاهد: مفعّلة" else "فلترة المشاهد غير اللائقة", "✂", active = vm.sceneFilter) {
                                 interact(); vm.chooseSceneFilter(!vm.sceneFilter)
                                 notice = if (vm.sceneFilter) "جارٍ تحليل المشاهد…" else "أُوقفت فلترة المشاهد"
