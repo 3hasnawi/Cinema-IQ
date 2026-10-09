@@ -183,6 +183,18 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         descriptions[film.id] = text
         return text
     }
+    private val qualities = mutableMapOf<String, String>()
+    /** Highest resolution the source actually offers for a movie; empty when unknown. Series have no single stream list. */
+    suspend fun bestQuality(film: Film): String {
+        if (film.series || film.id.startsWith("demo-")) return ""
+        if (film.contentQuality.isNotBlank()) return film.contentQuality
+        qualities[film.id]?.let { return it }
+        val quality = try { availableQuality(api.streams(film.id)) }
+        catch (e: CancellationException) { throw e }
+        catch (e: Exception) { return "" }
+        qualities[film.id] = quality
+        return quality
+    }
     private var loadJob: Job? = null
     private var detailJob: Job? = null
     private var playJob: Job? = null

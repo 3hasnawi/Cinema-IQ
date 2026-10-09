@@ -80,7 +80,7 @@ private fun heroRequest(context: android.content.Context, url: String): ImageReq
 private fun Film.heroArt(): String = backdrop.ifBlank { poster }
 
 /** Not observable on purpose: remembering a card never triggers composition. Saved so it survives opening a title. */
-private class StageMemory(var row: Int = -1, val cards: MutableMap<String, Int> = mutableMapOf())
+private class StageMemory(var row: Int = 0, val cards: MutableMap<String, Int> = mutableMapOf())
 private val StageMemorySaver = listSaver<StageMemory, String>(
     save = { memory -> listOf(memory.row.toString()) + memory.cards.map { "${it.key}|${it.value}" } },
     restore = { saved -> StageMemory(saved[0].toInt(), saved.drop(1).mapNotNull { entry ->
@@ -90,60 +90,89 @@ private val StageMemorySaver = listSaver<StageMemory, String>(
 @Stable
 private class StageState { var film by mutableStateOf<Film?>(null) }
 
+/** Small cards keep the stage clean; the artwork of the title in focus carries the page. */
+private val StripPosterWidth = 112.dp
+private val StripWideWidth = 208.dp
+private const val FeaturedId = "featured"
+private const val AutoAdvanceMillis = 7_000L
+
 /**
  * Home is one fixed stage: the artwork and details of the title in focus fill the screen, and the shelves come
- * up from the bottom one at a time. Down brings the next shelf, Up the previous one, and Up from the first
- * shelf returns to the rotating featured titles. Moving along a shelf swaps the stage to that title.
+ * up from the bottom one at a time. The first shelf holds the featured titles and its cursor moves along by
+ * itself until the viewer takes over. Down brings the next shelf, Up the previous one.
  */
 @Composable
 fun HomeScreen(vm: CinemaViewModel) {
     val revision = vm.libraryRevision
     // Parsing the saved list on every recomposition made focus moves stutter; recompute only when it changes.
     val recent = remember(revision, vm.demo) { vm.library.recent().filter { it.id.startsWith("demo-") == vm.demo } }
-    val rows = remember(vm.shelves, recent) {
-        (if (recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) else emptyList()) +
+    val featured = remember(vm.shelves) { featuredFilms(vm.shelves) }
+    val rows = remember(vm.shelves, recent, featured) {
+        (if (featured.isNotEmpty()) listOf(Shelf(FeaturedId, "الأعمال المميزة", featured)) else emptyList()) +
+            (if (recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) else emptyList()) +
             vm.shelves.filter { it.films.isNotEmpty() }
     }
-    val featured = remember(vm.shelves) { featuredFilms(vm.shelves) }
-    val heroIndex = remember { mutableIntStateOf(0) }
-    // Bumped when the user changes the title by hand, which restarts the automatic timer.
-    val nudge = remember { mutableIntStateOf(0) }
     val memory = rememberSaveable(saver = StageMemorySaver) { StageMemory() }
-    // -1 = the featured titles with no shelf; otherwise the index of the shelf on screen.
-    val rowIndex = remember { mutableIntStateOf(memory.row.coerceAtMost(rows.size - 1)) }
+    // The index of the shelf on screen.
+    val rowIndex = remember { mutableIntStateOf(memory.row.coerceIn(0, (rows.size - 1).coerceAtLeast(0))) }
     val focused = remember { mutableStateOf<Film?>(null) }
     val stage = remember { StageState() }
-    val heroFocus = remember { FocusRequester() }
     val entryRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val entryIndexes = remember { mutableMapOf<String, MutableIntState>() }
     val rowStates = remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
     val navigationJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    val lastInput = remember { longArrayOf(System.currentTimeMillis()) }
     val scope = rememberCoroutineScope()
+    val tabBar = LocalTabBarState.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val context = LocalContext.current
     LaunchedEffect(featured) { vm.enrich(featured) }
-    HeroTicker(featured, heroIndex, nudge, art = { vm.withArtwork(it).heroArt() }) { rowIndex.intValue == -1 }
+    // Before any card has focus the stage already shows the first title.
+    LaunchedEffect(rows) { if (focused.value == null) focused.value = rows.getOrNull(rowIndex.intValue)?.films?.firstOrNull() }
     // Choose what the stage shows. Moving fast along a shelf waits for the viewer to settle, so artwork is not decoded per key press.
-    LaunchedEffect(featured) {
-        snapshotFlow { if (rowIndex.intValue == -1) featured.getOrNull(heroIndex.intValue) else focused.value }
-            .collectLatest { target ->
-                if (stage.film != null && rowIndex.intValue >= 0) delay(140)
-                stage.film = target ?: stage.film
-            }
+    LaunchedEffect(Unit) {
+        snapshotFlow { focused.value }.collectLatest { target ->
+            if (stage.film != null) delay(140)
+            stage.film = target ?: stage.film
+        }
+    }
+    fun entryIndex(shelf: Shelf) = entryIndexes.getOrPut(shelf.id) {
+        mutableIntStateOf((memory.cards[shelf.id] ?: 0).coerceIn(0, shelf.films.lastIndex))
     }
     // Back from a title, or a return to this page, puts focus where the viewer was.
-    LaunchedEffect(Unit) {
-        if (rowIndex.intValue >= 0) awaitTvFocus { rows.getOrNull(rowIndex.intValue)?.let { entryRequesters[it.id] } }
-        else awaitTvFocus { heroFocus }
+    LaunchedEffect(rows.firstOrNull()?.id) {
+        if (!tabBar.hasFocus) awaitTvFocus { rows.getOrNull(rowIndex.intValue)?.let { entryRequesters[it.id] } }
     }
     // The list can change under the viewer (a shelf appears or goes). Stay on the same shelf, or the nearest one.
     val shownShelf = remember { arrayOfNulls<String>(1) }
     LaunchedEffect(rows) {
         val current = rowIndex.intValue
-        if (current < 0) { shownShelf[0] = null; return@LaunchedEffect }
         val id = shownShelf[0] ?: rows.getOrNull(current)?.id
-        val moved = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: current.coerceAtMost(rows.size - 1)
+        val moved = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: current.coerceAtMost((rows.size - 1).coerceAtLeast(0))
         shownShelf[0] = rows.getOrNull(moved)?.id
         if (moved != current) {
             rowIndex.intValue = moved; memory.row = moved
-            if (moved >= 0) awaitTvFocus { entryRequesters[rows[moved].id] } else awaitTvFocus { heroFocus }
+            rows.getOrNull(moved)?.let { entryIndex(it) }
+            awaitTvFocus { rows.getOrNull(moved)?.let { entryRequesters[it.id] } }
+        }
+    }
+    // The featured cursor walks along by itself while the viewer is idle on that shelf, and starts over at the end.
+    LaunchedEffect(rows.firstOrNull()?.id) {
+        while (true) {
+            delay(1_000)
+            val first = rows.firstOrNull()
+            if (first?.id != FeaturedId || rowIndex.intValue != 0 || tabBar.hasFocus) continue
+            if (System.currentTimeMillis() - lastInput[0] < AutoAdvanceMillis) continue
+            val at = memory.cards[FeaturedId] ?: 0
+            first.films.getOrNull(at + 1)?.let { upcoming ->
+                val art = vm.withArtwork(upcoming).heroArt()
+                if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
+            }
+            if (at >= first.films.lastIndex) {
+                entryIndex(first).intValue = 0
+                rowStates[FeaturedId]?.scrollToItem(0)
+                awaitTvFocus { entryRequesters[FeaturedId] }
+            } else focusManager.moveFocus(FocusDirection.Left)
         }
     }
     fun go(destination: Int) {
@@ -151,47 +180,26 @@ fun HomeScreen(vm: CinemaViewModel) {
         navigationJob[0] = scope.launch {
             rowIndex.intValue = destination; memory.row = destination
             shownShelf[0] = rows.getOrNull(destination)?.id
-            if (destination < 0) awaitTvFocus { heroFocus } else awaitTvFocus { entryRequesters[rows[destination].id] }
+            rows.getOrNull(destination)?.let { entryIndex(it).intValue = (memory.cards[it.id] ?: 0).coerceIn(0, it.films.lastIndex) }
+            awaitTvFocus { rows.getOrNull(destination)?.let { entryRequesters[it.id] } }
         }
     }
     Box(Modifier.fillMaxSize().background(Ink).onPreviewKeyEvent { event ->
+        lastInput[0] = System.currentTimeMillis()
         val down = event.key == Key.DirectionDown
         if (!down && event.key != Key.DirectionUp) return@onPreviewKeyEvent false
-        if (event.type == KeyEventType.KeyDown && rows.isNotEmpty()) {
+        if (event.type == KeyEventType.KeyDown) {
             val target = rowIndex.intValue + if (down) 1 else -1
-            if (target in -1 until rows.size) go(target)
+            if (target in rows.indices) go(target)
         }
         // Vertical keys never fall through to the focus search: the stage decides what Up and Down mean.
-        rowIndex.intValue != -1 || down && rows.isNotEmpty()
+        rows.isNotEmpty()
     }) {
         StageBackdrop(vm, stage, Modifier.fillMaxSize())
-        // The whole page is one focus target while no shelf is up: Left / Right change the title, OK opens it.
-        Box(Modifier.fillMaxSize()
-            .focusRequester(heroFocus)
-            .onPreviewKeyEvent { e ->
-                val left = e.key == Key.DirectionLeft
-                val right = e.key == Key.DirectionRight
-                val count = featured.size
-                when {
-                    !(left || right) || count < 2 -> false
-                    // Right means "previous" in this right-to-left layout; at the first title it leads on to the side rail.
-                    right && heroIndex.intValue == 0 -> false
-                    else -> {
-                        if (e.type == KeyEventType.KeyDown && e.nativeKeyEvent.repeatCount == 0) {
-                            heroIndex.intValue = (heroIndex.intValue + (if (left) 1 else -1) + count) % count
-                            nudge.intValue++
-                        }
-                        true
-                    }
-                }
-            }
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                featured.getOrNull(heroIndex.intValue)?.let(vm::open)
-            })
         Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            StageInfo(vm, stage, rowIndex, featured, Modifier.fillMaxWidth()
-                .padding(start = TvMetrics.EdgeInset, end = TvMetrics.EdgeInset, bottom = 6.dp))
-            ShelfStage(rows, rowIndex, vm, entryRequesters, rowStates, memory, focused)
+            StageInfo(vm, stage, Modifier.fillMaxWidth()
+                .padding(start = TvMetrics.EdgeInset, end = TvMetrics.EdgeInset, bottom = 4.dp))
+            ShelfStage(rows, rowIndex, vm, entryRequesters, ::entryIndex, rowStates, memory, focused)
         }
         if (vm.busy && featured.isEmpty() && rows.isEmpty()) Box(Modifier.align(Alignment.BottomStart)) { ShelfSkeleton() }
         vm.error?.let { error ->
@@ -211,7 +219,7 @@ fun HomeScreen(vm: CinemaViewModel) {
 /** One shelf at a time, anchored to the bottom. A new shelf rises from below; the old one drifts away. */
 @Composable
 private fun ShelfStage(rows: List<Shelf>, rowIndex: IntState, vm: CinemaViewModel,
-    entryRequesters: MutableMap<String, FocusRequester>,
+    entryRequesters: MutableMap<String, FocusRequester>, entryIndex: (Shelf) -> MutableIntState,
     rowStates: MutableMap<String, androidx.compose.foundation.lazy.LazyListState>,
     memory: StageMemory, focused: MutableState<Film?>) {
     androidx.compose.animation.AnimatedContent(targetState = rowIndex.intValue,
@@ -226,10 +234,12 @@ private fun ShelfStage(rows: List<Shelf>, rowIndex: IntState, vm: CinemaViewMode
         if (shelf != null) {
             val entry = entryRequesters.getOrPut(shelf.id) { FocusRequester() }
             // The card the viewer last stood on in this shelf (the first one on a first visit) takes focus on entry.
-            val entryIndex = remember(shelf.id) { (memory.cards[shelf.id] ?: 0).coerceIn(0, shelf.films.lastIndex) }
-            val state = rowStates.getOrPut(shelf.id) { androidx.compose.foundation.lazy.LazyListState(entryIndex) }
-            TvShelfRow(shelf, vm, wide = shelf.id == "recent", suppliedRowState = state, preview = false,
-                firstRequester = entry, firstRequesterIndex = entryIndex,
+            val entryCard = entryIndex(shelf).intValue
+            val state = rowStates.getOrPut(shelf.id) { androidx.compose.foundation.lazy.LazyListState(entryCard) }
+            val wide = shelf.id == "recent"
+            TvShelfRow(shelf, vm, wide = wide, width = if (wide) StripWideWidth else StripPosterWidth,
+                suppliedRowState = state, preview = false,
+                firstRequester = entry, firstRequesterIndex = entryCard,
                 onFilmFocused = { film ->
                     memory.cards[shelf.id] = shelf.films.indexOfFirst { it.id == film.id }.coerceAtLeast(0)
                     focused.value = film
@@ -248,19 +258,22 @@ private fun StageBackdrop(vm: CinemaViewModel, stage: StageState, modifier: Modi
 
 /** Details of the title the stage is on. Only this block recomposes when the title changes. */
 @Composable
-private fun StageInfo(vm: CinemaViewModel, stage: StageState, rowIndex: IntState, featured: List<Film>, modifier: Modifier) {
+private fun StageInfo(vm: CinemaViewModel, stage: StageState, modifier: Modifier) {
     val hero = stage.film?.let(vm::withArtwork)
     var about by remember(hero?.id) { mutableStateOf(hero?.description.orEmpty()) }
+    var quality by remember(hero?.id) { mutableStateOf(hero?.contentQuality.orEmpty()) }
     LaunchedEffect(hero?.id) {
         if (hero != null && about.isBlank()) about = runCatching { vm.describe(hero) }.getOrDefault("")
+    }
+    LaunchedEffect(hero?.id) {
+        if (hero != null && quality.isBlank()) quality = runCatching { vm.bestQuality(hero) }.getOrDefault("")
     }
     if (hero == null) {
         if (vm.busy) HeroSkeleton(modifier)
         return
     }
     Crossfade(hero, modifier, animationSpec = tween(300), label = "Stage info") { film ->
-        HeroPosterInfo(film, if (film.id == hero.id) about else film.description,
-            if (rowIndex.intValue == -1) featured.indexOfFirst { it.id == film.id } + 1 else 0, if (rowIndex.intValue == -1) featured.size else 0)
+        HeroPosterInfo(film, if (film.id == hero.id) about else film.description, if (film.id == hero.id) quality else film.contentQuality)
     }
 }
 
@@ -276,33 +289,6 @@ private fun featuredFilms(shelves: List<Shelf>): List<Film> {
     val newest = pool.filter { it !in popular }.sortedByDescending { it.year.toIntOrNull() ?: 0 }.take(4)
     val mixed = popular.flatMapIndexed { i, film -> listOfNotNull(film, newest.getOrNull(i)) }
     return mixed + newest.drop(popular.size)
-}
-
-/**
- * Advances the hero on a timer; prefetches the neighbouring images first and never swaps while the user is
- * on a shelf or scrolling. A manual change restarts the timer.
- */
-@Composable
-private fun HeroTicker(featured: List<Film>, heroIndex: MutableIntState, nudge: IntState, art: (Film) -> String,
-    isActive: () -> Boolean) {
-    val context = LocalContext.current
-    val latestActive by rememberUpdatedState(isActive)
-    LaunchedEffect(featured) {
-        heroIndex.intValue = 0
-        if (featured.size < 2) return@LaunchedEffect
-        snapshotFlow { nudge.intValue }.collectLatest {
-            while (true) {
-                val count = featured.size
-                for (step in intArrayOf(1, count - 1)) {
-                    val url = art(featured[(heroIndex.intValue + step) % count])
-                    if (url.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, url))
-                }
-                delay(HeroRotationMillis)
-                while (!latestActive()) delay(500)
-                heroIndex.intValue = (heroIndex.intValue + 1) % count
-            }
-        }
-    }
 }
 
 /**
@@ -357,25 +343,19 @@ fun HeroBackdrop(film: Film?, modifier: Modifier = Modifier, sideScrim: Boolean 
 /** Title, badges and "open" cue on one side; rating, facts and story beside them. No frame: it floats over the artwork. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HeroPosterInfo(film: Film, about: String, position: Int, total: Int) {
+private fun HeroPosterInfo(film: Film, about: String, quality: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(40.dp), verticalAlignment = Alignment.Bottom) {
         Column(Modifier.width(470.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             KindBadge(film.series, size = 12)
             Label(mediaTitle(film), 38, Color.White, true, lines = 2)
             if (film.enTitle.isNotBlank() && film.enTitle != mediaTitle(film)) Label(film.enTitle, 15, Muted, lines = 1)
-            Spacer(Modifier.height(6.dp))
-            Row(Modifier.clip(CircleShape).background(Accent).padding(horizontal = 22.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Icon(Icons.Rounded.PlayArrow, null, Modifier.size(22.dp), tint = OnAccent)
-                Label(if (film.series) "افتح المسلسل" else "افتح الفيلم", 16, OnAccent, true, lines = 1)
-            }
-            if (total > 1) Label("$position / $total  •  يمين ويسار للتنقل بين الأعمال", 12, Muted, lines = 1)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Only facts present in the model are shown; nothing is invented.
+            // Only facts present in the model are shown; nothing is invented. Quality is the best the source offers.
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 RatingChip(film.rating, size = 13)
                 InfoChip(film.year, size = 13); InfoChip(formatContentDuration(film.duration), size = 13)
+                InfoChip(quality, size = 13)
             }
             if (about.isNotBlank()) Text(about, color = Color.White.copy(alpha = .88f), fontFamily = Cairo,
                 fontSize = 15.sp, lineHeight = 23.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
