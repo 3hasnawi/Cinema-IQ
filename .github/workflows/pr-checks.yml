@@ -1,5 +1,5 @@
 name: Check pull request
-# Compiles debug/release code and runs unit tests. APK generation and R8 checks require an approved release build.
+# Compiles debug/release code, runs unit tests and runs R8 on the release code. No APK is produced: packaging and signing need an approved release build.
 on:
   pull_request:
     branches: [main]
@@ -23,11 +23,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Compile and run unit tests without building an APK
+      - name: Compile, run unit tests and run R8 without building an APK
         shell: bash
         run: |
           set +e
-          ./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:compileReleaseKotlin 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+          ./gradlew --no-daemon --console=plain :app:testDebugUnitTest :app:minifyReleaseWithR8 2>&1 | tee "$RUNNER_TEMP/gradle.log"
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             # Surface the first compiler and test errors as one annotation, readable without the full log.
