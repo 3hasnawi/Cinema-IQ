@@ -18,58 +18,6 @@ data class Film(
     /** Intro and credits times when the source provides them; all zero otherwise. */
     val markers: SkipMarkers = SkipMarkers()
 )
-/** Optional skip points of an episode, in milliseconds. Zero means the source did not say. */
-data class SkipMarkers(val introStartMs: Long = 0, val introEndMs: Long = 0, val creditsStartMs: Long = 0) {
-    companion object {
-        /**
-         * Reads whatever intro/credits times the source offers. Key names differ between providers, so any key or
-         * nested object whose name mentions intro/opening or credits/outro together with start/end is accepted.
-         * Plain numbers up to 10 hours are seconds, larger ones milliseconds; "mm:ss" and "hh:mm:ss" are also read.
-         */
-        fun from(o: JSONObject): SkipMarkers {
-            var introStart = 0L; var introEnd = 0L; var credits = 0L
-            fun take(path: String, value: Any?) {
-                val ms = millis(value) ?: return
-                val key = path.lowercase(Locale.ROOT)
-                val intro = "intro" in key || "opening" in key
-                val outro = "credit" in key || "outro" in key || "ending" in key
-                val begins = "start" in key || "begin" in key || "from" in key
-                val finishes = "end" in key || "finish" in key || "stop" in key || key.endsWith("to")
-                when {
-                    intro && begins -> introStart = ms
-                    intro && finishes -> introEnd = ms
-                    outro && (begins || !finishes) -> credits = ms
-                }
-            }
-            fun scan(prefix: String, obj: JSONObject, depth: Int) {
-                for (name in obj.keys()) {
-                    val value = obj.opt(name)
-                    val path = if (prefix.isEmpty()) name else "$prefix.$name"
-                    if (value is JSONObject && depth < 2) scan(path, value, depth + 1)
-                    else if (value !is JSONArray && value != JSONObject.NULL) take(path, value)
-                }
-            }
-            scan("", o, 0)
-            // A lone intro end means the intro starts at the beginning.
-            return if (introEnd > introStart || credits > 0) SkipMarkers(introStart, introEnd.takeIf { it > introStart } ?: 0, credits) else SkipMarkers()
-        }
-        internal fun millis(value: Any?): Long? {
-            when (value) {
-                is Number -> { val v = value.toDouble(); return if (v <= 0) null else if (v <= 36_000) (v * 1000).toLong() else v.toLong() }
-                is String -> {
-                    val text = value.trim()
-                    if (text.contains(':')) {
-                        val parts = text.split(':').map { it.toDoubleOrNull() ?: return null }
-                        val seconds = parts.fold(0.0) { total, part -> total * 60 + part }
-                        return if (seconds > 0) (seconds * 1000).toLong() else null
-                    }
-                    return millis(text.replace(',', '.').toDoubleOrNull())
-                }
-            }
-            return null
-        }
-    }
-}
 data class Subtitle(val url: String, val language: String = "und", val title: String = "ترجمة", val mimeType: String = "text/vtt")
 data class Stream(val url: String, val resolution: String)
 data class Shelf(val id: String, val title: String, val films: List<Film>)
