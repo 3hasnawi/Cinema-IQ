@@ -71,6 +71,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     var speed by remember { mutableFloatStateOf(1f) }
     var countdown by remember(film.id) { mutableStateOf<Int?>(null) }
     var offerNext by remember(film.id) { mutableStateOf(false) }
+    var introTarget by remember(film.id) { mutableStateOf<Long?>(null) }
     var playing by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf(false) }
     var notice by remember { mutableStateOf<String?>(null) }
@@ -177,7 +178,9 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     LaunchedEffect(player, film.id, next?.id) {
         while (true) {
             offerNext = player.currentMediaItem?.mediaId == film.id && film.episode > 0 &&
-                MobilePlayerActions.offerNextEpisode(player.currentPosition, player.duration, next != null)
+                MobilePlayerActions.offerNextEpisode(player.currentPosition, player.duration, next != null, film.markers.creditsStartMs)
+            introTarget = if (player.currentMediaItem?.mediaId == film.id)
+                com.cinemaplus.rebuilt.ui.PlaybackEndPolicy.skipIntroTarget(player.currentPosition, player.duration, film.markers) else null
             delay(500)
         }
     }
@@ -282,13 +285,13 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
             }
         }
         // Keep this action visible above the physical right side of the scrubber, even when controls fade.
-        if (offerNext && next != null && panel == null && !episodesOpen) {
+        if ((introTarget != null || (offerNext && next != null)) && panel == null && !episodesOpen) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                Button(onClick = { saveProgress(); vm.play(next) }, modifier = Modifier.align(Alignment.BottomEnd)
+                Button(onClick = { val skip = introTarget; if (skip != null) player.seekTo(skip) else next?.let { saveProgress(); vm.play(it) } }, modifier = Modifier.align(Alignment.BottomEnd)
                     .displayCutoutPadding().navigationBarsPadding().padding(end = 20.dp, bottom = 138.dp)) {
                     PlayerTransportIcon("▶|", Color.Black, 20.dp)
                     Spacer(Modifier.width(8.dp))
-                    Text(countdown?.let { "الحلقة التالية ($it)" } ?: "الحلقة التالية")
+                    Text(if (introTarget != null) "تخطي المقدمة" else countdown?.let { "الحلقة التالية ($it)" } ?: "الحلقة التالية")
                 }
             }
         }
