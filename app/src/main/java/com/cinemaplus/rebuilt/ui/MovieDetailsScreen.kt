@@ -368,7 +368,8 @@ private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRe
                 if(complete) Icon(Icons.Rounded.Check, "تمت المشاهدة", Modifier.align(Alignment.TopEnd).padding(12.dp).size(20.dp), Color.White)
                 Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if(episodes) Label("S${item.season}E${item.episode}", 9, Color.White, true)
-                    Label(mediaTitle(item), 15, Color.White, true, lines = 1)
+                    // Episode cards omit the series title (it repeats on every card) to leave room for the details.
+                    if(!episodes) Label(mediaTitle(item), 15, Color.White, true, lines = 1)
                     if(episodes || card.description.isNotBlank()) Label(card.description.ifBlank { "لا يتوفر وصف لهذه الحلقة." }, 10, Color.White.copy(alpha = .8f), lines = 2)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Label(formatContentDuration(card.duration), 11, Color(0xFFAAAAAA))
