@@ -1,0 +1,4 @@
+# Baseline profile: pre-compile the app's own code at install so the first launch and first scrolls are smooth.
+# Library code (Compose, Media3, Coil) ships its own profiles, which the build merges in.
+HSPLcom/cinemaplus/rebuilt/**;->**(**)**
+Lcom/cinemaplus/rebuilt/**;
