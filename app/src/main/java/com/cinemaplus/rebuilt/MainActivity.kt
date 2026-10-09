@@ -25,6 +25,20 @@ class MainActivity : ComponentActivity() {
             .allowRgb565(true).crossfade(false)
             .memoryCache { coil.memory.MemoryCache.Builder(applicationContext).maxSizePercent(0.20).build() }
             .build())
+        readLaunchRequest(intent)
         setContent { CinemaApp() }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readLaunchRequest(intent)
+    }
+
+    private fun readLaunchRequest(intent: android.content.Intent?) {
+        intent?.getStringExtra(com.cinemaplus.rebuilt.data.WatchNext.EXTRA_FILM_ID)?.takeIf { it.isNotBlank() }?.let {
+            com.cinemaplus.rebuilt.ui.LaunchRequest.filmId = it
+            intent.removeExtra(com.cinemaplus.rebuilt.data.WatchNext.EXTRA_FILM_ID)
+        }
     }
 }

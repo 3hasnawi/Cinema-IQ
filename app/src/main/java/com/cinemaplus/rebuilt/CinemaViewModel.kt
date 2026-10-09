@@ -206,6 +206,8 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+    /** Mirrors continue watching to the Android TV home screen (no effect on phones). */
+    fun syncWatchNext() { viewModelScope.launch(Dispatchers.IO) { WatchNext.sync(getApplication(), library) } }
     init { library.demo = false; reload() }
     private val pageHistory = mutableListOf<Page>()
     private val detailHistory = mutableListOf<Film>()
@@ -430,7 +432,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             finally { playbackBusy = false }
         }
     }
-    fun stop() { playJob?.cancel(); playing = null; streams = emptyList(); playbackBusy = false }
+    fun stop() { playJob?.cancel(); playing = null; streams = emptyList(); playbackBusy = false; syncWatchNext() }
     /** The episode a series' Play button starts, based on this profile's progress. */
     fun resumeEpisode(film: Film): Film? =
         ContinueWatching.resume(seasons, library::isCompleted, library::progress)?.copy(seriesId = film.id)
@@ -439,7 +441,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         private set
     fun showRecentOptions(film: Film) { recentOptions = film }
     fun dismissRecentOptions() { recentOptions = null }
-    fun removeRecent(film: Film) { library.removeFromContinueWatching(film); libraryRevision++; recentOptions = null }
+    fun removeRecent(film: Film) { library.removeFromContinueWatching(film); libraryRevision++; recentOptions = null; syncWatchNext() }
     /** Marks the title watched; for an episode the next one takes its place in the list. */
     fun markWatched(film: Film) { completePlayback(film); recentOptions = null }
     fun nextEpisode(): Film? = ContinueWatching.next(seasons, playing?.id.orEmpty())
@@ -461,7 +463,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
             val checkpoint = episodeSeasons.flatMap { it.episodes }.firstOrNull { it.id == current.id } ?: current
             library.complete(checkpoint, next, episodeSeasons.flatMap { it.episodes }.map { it.id }.toSet())
             libraryRevision++
-        }
+        }.invokeOnCompletion { syncWatchNext() }
     }
     fun toggle(f: Film) { library.toggle(f); libraryRevision++; if(page == Page.Library) reload() }
     fun chooseQuality(q: String) { quality = q; library.quality = q }
