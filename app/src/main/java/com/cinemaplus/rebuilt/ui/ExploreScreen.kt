@@ -49,6 +49,7 @@ fun ExploreScreen(vm: CinemaViewModel) {
             }
         }
     }
+    RegisterPageEntry(if (mood == null) cardFocus.getOrPut(Moods.all.first().id) { FocusRequester() } else null)
     LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(top = TvMetrics.TabBarSpace, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(TvMetrics.RowGap)) {
         item(key = "title") {
