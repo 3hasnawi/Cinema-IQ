@@ -249,6 +249,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
  * Section rail on the right edge: icons only while the page has focus, icons and labels while focus is
  * inside it. It widens over the page rather than pushing it, so content never reflows.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable private fun SideRail(vm: CinemaViewModel, railFocus: FocusRequester, modifier: Modifier = Modifier, onNavigated: () -> Unit) {
     val bar = LocalTabBarState.current
     val width by animateDpAsState(if (bar.hasFocus) TvMetrics.RailExpanded else TvMetrics.RailCollapsed,
@@ -263,7 +264,9 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
         Column(Modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(
                 Color(0xFF252525).copy(alpha = .88f), Color(0xFF545454).copy(alpha = .78f))))
             .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .22f), Color.White.copy(alpha = .04f))), shape)
-            .onFocusChanged { bar.hasFocus = it.hasFocus }.focusGroup()
+            .onFocusChanged { bar.hasFocus = it.hasFocus }
+            // Entering the rail from the page lands on the current section, not on whichever item the search meets first.
+            .focusProperties { enter = { railFocus } }.focusGroup()
             .padding(horizontal = 7.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             val switchProfile = LocalProfileSwitch.current
@@ -491,6 +494,7 @@ private enum class SettingsSection(val title: String) {
 }
 
 /** Settings as a hub of cards; each card opens its own short page, and Back returns to the hub. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable private fun SettingsScreen(vm: CinemaViewModel) {
     var cloudDialog by remember { mutableStateOf(false) }
     if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog() { cloudDialog = false }
@@ -515,6 +519,10 @@ private enum class SettingsSection(val title: String) {
     val backgrounds = listOf(0f, .25f, .5f, .75f, 1f)
     val qualities = listOf("تلقائي", "1080p", "720p", "480p")
     val languageLabel = when (vm.subtitleLanguage) { "ar" -> "العربية"; "en" -> "الإنجليزية"; else -> "بدون ترجمة" }
+    // Entering the page from the rail lands on the first card (the right-most one), not on the last.
+    Box(Modifier.fillMaxSize().focusProperties {
+        enter = { if (section == null) cardFocus[SettingsSection.entries.first().name] ?: FocusRequester.Default else FocusRequester.Default }
+    }.focusGroup()) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(top = TvMetrics.TabBarSpace, bottom = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -600,6 +608,7 @@ private enum class SettingsSection(val title: String) {
                 SettingRow("فلترة المشاهد غير اللائقة", if (vm.sceneFilter) "مفعّلة" else "متوقفة") { vm.chooseSceneFilter(!vm.sceneFilter) }
             }
         }
+    }
     }
 }
 
