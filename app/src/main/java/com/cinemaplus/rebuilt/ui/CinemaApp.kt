@@ -135,6 +135,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     else com.cinemaplus.rebuilt.ui.mobile.MobileCinemaApp(vm)
 }
 
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable private fun TvCinemaApp(vm: CinemaViewModel) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, vm) {
@@ -188,6 +189,8 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                     else if (vm.selected != null) TvScaled { MovieDetailsScreen(vm) }
                     else browseState.SaveableStateProvider("browse") { TvScaled {
                         val contentFocus = remember(vm.page, vm.demo) { FocusRequester() }
+                        // The page names where focus should land when it is entered from the rail (its first card).
+                        val pageEntry = remember { arrayOfNulls<FocusRequester>(1) }
                         val latestContentFocus by rememberUpdatedState(contentFocus)
                         LaunchedEffect(pendingFocus, vm.busy, vm.page) {
                             if (pendingFocus) {
@@ -206,7 +209,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                                 awaitTvFocus { latestContentFocus }
                             }
                         }
-                        CompositionLocalProvider(LocalTabBarState provides tabBar) {
+                        CompositionLocalProvider(LocalTabBarState provides tabBar, LocalPageEntry provides pageEntry) {
                             Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
                                 val key = event.nativeKeyEvent.keyCode
                                 if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && (key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
@@ -216,7 +219,8 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                             }) {
                                 // The page leaves room for the collapsed rail on the right; the rail widens over it.
                                 Box(Modifier.fillMaxSize().padding(start = TvMetrics.RailCollapsed)
-                                    .focusRequester(contentFocus).focusGroup()) {
+                                    .focusRequester(contentFocus)
+                                    .focusProperties { enter = { pageEntry[0] ?: FocusRequester.Default } }.focusGroup()) {
                                     if (vm.page == Page.Settings) SettingsScreen(vm)
                                     else key(vm.page, vm.demo) { BrowseScreen(vm) }
                                 }
@@ -241,6 +245,15 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 
 @Composable fun Action(text: String, primary: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     TvActionButton(text, primary, modifier, onClick = onClick)
+}
+
+/** Where focus lands when a page is entered from the side rail; a page publishes its first card here. */
+internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf { arrayOfNulls<FocusRequester>(1) }
+
+@Composable internal fun RegisterPageEntry(target: FocusRequester?) {
+    val slot = LocalPageEntry.current
+    SideEffect { slot[0] = target }
+    DisposableEffect(slot) { onDispose { slot[0] = null } }
 }
 
 // ───────────────────────── Side rail ─────────────────────────
@@ -384,6 +397,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     }
     val films = vm.shelves.flatMap { it.films }.distinctBy { it.id }.let { if (vm.page == Page.Library) vm.filter.apply(it) else it }
     val firstFocus = remember { FocusRequester() }
+    RegisterPageEntry(if (films.isNotEmpty()) firstFocus else null)
     Column(Modifier.fillMaxSize().padding(top = TvMetrics.TabBarSpace)) {
         PosterGrid(films, vm, firstRequester = firstFocus,
             header = {
