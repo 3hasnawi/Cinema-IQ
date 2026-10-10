@@ -249,6 +249,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
  * Section rail on the right edge: icons only while the page has focus, icons and labels while focus is
  * inside it. It widens over the page rather than pushing it, so content never reflows.
  */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable private fun SideRail(vm: CinemaViewModel, railFocus: FocusRequester, modifier: Modifier = Modifier, onNavigated: () -> Unit) {
     val bar = LocalTabBarState.current
     val width by animateDpAsState(if (bar.hasFocus) TvMetrics.RailExpanded else TvMetrics.RailCollapsed,
@@ -493,6 +494,7 @@ private enum class SettingsSection(val title: String) {
 }
 
 /** Settings as a hub of cards; each card opens its own short page, and Back returns to the hub. */
+@OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable private fun SettingsScreen(vm: CinemaViewModel) {
     var cloudDialog by remember { mutableStateOf(false) }
     if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog() { cloudDialog = false }
