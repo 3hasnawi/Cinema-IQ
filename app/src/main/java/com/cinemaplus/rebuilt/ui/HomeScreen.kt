@@ -6,6 +6,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -91,11 +92,10 @@ private val StageMemorySaver = listSaver<StageMemory, String>(
 private class StageState { var film by mutableStateOf<Film?>(null) }
 
 /** Small cards keep the stage clean; the artwork of the title in focus carries the page. */
-private val StripPosterWidth = 132.dp
 private val StripWideWidth = 208.dp
 private const val FeaturedId = "featured"
 /** The featured backdrop changes by itself at this pace. */
-private const val HeroAutoMillis = 10_000L
+private const val HeroAutoMillis = 6_000L
 
 /**
  * Home is one fixed stage: the artwork and details of the title in focus fill the screen, and the shelves come
@@ -108,8 +108,10 @@ fun HomeScreen(vm: CinemaViewModel) {
     // Parsing the saved list on every recomposition made focus moves stutter; recompute only when it changes.
     val recent = remember(revision, vm.demo) { vm.library.recent().filter { it.id.startsWith("demo-") == vm.demo } }
     val featured = remember(vm.shelves) { featuredFilms(vm.shelves) }
-    val rows = remember(vm.shelves, recent, featured) {
-        (if (featured.isNotEmpty()) listOf(Shelf(FeaturedId, "الأعمال المميزة", featured)) else emptyList()) +
+    // While the first load is running there is nothing to show yet; "continue watching" must not take the first slot.
+    val waiting = vm.busy && featured.isEmpty()
+    val rows = remember(vm.shelves, recent, featured, waiting) {
+        if (waiting) emptyList() else (if (featured.isNotEmpty()) listOf(Shelf(FeaturedId, "الأعمال المميزة", featured)) else emptyList()) +
             (if (recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) else emptyList()) +
             vm.shelves.filter { it.films.isNotEmpty() }
     }
@@ -218,9 +220,10 @@ private fun ShelfStage(rows: List<Shelf>, rowIndex: IntState, vm: CinemaViewMode
             // The card the viewer last stood on in this shelf (the first one on a first visit) takes focus on entry.
             val entryCard = entryIndex(shelf).intValue
             val state = rowStates.getOrPut(shelf.id) { androidx.compose.foundation.lazy.LazyListState(entryCard) }
-            val wide = shelf.id == "recent"
+            // Every shelf uses landscape cards of one size; only the continue-watching cards carry text inside.
+            val wide = true
             if (shelf.id == FeaturedId) FeaturedHero(shelf, entry, vm, memory, focused)
-            else TvShelfRow(shelf, vm, wide = wide, width = if (wide) StripWideWidth else StripPosterWidth,
+            else TvShelfRow(shelf, vm, wide = wide, width = StripWideWidth,
                 suppliedRowState = state, preview = false, titleOnly = true,
                 firstRequester = entry, firstRequesterIndex = entryCard,
                 onFilmFocused = { film ->
@@ -467,27 +470,44 @@ fun LandscapeMediaCard(film: Film, progress: Float = 0f, modifier: Modifier = Mo
 
 /**
  * The featured titles have no cards: the artwork of one title fills the stage and the next one replaces it every
- * ten seconds. A thin invisible focus target keeps the remote working here; OK opens the title on show.
+ * six seconds. Small dots at the bottom show the position. Left and right on the remote move along by hand (the
+ * timer starts over), OK opens the title on show. The bar is only a margin and a focus target; it draws no ring.
  */
 @Composable
 private fun FeaturedHero(shelf: Shelf, entry: FocusRequester, vm: CinemaViewModel, memory: StageMemory, focused: MutableState<Film?>) {
     val context = LocalContext.current
+    val count = shelf.films.size
     var index by remember(shelf.id) { mutableIntStateOf((memory.cards[FeaturedId] ?: 0).coerceIn(0, shelf.films.lastIndex)) }
-    LaunchedEffect(shelf.films) {
+    // Keyed on the index, so a manual move restarts the six seconds.
+    LaunchedEffect(shelf.films, index) {
+        memory.cards[FeaturedId] = index
         focused.value = shelf.films.getOrNull(index)
-        while (true) {
-            // Fetch the next artwork before it is needed so the swap never waits on the network.
-            shelf.films.getOrNull((index + 1) % shelf.films.size)?.let { upcoming ->
-                val art = vm.withArtwork(upcoming).heroArt()
-                if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
+        // Fetch the next artwork before it is needed so the swap never waits on the network.
+        shelf.films.getOrNull((index + 1) % count)?.let { upcoming ->
+            val art = vm.withArtwork(upcoming).heroArt()
+            if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
+        }
+        delay(HeroAutoMillis)
+        index = (index + 1) % count
+    }
+    Box(Modifier.fillMaxWidth().height(40.dp).focusRequester(entry)
+        .onPreviewKeyEvent { event ->
+            val left = event.key == Key.DirectionLeft
+            val right = event.key == Key.DirectionRight
+            if (!left && !right) return@onPreviewKeyEvent false
+            // Right is "previous" in the right-to-left layout; from the first title it goes on to the side menu.
+            if (right && index == 0) return@onPreviewKeyEvent false
+            if (event.type == KeyEventType.KeyDown) index = if (left) (index + 1) % count else index - 1
+            true
+        }
+        .clickable(remember { MutableInteractionSource() }, null) { shelf.films.getOrNull(index)?.let { vm.open(it) } },
+        contentAlignment = Alignment.BottomCenter) {
+        Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            repeat(count) { dot ->
+                val on = dot == index
+                val width by animateDpAsState(if (on) 22.dp else 7.dp, tween(200), label = "Hero dot")
+                Box(Modifier.size(width, 7.dp).clip(CircleShape).background(if (on) Accent else Color.White.copy(alpha = .35f)))
             }
-            delay(HeroAutoMillis)
-            index = (index + 1) % shelf.films.size
-            memory.cards[FeaturedId] = index
-            focused.value = shelf.films[index]
         }
     }
-    // The bar is only a margin under the details and a focus target; it draws nothing, even when focused.
-    Box(Modifier.fillMaxWidth().height(40.dp).focusRequester(entry)
-        .clickable(remember { MutableInteractionSource() }, null) { shelf.films.getOrNull(index)?.let { vm.open(it) } })
 }
