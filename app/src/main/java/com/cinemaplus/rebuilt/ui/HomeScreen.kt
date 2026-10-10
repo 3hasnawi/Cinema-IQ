@@ -91,10 +91,11 @@ private val StageMemorySaver = listSaver<StageMemory, String>(
 private class StageState { var film by mutableStateOf<Film?>(null) }
 
 /** Small cards keep the stage clean; the artwork of the title in focus carries the page. */
-private val StripPosterWidth = 112.dp
+private val StripPosterWidth = 132.dp
 private val StripWideWidth = 208.dp
 private const val FeaturedId = "featured"
-private const val AutoAdvanceMillis = 7_000L
+/** The featured backdrop changes by itself at this pace. */
+private const val HeroAutoMillis = 10_000L
 
 /**
  * Home is one fixed stage: the artwork and details of the title in focus fill the screen, and the shelves come
@@ -154,25 +155,6 @@ fun HomeScreen(vm: CinemaViewModel) {
             rowIndex.intValue = moved; memory.row = moved
             rows.getOrNull(moved)?.let { entryIndex(it) }
             awaitTvFocus { rows.getOrNull(moved)?.let { entryRequesters[it.id] } }
-        }
-    }
-    // The featured cursor walks along by itself while the viewer is idle on that shelf, and starts over at the end.
-    LaunchedEffect(rows.firstOrNull()?.id) {
-        while (true) {
-            delay(1_000)
-            val first = rows.firstOrNull()
-            if (first?.id != FeaturedId || rowIndex.intValue != 0 || tabBar.hasFocus) continue
-            if (System.currentTimeMillis() - lastInput[0] < AutoAdvanceMillis) continue
-            val at = memory.cards[FeaturedId] ?: 0
-            first.films.getOrNull(at + 1)?.let { upcoming ->
-                val art = vm.withArtwork(upcoming).heroArt()
-                if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
-            }
-            if (at >= first.films.lastIndex) {
-                entryIndex(first).intValue = 0
-                rowStates[FeaturedId]?.scrollToItem(0)
-                awaitTvFocus { entryRequesters[FeaturedId] }
-            } else focusManager.moveFocus(FocusDirection.Left)
         }
     }
     fun go(destination: Int) {
@@ -237,8 +219,9 @@ private fun ShelfStage(rows: List<Shelf>, rowIndex: IntState, vm: CinemaViewMode
             val entryCard = entryIndex(shelf).intValue
             val state = rowStates.getOrPut(shelf.id) { androidx.compose.foundation.lazy.LazyListState(entryCard) }
             val wide = shelf.id == "recent"
-            TvShelfRow(shelf, vm, wide = wide, width = if (wide) StripWideWidth else StripPosterWidth,
-                suppliedRowState = state, preview = false,
+            if (shelf.id == FeaturedId) FeaturedHero(shelf, entry, vm, memory, focused)
+            else TvShelfRow(shelf, vm, wide = wide, width = if (wide) StripWideWidth else StripPosterWidth,
+                suppliedRowState = state, preview = false, titleOnly = true,
                 firstRequester = entry, firstRequesterIndex = entryCard,
                 onFilmFocused = { film ->
                     memory.cards[shelf.id] = shelf.films.indexOfFirst { it.id == film.id }.coerceAtLeast(0)
@@ -480,4 +463,31 @@ fun ContentRailRow(shelf: Shelf, vm: CinemaViewModel, firstRequester: FocusReque
 fun LandscapeMediaCard(film: Film, progress: Float = 0f, modifier: Modifier = Modifier,
     onFocused: (Film) -> Unit = {}, onClick: () -> Unit) {
     FilmCard(film, progress, wide = true, modifier = modifier, onFocused = onFocused, click = onClick)
+}
+
+/**
+ * The featured titles have no cards: the artwork of one title fills the stage and the next one replaces it every
+ * ten seconds. A thin invisible focus target keeps the remote working here; OK opens the title on show.
+ */
+@Composable
+private fun FeaturedHero(shelf: Shelf, entry: FocusRequester, vm: CinemaViewModel, memory: StageMemory, focused: MutableState<Film?>) {
+    val context = LocalContext.current
+    var index by remember(shelf.id) { mutableIntStateOf((memory.cards[FeaturedId] ?: 0).coerceIn(0, shelf.films.lastIndex)) }
+    LaunchedEffect(shelf.films) {
+        focused.value = shelf.films.getOrNull(index)
+        while (true) {
+            // Fetch the next artwork before it is needed so the swap never waits on the network.
+            shelf.films.getOrNull((index + 1) % shelf.films.size)?.let { upcoming ->
+                val art = vm.withArtwork(upcoming).heroArt()
+                if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
+            }
+            delay(HeroAutoMillis)
+            index = (index + 1) % shelf.films.size
+            memory.cards[FeaturedId] = index
+            focused.value = shelf.films[index]
+        }
+    }
+    // The bar is only a margin under the details and a focus target; it draws nothing, even when focused.
+    Box(Modifier.fillMaxWidth().height(40.dp).focusRequester(entry)
+        .clickable(remember { MutableInteractionSource() }, null) { shelf.films.getOrNull(index)?.let { vm.open(it) } })
 }
