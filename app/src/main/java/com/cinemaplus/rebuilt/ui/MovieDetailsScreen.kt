@@ -446,7 +446,7 @@ private fun TrailerOverlay(film: Film, onClose: () -> Unit) {
 /** Soft accent halo behind a focused control; the white fill and the accent frame are drawn by the caller. */
 private fun Modifier.focusGlow(shape: RoundedCornerShape): Modifier = this.drawBehind {
     val outline = shape.createOutline(size, layoutDirection, this)
-    for((spread, alpha) in listOf(14.dp to .10f, 10.dp to .16f, 6.dp to .24f, 3.dp to .34f)) {
+    for((spread, alpha) in listOf(8.dp to .05f, 5.dp to .09f, 3.dp to .14f)) {
         drawOutline(outline, Accent.copy(alpha = alpha), style = androidx.compose.ui.graphics.drawscope.Stroke(width = spread.toPx() * 2))
     }
 }
