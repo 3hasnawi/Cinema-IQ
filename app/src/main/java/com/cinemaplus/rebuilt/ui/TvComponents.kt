@@ -206,6 +206,8 @@ fun FilmCard(
     preview: Boolean = false,
     describe: (suspend (Film) -> String)? = null,
     onLongClick: (() -> Unit)? = null,
+    /** Caption under the card is the title alone (home shelves). */
+    titleOnly: Boolean = false,
     click: () -> Unit
 ) {
     val trailerEnabled = LocalTrailerPreviewEnabled.current
@@ -245,14 +247,7 @@ fun FilmCard(
     else listOf(if (f.series) "مسلسل" else "فيلم", f.year).filter(String::isNotBlank).joinToString(" • ")
 
     val continueStyle = wide && progress > 0f
-    val continueStatus = if (!continueStyle) "" else {
-        val total = if (':' in f.duration) f.duration.split(':').mapNotNull { it.trim().toLongOrNull() }.fold(0L) { t, p -> t * 60 + p }
-            else f.duration.trim().toLongOrNull() ?: 0L
-        val left = if (progress >= .95f) "على وشك الانتهاء"
-            else if (total > 0) "متبقي " + formatContentDuration((total * (1f - progress)).toLong().toString()) else "تابع المشاهدة"
-        val label = if (f.episode > 0) (if (f.season > 1) "الموسم ${f.season} • الحلقة ${f.episode}" else "الحلقة ${f.episode}") else ""
-        listOf(label, left).filter(String::isNotBlank).joinToString(" • ")
-    }
+    val continueStatus = if (!continueStyle || f.episode <= 0) "" else "الموسم ${f.season} • الحلقة ${f.episode}"
 
     // Focus changes are observed here, outside composition. The gold ring and scale animate immediately;
     // the trailer is resolved while the user dwells, so the card only expands when there is something to play.
@@ -347,14 +342,10 @@ fun FilmCard(
                     // Continue-watching cards carry their own title and a small status pill inside the artwork.
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                         0f to Color.Transparent, .35f to Color.Transparent, 1f to Color.Black.copy(alpha = .88f))))
-                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Label(mediaTitle(f), 16, Color.White, true, lines = 1)
-                        Row(Modifier.background(Color.Black.copy(alpha = .45f), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Rounded.PlayArrow, null, Modifier.size(16.dp), tint = Color.White)
-                            Label(continueStatus, 12, Color.White, true, lines = 1)
-                        }
+                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 22.dp),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Label(mediaTitle(f), 13, Color.White, true, lines = 1)
+                        if (continueStatus.isNotBlank()) Label(continueStatus, 10, Color.White.copy(alpha = .7f), lines = 1)
                     }
                 } else if (progress > 0f) {
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
@@ -372,7 +363,7 @@ fun FilmCard(
         if (!continueStyle) Column(Modifier.fillMaxWidth().graphicsLayer { alpha = .78f + .22f * focusAnim.value }
             .padding(top = 10.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Label(mediaTitle(f), 14, Color.White, true, lines = 1)
-            if (subtitle.isNotBlank()) Label(subtitle, 12, Muted, lines = 1)
+            if (subtitle.isNotBlank() && !titleOnly) Label(subtitle, 12, Muted, lines = 1)
         }
     }
     LaunchedEffect(restoreFocus) {
@@ -394,6 +385,7 @@ fun TvShelfRow(
     suppliedRowState: LazyListState? = null,
     cardModifier: (Int) -> Modifier = { Modifier },
     preview: Boolean = true,
+    titleOnly: Boolean = false,
     onCardLongClick: ((Film) -> Unit)? = null,
     onCardClick: (Film) -> Unit = { vm.open(it) }
 ) {
@@ -433,6 +425,7 @@ fun TvShelfRow(
                         requester = if (index == firstRequesterIndex) firstRequester else null,
                         restoreFocus = memory.returning && memory.focusedId == film.id,
                         preview = preview,
+                        titleOnly = titleOnly,
                         describe = describe,
                         onLongClick = onCardLongClick?.let { handler -> { handler(film) } },
                         onFocused = {
