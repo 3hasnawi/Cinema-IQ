@@ -47,7 +47,7 @@ class CloudLibrarySync(context: Context, private val profileId: String, private 
             runCatching {
                 applying = true
                 val edit = prefs.edit()
-                CloudLibraryRecords.decode(records).forEach { (k,v) -> when(v) {
+                CloudLibraryRecords.decode(records, prefs.getString("watched", null)).forEach { (k,v) -> when(v) {
                     is String -> edit.putString(k,v); is Long -> edit.putLong(k,v); is Boolean -> edit.putBoolean(k,v)
                 } }
                 edit.apply(); previous = CloudLibraryRecords.encode(prefs.all)

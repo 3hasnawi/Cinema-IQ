@@ -16,21 +16,28 @@ object CloudLibraryRecords {
                 put(prefix + group, film.toString())
             }
         }
-        val ids = values.keys.mapNotNull { key -> listOf("position_", "duration_", "completed_").firstOrNull { key.startsWith(it) }?.let { key.removePrefix(it) } }.toSet()
+        val history = runCatching { JSONArray(values["watched"] as? String ?: "[]") }.getOrDefault(JSONArray())
+        val watched = (0 until history.length()).mapNotNull { history.optJSONObject(it) }.filter { it.optString("nb").isNotBlank() }.associateBy { it.optString("nb") }
+        val ids = values.keys.mapNotNull { key -> listOf("position_", "duration_", "completed_").firstOrNull { key.startsWith(it) }?.let { key.removePrefix(it) } }.toSet() + watched.keys
         for(id in ids) put("playback/$id", JSONObject().put("position", values["position_$id"] ?: 0L)
-            .put("duration", values["duration_$id"] ?: 0L).put("completed", values["completed_$id"] ?: false).toString())
+            .put("duration", values["duration_$id"] ?: 0L).put("completed", values["completed_$id"] ?: false)
+            .apply { watched[id]?.let { put("watched", it) } }.toString())
     }
     fun changes(before: Map<String, String>, after: Map<String, String>): Map<String, String> =
         (before.keys + after.keys).mapNotNull { key -> if(before[key] == after[key]) null else key to after[key].orEmpty() }.toMap()
 
-    fun decode(records: Map<String, String>): Map<String, Any> = buildMap {
+    fun decode(records: Map<String, String>, previousWatched: String? = null): Map<String, Any> = buildMap {
         for((pref, prefix) in listOf("favorites" to "favorite/", "recent" to "recent/", "followed_series" to "follow/")) {
             put(pref, JSONArray(records.filter { it.key.startsWith(prefix) && it.value.isNotBlank() }.values.map { JSONObject(it) }).toString())
         }
+        val oldHistory = runCatching { JSONArray(previousWatched ?: "[]") }.getOrDefault(JSONArray())
+        val history = (0 until oldHistory.length()).mapNotNull { oldHistory.optJSONObject(it) }.toMutableList()
         records.filter { it.key.startsWith("playback/") && it.value.isNotBlank() }.forEach { (key, text) ->
             val id = key.removePrefix("playback/"); val json = JSONObject(text)
             put("position_$id", json.optLong("position").coerceAtLeast(0)); put("duration_$id", json.optLong("duration").coerceAtLeast(0))
             put("completed_$id", json.optBoolean("completed"))
+            json.optJSONObject("watched")?.takeIf { it.optString("nb") == id }?.let { history.add(it) }
         }
+        put("watched", JSONArray(history.sortedByDescending { it.optLong("watchedAt") }.distinctBy { it.optString("nb") }.take(com.cinemaplus.rebuilt.data.WatchedHistory.LIMIT)).toString())
     }
 }

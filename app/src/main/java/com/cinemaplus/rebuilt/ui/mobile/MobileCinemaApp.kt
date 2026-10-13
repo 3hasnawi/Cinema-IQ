@@ -136,7 +136,8 @@ private fun MobileBrowse(vm: CinemaViewModel) {
     }
     val revision = vm.libraryRevision
     val recent = remember(revision) { vm.library.recent() }
-    val base = if (vm.page == Page.Home && recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) + vm.shelves else vm.shelves
+    val libraryFilms = remember(revision, vm.librarySection) { vm.libraryItems() }
+    val base = if(vm.page == Page.Library) listOf(Shelf("library", vm.librarySection.label, libraryFilms)) else if (vm.page == Page.Home && recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) + vm.shelves else vm.shelves
     val filtered = vm.page == Page.Library || vm.page == Page.Search
     val shelves = if (filtered) base.map { it.copy(films = vm.filter.apply(it.films)) } else base
     val featured = remember(vm.shelves) { phoneFeaturedFilms(vm.shelves) }
@@ -151,7 +152,15 @@ private fun MobileBrowse(vm: CinemaViewModel) {
                 Text("Cinema iQ", fontSize = 24.sp, color = Accent, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 IconButton(onClick = { vm.refresh() }) { Icon(Icons.Rounded.Refresh, "تحديث المحتوى") }
             }
-            if (vm.page != Page.Home) PageHeader(vm.page.label, pageSubtitle(vm.page), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            if (vm.page != Page.Home) PageHeader(vm.page.label, if(vm.page == Page.Library) vm.librarySection.description else pageSubtitle(vm.page), Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+            if(vm.page == Page.Library) {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LibrarySection.entries.forEach { section -> FilterChip(selected = vm.librarySection == section,
+                        onClick = { vm.chooseLibrarySection(section) }, label = { Text(section.label) }) }
+                }
+                if(libraryFilms.isEmpty()) Text(if(vm.librarySection == LibrarySection.Watched) "لا توجد أعمال مكتملة في سجل المشاهدة بعد." else "أضف أعمالاً من صفحة التفاصيل.", color = Muted, modifier = Modifier.padding(horizontal = 16.dp))
+            }
+
             if (vm.page == Page.Search) OutlinedTextField(typed, { typed = it }, singleLine = true,
                 label = { Text("اسم الفيلم أو المسلسل") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp))
