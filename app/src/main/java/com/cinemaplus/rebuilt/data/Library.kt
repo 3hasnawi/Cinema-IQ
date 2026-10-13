@@ -11,6 +11,16 @@ class Library(context: Context, val profileId: String = ProfileList.MAIN) {
         get() = SourceChoice.restore(prefs.getString("content_source", null))
         set(value) { prefs.edit().putString("content_source", value.name).apply() }
     fun favorites(): List<Film> = films("favorites")
+    fun watched(): List<Film> {
+        if(!prefs.getBoolean("watched_migrated", false)) {
+            var raw = prefs.getString("watched", "[]")
+            val known = films("watched").map { it.id }.toSet()
+            (favorites() + followedSeries() + recent()).distinctBy { it.id }
+                .filter { isCompleted(it.id) && it.id !in known }.forEach { raw = WatchedHistory.add(raw, it, 0) }
+            prefs.edit().putString("watched", raw).putBoolean("watched_migrated", true).apply()
+        }
+        return films("watched")
+    }
     fun toggle(film: Film) {
         val all = favorites().toMutableList()
         if (!all.removeAll { it.id == film.id }) all.add(film)
@@ -44,9 +54,11 @@ class Library(context: Context, val profileId: String = ProfileList.MAIN) {
     fun followedSeries(): List<Film> = films("followed_series")
     fun complete(film: Film, next: Film?, episodeIds: Set<String>) {
         if (prefs.getBoolean("completed_${film.id}", false)) return
+        watched() // Finish legacy migration before appending the newly completed work.
         val updated = ContinueWatching.replace(recent(), film, next, episodeIds)
         recentHead = null
         val edit = prefs.edit().putBoolean("completed_${film.id}", true)
+            .putString("watched", WatchedHistory.add(prefs.getString("watched", null), film, System.currentTimeMillis()))
             .putString("recent", JSONArray(updated.map(::json)).toString())
         if (film.seriesId.isNotBlank()) {
             val followed = followedSeries()
