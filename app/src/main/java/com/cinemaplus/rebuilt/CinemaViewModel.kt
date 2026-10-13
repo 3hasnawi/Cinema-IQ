@@ -254,6 +254,10 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
 
     var searchHistory by mutableStateOf(library.searchHistory)
     /** Type filter and sort order for search results and the saved list. */
+    var librarySection by mutableStateOf(LibrarySection.Saved)
+        private set
+    fun chooseLibrarySection(section: LibrarySection) { librarySection = section }
+    fun libraryItems(): List<Film> = if(librarySection == LibrarySection.Saved) library.favorites() else library.watched()
     var filter by mutableStateOf(FilmFilter())
     fun cycleKind() { filter = filter.nextKind() }
     fun cycleSort() { filter = filter.nextSort() }

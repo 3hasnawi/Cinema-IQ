@@ -395,16 +395,24 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
     if ((vm.page == Page.Movies || vm.page == Page.Series) && (vm.demo || vm.shelves.any { it.id.startsWith("genre-") } || vm.busy && vm.shelves.isEmpty())) {
         GenreScreen(vm); return
     }
-    val films = vm.shelves.flatMap { it.films }.distinctBy { it.id }.let { if (vm.page == Page.Library) vm.filter.apply(it) else it }
+    val libraryFilms = remember(vm.libraryRevision, vm.librarySection) { vm.libraryItems() }
+    val films = if(vm.page == Page.Library) vm.filter.apply(libraryFilms) else vm.shelves.flatMap { it.films }.distinctBy { it.id }
     val firstFocus = remember { FocusRequester() }
     RegisterPageEntry(if (films.isNotEmpty()) firstFocus else null)
     Column(Modifier.fillMaxSize().padding(top = TvMetrics.TabBarSpace)) {
         PosterGrid(films, vm, firstRequester = firstFocus,
             header = {
                 Column(Modifier.padding(top = 8.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    PageHeader(vm.page.label, if (vm.page == Page.Library && films.isNotEmpty()) "${films.size} عمل في قائمتك" else pageSubtitle(vm.page))
+                    PageHeader(vm.page.label, if (vm.page == Page.Library) vm.librarySection.description else pageSubtitle(vm.page))
                     if (vm.demo) Label("عرض تجريبي • الأعمال للتوضيح فقط", 13, Muted)
-                    if (vm.page == Page.Library) FilterBar(vm)
+                    if (vm.page == Page.Library) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            com.cinemaplus.rebuilt.data.LibrarySection.entries.forEach { section ->
+                                Action(section.label, primary = vm.librarySection == section) { vm.chooseLibrarySection(section) }
+                            }
+                        }
+                        FilterBar(vm)
+                    }
                 }
             },
             footer = {
@@ -413,7 +421,7 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
                     if (vm.busy) CircularProgressIndicator(color = Accent)
                     vm.error?.let { Message(it, "أعد المحاولة", { vm.reload() }, { vm.changeDemo(true) }) }
                     if (!vm.busy && vm.error == null && films.isEmpty()) Label(when (vm.page) {
-                        Page.Library -> "قائمتك فارغة. أضف عملًا من صفحة التفاصيل."
+                        Page.Library -> if(vm.librarySection == com.cinemaplus.rebuilt.data.LibrarySection.Watched) "لا توجد أعمال مكتملة في سجل المشاهدة بعد." else "قائمتك فارغة. أضف عملًا من صفحة التفاصيل."
                         else -> "لم يُرجع المصدر محتوى للعرض"
                     }, 17, Muted)
                     if (!vm.demo && vm.page in listOf(Page.Movies, Page.Series) && films.isNotEmpty())
