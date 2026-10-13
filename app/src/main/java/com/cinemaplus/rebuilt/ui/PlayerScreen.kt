@@ -337,6 +337,20 @@ fun PlayerScreen(vm: CinemaViewModel) {
         }
     }
     LaunchedEffect(film.id) { nextEpisodeFocused = false; interact() }
+    val promptKind = if(introTarget != null) "intro" else if(offerNext) "next" else null
+    var autoFocusedPrompt by remember(film.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(film.id, promptKind, panel, episodesShown, previewPosition != null, buffering, playerError) {
+        if(promptKind == null) autoFocusedPrompt = null
+        else if(autoFocusedPrompt != promptKind && panel == null && !episodesShown &&
+            previewPosition == null && !buffering && playerError == null) {
+            // Let controller/panel restoration finish and the prompt attach before claiming focus once.
+            delay(64)
+            if(awaitTvFocus { nextEpisodeFocus }) {
+                autoFocusedPrompt = promptKind
+                interact()
+            }
+        }
+    }
     LaunchedEffect(promptShown, panel, episodesShown) {
         if ((!promptShown || panel != null || episodesShown) && nextEpisodeFocused) {
             nextEpisodeFocused = false
@@ -355,7 +369,9 @@ fun PlayerScreen(vm: CinemaViewModel) {
         // The hidden controller leaves a focusable host, so Select never disappears into PlayerView.
         delay(32)
         // The scrubber takes focus first so Left/Right scrub immediately, as on Apple TV.
-        if(controlsVisible) seekFocus.requestFocus() else { episodesShown = false; rootFocus.requestFocus() }
+        if(!nextEpisodeFocused) {
+            if(controlsVisible) seekFocus.requestFocus() else { episodesShown = false; rootFocus.requestFocus() }
+        }
     }
     LaunchedEffect(scrubTick) {
         // Remote idle for a moment: continue playing from where scrubbing stopped.
