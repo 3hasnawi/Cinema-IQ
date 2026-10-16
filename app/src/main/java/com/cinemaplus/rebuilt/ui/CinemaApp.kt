@@ -97,7 +97,13 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     var picking by rememberSaveable(cloudUid) { mutableStateOf(store.profiles().size > 1) }
     val cloudProfilesRevision = com.cinemaplus.rebuilt.cloud.CloudProfileSync.revision
     LaunchedEffect(cloudProfilesRevision, cloudUid) { activeId = store.activeId }
-    if (picking) {
+    // The opening animation plays once per launch and always runs to its end; the app opens right after it.
+    var introDone by rememberSaveable { mutableStateOf(false) }
+    if (!introDone) {
+        // Start the profile's data loading while the animation plays.
+        if (!picking) viewModel<CinemaViewModel>(key = "profile-${cloudUid ?: "local"}-$activeId")
+        AppIntro { introDone = true }
+    } else if (picking) {
         ProfilePicker(store) { chosen -> store.activeId = chosen.id; activeId = chosen.id; picking = false }
     } else {
         // A separate view model per profile keeps lists, history and settings from leaking between viewers.
