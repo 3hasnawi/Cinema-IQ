@@ -368,7 +368,7 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
     when (vm.page) {
         Page.Home -> HomeScreen(vm)
         Page.Search -> SearchScreen(vm)
-        Page.Explore -> ExploreScreen(vm)
+        Page.Explore -> if(vm.sourceChoice == com.cinemaplus.rebuilt.data.SourceChoice.DAWWIRLI) GenreScreen(vm) else ExploreScreen(vm)
         else -> CatalogScreen(vm)
     }
 }
