@@ -368,6 +368,7 @@ private fun MobileChoice(title: String, value: String, onClick: () -> Unit) {
 /** Browse by mood on the phone: a two-column grid of moods, then the matching shelves. */
 @Composable
 private fun MobileExplore(vm: CinemaViewModel) {
+    if(vm.sourceChoice == SourceChoice.DAWWIRLI) { MobileBrowse(vm); return }
     val mood = vm.exploreMood
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 132.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { PageHeader(mood?.title ?: "استكشاف", mood?.subtitle ?: pageSubtitle(Page.Explore)) }

@@ -211,7 +211,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
         }
     }
     DisposableEffect(player, owner, film.id) {
-        val diagnose = !film.id.startsWith("vodu:") && !film.id.startsWith("demo-")
+        val diagnose = !film.id.startsWith("vodu:") && !com.cinemaplus.rebuilt.data.DawwirliMapper.owns(film.id) && !film.id.startsWith("demo-")
         fun trace(message: String) {
             if (diagnose) Log.i("CinemaSubtitle", "media=${film.id} $message")
         }
@@ -606,7 +606,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                         if(group.isTrackSupported(index)) {
                             textIndex++
                             PlayerOption(trackLabel(group.getTrackFormat(index), "ترجمة $textIndex"), group.isTrackSelected(index)) {
-                                if (!film.id.startsWith("vodu:")) Log.i("CinemaSubtitle", "media=${film.id} action=select group=${textGroups.indexOf(group)} track=$index lang=${group.getTrackFormat(index).language.orEmpty()} mime=${group.getTrackFormat(index).sampleMimeType.orEmpty()}")
+                                if (!film.id.startsWith("vodu:") && !com.cinemaplus.rebuilt.data.DawwirliMapper.owns(film.id)) Log.i("CinemaSubtitle", "media=${film.id} action=select group=${textGroups.indexOf(group)} track=$index lang=${group.getTrackFormat(index).language.orEmpty()} mime=${group.getTrackFormat(index).sampleMimeType.orEmpty()}")
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                                     .clearOverridesOfType(C.TRACK_TYPE_TEXT).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                                     .setPreferredTextLanguage(group.getTrackFormat(index).language)

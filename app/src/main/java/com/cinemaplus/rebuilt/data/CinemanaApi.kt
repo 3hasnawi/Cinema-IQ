@@ -13,6 +13,10 @@ import java.util.concurrent.TimeUnit
 
 class CinemanaApi(private val tokenProvider: () -> String? = { null }) {
     private val vodu = VoduApi()
+    private val daw = DawwirliApi()
+    suspend fun dawwirliHome() = daw.home()
+    suspend fun dawwirliCatalog(series: Boolean, query: String, page: Int) = daw.catalog(series,query,page)
+    suspend fun dawwirliSections(series: Boolean) = daw.sections(series)
     suspend fun voduCatalog(series: Boolean, query: String, page: Int) = vodu.catalog(series, query, page)
     private val client = Http.client(12, 20, 30)
     private val base = "https://cinemana.shabakaty.cc/api/android/"
@@ -59,6 +63,7 @@ class CinemanaApi(private val tokenProvider: () -> String? = { null }) {
         }.awaitAll().filterNotNull().filter { it.films.isNotEmpty() }
     }
     suspend fun detail(film: Film): Film {
+        if (DawwirliMapper.owns(film.id)) return daw.detail(film)
         if (VoduApi.owns(film.id)) return vodu.detail(film)
         val obj = JsonMapper.array(get("allVideoInfo/id/${film.id}")).firstOrNull()
             ?: error("لم تُرجع الخدمة تفاصيل العمل")
@@ -71,6 +76,6 @@ class CinemanaApi(private val tokenProvider: () -> String? = { null }) {
             enTitle = parsed.enTitle.ifBlank { film.enTitle }, originalTitle = parsed.originalTitle.ifBlank { film.originalTitle },
             contentQuality = parsed.contentQuality.ifBlank { film.contentQuality }, edition = parsed.edition.ifBlank { film.edition })
     }
-    suspend fun seasons(id: String, fresh: Boolean = false) = if (VoduApi.owns(id)) vodu.seasons(id, fresh) else JsonMapper.seasons(get("videoSeason/id/$id"))
-    suspend fun streams(id: String) = if (VoduApi.owns(id)) vodu.streams(id) else JsonMapper.streams(get("transcoddedFiles/id/$id"))
+    suspend fun seasons(id: String, fresh: Boolean = false) = if (DawwirliMapper.owns(id)) daw.seasons(id, fresh) else if (VoduApi.owns(id)) vodu.seasons(id, fresh) else JsonMapper.seasons(get("videoSeason/id/$id"))
+    suspend fun streams(id: String) = if (DawwirliMapper.owns(id)) daw.streams(id) else if (VoduApi.owns(id)) vodu.streams(id) else JsonMapper.streams(get("transcoddedFiles/id/$id"))
 }

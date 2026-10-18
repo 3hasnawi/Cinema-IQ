@@ -98,7 +98,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseSource(value: SourceChoice) {
         if (sourceChoice == value) return
         loadJob?.cancel()
-        sourceChoice = value; library.sourceChoice = value
+        sourceChoice = value; library.sourceChoice = value; exploreMood = null
         pageNumber = 1; shelves = emptyList(); descriptions.clear()
         closeDetail(); stop(); reload()
     }
@@ -210,8 +210,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         followedSeriesJob = viewModelScope.launch {
             for (checkpoint in library.followedSeries()) {
                 if (demo) break
-                if (sourceChoice == SourceChoice.CINEMANA && VoduApi.owns(checkpoint.seriesId)) continue
-                if (sourceChoice == SourceChoice.VODU && !VoduApi.owns(checkpoint.seriesId)) continue
+                if (!sourceChoice.accepts(checkpoint.seriesId)) continue
                 if (library.recent().any { it.seriesId == checkpoint.seriesId }) continue
                 try {
                     val available = api.seasons(checkpoint.seriesId, fresh = true).map { season ->
@@ -329,6 +328,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     }
     /** Category shelves for mood browsing. Only the Cinemana source exposes categories. */
     private suspend fun exploreCatalog(): List<Shelf> {
+        if(sourceChoice == SourceChoice.DAWWIRLI) return api.dawwirliSections(false) + api.dawwirliSections(true)
         if (sourceChoice == SourceChoice.VODU)
             throw IllegalStateException("الاستكشاف يعتمد على تصنيفات سينمانا. اختر سينمانا من الإعدادات > المصادر.")
         return coroutineScope {
@@ -343,7 +343,9 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         val requests = sourceChoice.requests(original, kinds.map { series ->
             suspend { listOf(Shelf("vodu-${if (series) "series" else "movies"}",
                 if (series) "VODU · مسلسلات" else "VODU · أفلام", api.voduCatalog(series, search, number))) }
-        })
+        }, if(page == Page.Home) listOf(suspend { api.dawwirliHome() }) else kinds.map { series -> suspend {
+            listOf(Shelf("daw-${if(series) "series" else "movies"}", if(series) "دورلي · مسلسلات" else "دورلي · أفلام", api.dawwirliCatalog(series,search,number)))
+        } })
         val results = progressiveSources(requests) { ready ->
             val available = ready.filter { it.films.isNotEmpty() }
             shelves = shelves.map { old ->
@@ -452,6 +454,8 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
     fun play(film: Film) {
         val showId = film.seriesId.ifBlank {
             if (seasons.any { season -> season.episodes.any { it.id == film.id } }) selected?.id.orEmpty()
+            else if (DawwirliMapper.owns(film.id) && DawwirliMapper.key(film.id).type == "episode")
+                "daw:series:${DawwirliMapper.key(film.id).parent}"
             else if (film.id.startsWith("vodu:") && film.id.count { it == ':' } == 2)
                 "vodu:${VoduApi.parentId(film.id)}" else ""
         }
@@ -474,7 +478,7 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
                 val sourceDetails = api.detail(contextual)
                 val details = sourceDetails.copy(seriesId = showId, season = contextual.season, episode = contextual.episode,
                     markers = sourceDetails.markers.withFallback(contextual.markers))
-                playing = if (VoduApi.owns(details.id)) details else
+                playing = if (VoduApi.owns(details.id) || DawwirliMapper.owns(details.id)) details else
                     details.copy(subtitles = subtitleResolver.resolve(details.subtitles))
                 streams = api.streams(film.id)
                 if (streams.isEmpty()) playbackError = "لم يُرجع المصدر رابط تشغيل صالحًا لهذا العمل."
