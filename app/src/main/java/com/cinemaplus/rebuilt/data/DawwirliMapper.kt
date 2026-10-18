@@ -32,7 +32,14 @@ object DawwirliMapper {
         val k = key(id); require(k.type != "series")
         return Stream(url("vod", "kind" to k.kind, "id" to k.raw, "ext" to k.ext),"المصدر الأصلي")
     }
-    fun cleanTitle(value: String) = value.replace(Regex("^(?:AR|EN|TR|HI|KR|FR)\\s*[|:-]\\s*",RegexOption.IGNORE_CASE),"").trim()
+    private fun image(raw: String): String {
+        if(raw.isBlank()) return ""
+        val url=BASE.toHttpUrl().resolve(raw) ?: return ""
+        return if(url.scheme == "https") url.toString() else ""
+    }
+    fun cleanTitle(value: String) = value.replace(Regex("^(?:AR|EN|TR|HI|KR|FR)\\s*[|:-]\\s*",RegexOption.IGNORE_CASE),"")
+        .replace(Regex("\\s*\\[MULTI-SUB\\]\\s*$",RegexOption.IGNORE_CASE),"")
+        .replace(Regex("\\s+-\\s+\\d{4}\\s*$"),"").trim()
     fun item(o: JSONObject, seriesHint: Boolean = false): Film? {
         val raw = JsonMapper.text(o,"id","stream_id","series_id")
         if(raw.isBlank()) return null
@@ -41,8 +48,8 @@ object DawwirliMapper {
         if(runCatching { key(k.id) }.isFailure) return null
         val title = cleanTitle(JsonMapper.text(o,"name","title"))
         if(title.isBlank()) return null
-        return Film(k.id,title,poster=JsonMapper.image(JsonMapper.text(o,"poster","icon","cover")),
-            backdrop=JsonMapper.image(JsonMapper.text(o,"backdrop")),description=JsonMapper.text(o,"plot","description"),
+        return Film(k.id,title,poster=image(JsonMapper.text(o,"poster","icon","cover")),
+            backdrop=image(JsonMapper.text(o,"backdrop")),description=JsonMapper.text(o,"plot","description"),
             year=JsonMapper.text(o,"year").takeUnless { it == "0" }.orEmpty(),rating=JsonMapper.rating(o),series=series,
             enTitle=title,contentQuality=JsonMapper.text(o,"quality","resolution"))
     }
@@ -53,8 +60,8 @@ object DawwirliMapper {
         val name = cleanTitle(JsonMapper.text(info,"name","o_name"))
         val video = info.optJSONObject("video")
         val height = video?.optInt("height") ?: 0
-        return film.copy(title=name.ifBlank { film.title },poster=JsonMapper.image(JsonMapper.text(info,"cover_big","movie_image","cover")).ifBlank { film.poster },
-            backdrop=JsonMapper.image(info.optJSONArray("backdrop_path")?.optString(0).orEmpty()).ifBlank { film.backdrop },
+        return film.copy(title=name.ifBlank { film.title },poster=image(JsonMapper.text(info,"cover_big","movie_image","cover")).ifBlank { film.poster },
+            backdrop=image(info.optJSONArray("backdrop_path")?.optString(0).orEmpty()).ifBlank { film.backdrop },
             description=JsonMapper.text(info,"plot","description").ifBlank { film.description },
             year=JsonMapper.text(info,"releasedate","releaseDate").take(4).ifBlank { film.year },duration=JsonMapper.text(info,"duration","episode_run_time").ifBlank { film.duration },
             rating=JsonMapper.rating(info).ifBlank { film.rating },trailer=JsonMapper.text(info,"youtube_trailer"),
@@ -74,8 +81,8 @@ object DawwirliMapper {
                 if(runCatching { DawwirliMapper.key(key.id) }.isFailure) return@episode null
                 val meta=o.optJSONObject("info") ?: JSONObject()
                 val title=cleanTitle(JsonMapper.text(o,"title"))
-                Film(key.id,title,poster=JsonMapper.image(JsonMapper.text(meta,"movie_image")).ifBlank { JsonMapper.image(JsonMapper.text(info,"cover")) },
-                    backdrop=JsonMapper.image(info.optJSONArray("backdrop_path")?.optString(0).orEmpty()),description=JsonMapper.text(meta,"plot"),
+                Film(key.id,title,poster=image(JsonMapper.text(meta,"movie_image")).ifBlank { image(JsonMapper.text(info,"cover")) },
+                    backdrop=image(info.optJSONArray("backdrop_path")?.optString(0).orEmpty()),description=JsonMapper.text(meta,"plot"),
                     duration=JsonMapper.text(meta,"duration"),rating=JsonMapper.rating(meta),series=true,season=season,episode=o.optInt("episode_num",n+1),
                     seriesId=id,episodeTitle=title,airDate=JsonMapper.text(meta,"releasedate"))
             }

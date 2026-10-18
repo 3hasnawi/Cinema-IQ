@@ -57,4 +57,12 @@ class DawwirliTest {
             assertTrue(runCatching { DawwirliMapper.stream(it) }.isFailure)
         }
     }
+    @Test fun sourceLabelsDoNotPolluteMetadataTitleMatching() {
+        assertEquals("Animals",DawwirliMapper.cleanTitle("EN - Animals - 2026 [MULTI-SUB]"))
+        assertEquals("2001: A Space Odyssey",DawwirliMapper.cleanTitle("EN - 2001: A Space Odyssey"))
+    }
+    @Test fun relativeArtworkBelongsToDawwirliNotCinemana() {
+        val film=DawwirliMapper.item(JSONObject("""{"id":"123","name":"Film","poster":"/api/localcover?id=123"}"""))!!
+        assertEquals("https://premium.dawwirli.watch/api/localcover?id=123",film.poster)
+    }
 }
