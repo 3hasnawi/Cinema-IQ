@@ -482,40 +482,7 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
     }
 }
 
-@Composable private fun SearchScreen(vm: CinemaViewModel) {
-    val films = vm.filter.apply(vm.shelves.flatMap { it.films }.distinctBy { it.id })
-    val firstResult = remember { FocusRequester() }
-    Column(Modifier.fillMaxSize().padding(top = TvMetrics.TabBarSpace)) {
-        PosterGrid(films, vm, firstRequester = firstResult,
-            header = {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(bottom = 8.dp)) {
-                    // Down leaves the text field for the first result instead of wandering elsewhere.
-                    SearchBox(vm) { films.isNotEmpty() && runCatching { firstResult.requestFocus() }.isSuccess }
-                    when {
-                        vm.busy -> Label("جارٍ البحث…", 15, Muted)
-                        vm.error != null -> Label(vm.error!!, 14, Muted, lines = 2)
-                        vm.query.isBlank() -> {
-                            Label("ابحث عن فيلم أو مسلسل", 17, Muted)
-                            if (vm.searchHistory.isNotEmpty()) {
-                                Label("عمليات البحث الأخيرة", 15, Muted)
-                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    vm.searchHistory.take(4).forEach { text -> Action(text) { vm.search(text) } }
-                                    Action("مسح السجل") { vm.clearSearchHistory() }
-                                }
-                            }
-                        }
-                        films.isEmpty() -> { Label("لا توجد نتائج", 17, Muted); if (vm.filter.active) FilterBar(vm) }
-                        else -> { Label("نتائج «${vm.query}»", 22, bold = true); FilterBar(vm) }
-                    }
-                }
-            },
-            footer = {
-                if (!vm.demo && films.isNotEmpty()) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Action(if (vm.busy) "جارٍ التحميل…" else "عرض المزيد") { if (!vm.busy) vm.more() }
-                }
-            })
-    }
-}
+@Composable private fun SearchScreen(vm: CinemaViewModel) = TvSearchScreen(vm)
 
 /** Type and sort buttons; each press cycles to the next value. */
 @Composable private fun FilterBar(vm: CinemaViewModel) {
@@ -523,27 +490,6 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
         Action("النوع: ${vm.filter.kind.label}") { vm.cycleKind() }
         Action("الترتيب: ${vm.filter.sort.label}") { vm.cycleSort() }
     }
-}
-
-@Composable private fun SearchBox(vm: CinemaViewModel, onMoveDown: () -> Boolean) {
-    var typed by rememberSaveable { mutableStateOf(vm.query) }
-    LaunchedEffect(typed) {
-        delay(500)
-        if (typed.trim() != vm.query) vm.search(typed)
-    }
-    OutlinedTextField(typed, { typed = it }, Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
-        if (event.key == Key.DirectionDown && event.type == KeyEventType.KeyDown) onMoveDown() else false
-    }, singleLine = true,
-        shape = RoundedCornerShape(50),
-        leadingIcon = { Icon(Icons.Rounded.Search, null, tint = Muted) },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { vm.search(typed) }),
-        placeholder = { Label("اسم الفيلم أو المسلسل", 16, Muted) },
-        textStyle = LocalTextStyle.current.copy(fontFamily = Cairo, fontSize = 18.sp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = Color.White.copy(alpha = .20f), unfocusedContainerColor = Glass,
-            focusedBorderColor = Accent, unfocusedBorderColor = Color.Transparent, cursorColor = Accent,
-            focusedTextColor = Color.White, unfocusedTextColor = Color.White))
 }
 
 @Composable fun Message(message: String, button: String, retry: () -> Unit, demo: (() -> Unit)? = null) {
