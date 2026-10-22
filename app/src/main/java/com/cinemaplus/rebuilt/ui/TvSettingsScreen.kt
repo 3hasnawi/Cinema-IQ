@@ -164,7 +164,7 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
                         contentAlignment = Alignment.BottomCenter) {
                         androidx.compose.material3.Text("هكذا ستظهر الترجمة", color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
                             fontSize = (vm.subtitleSize / TvMetrics.TextScale).sp, maxLines = 1,
-                            modifier = Modifier.padding(bottom = (vm.subtitleHeight * 320).mx + 12.mx)
+                            modifier = Modifier.padding(bottom = (vm.subtitleHeight * 320).toInt().mx + 12.mx)
                                 .background(Color.Black.copy(alpha = vm.subtitleBackground), RoundedCornerShape(6.mx)).padding(horizontal = 16.mx))
                     }
                 }
