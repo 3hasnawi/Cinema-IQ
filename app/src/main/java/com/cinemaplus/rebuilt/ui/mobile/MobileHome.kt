@@ -6,8 +6,14 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextAlign
+import coil.compose.AsyncImage
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -43,9 +49,12 @@ fun phoneFeaturedFilms(shelves: List<Shelf>): List<Film> {
     return mixed + newest.drop(popular.size)
 }
 
-/** Swipeable featured titles that also advance on their own; art is framed like on TV, never stretched. */
+/**
+ * Phone hero (phone-png/01): a full-bleed 2:3 poster with top and bottom fades, then the kind chip, title, meta
+ * line, actions (my list, play, details) and rotation dots centred over its bottom. Swipeable; advances on its own.
+ */
 @Composable
-fun MobileHero(vm: CinemaViewModel, featured: List<Film>) {
+fun MobileHero(vm: CinemaViewModel, featured: List<Film>, topBar: @Composable () -> Unit = {}) {
     if (featured.isEmpty()) return
     val pager = rememberPagerState(pageCount = { featured.size })
     LaunchedEffect(featured.size) {
@@ -55,35 +64,58 @@ fun MobileHero(vm: CinemaViewModel, featured: List<Film>) {
             if (!pager.isScrollInProgress) pager.animateScrollToPage((pager.currentPage + 1) % featured.size)
         }
     }
-    Box(Modifier.fillMaxWidth().height(380.dp)) {
-        HorizontalPager(pager, Modifier.fillMaxSize(), key = { featured[it].id }) { index ->
+    val revision = vm.libraryRevision
+    Box(Modifier.fillMaxWidth()) {
+        HorizontalPager(pager, Modifier.fillMaxWidth(), key = { featured[it].id }) { index ->
             val film = vm.withArtwork(featured[index])
-            Box(Modifier.fillMaxSize()) {
-                HeroBackdrop(film, Modifier.fillMaxSize(), sideScrim = false, fadeFrom = .35f)
-                Column(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = 16.dp, bottom = 30.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(mediaTitle(film), fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 27.sp, maxLines = 2,
-                        overflow = TextOverflow.Ellipsis, color = Color.White)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        KindBadge(film.series)
-                        InfoChip(film.year)
-                        RatingChip(film.rating)
+            val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
+            val recent = remember(revision, film.id) { if (film.series) vm.library.recent().firstOrNull { it.seriesId == film.id && it.episode > 0 } else null }
+            val started = remember(revision, film.id) { !film.series && vm.library.progress(film.id) > 0 }
+            Box(Modifier.fillMaxWidth()) {
+                Box(Modifier.fillMaxWidth().aspectRatio(390f / 540f).background(Brand.Raised)) {
+                    AsyncImage(film.poster.ifBlank { film.backdrop }, mediaTitle(film), Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    Box(Modifier.fillMaxSize().drawBehind {
+                        val bg = Brand.Background
+                        val top = 120.dp.toPx()
+                        drawRect(Brush.verticalGradient(0f to bg.copy(alpha = .85f), 1f to Color.Transparent, endY = top), size = Size(size.width, top))
+                        val from = size.height * (260f / 540f)
+                        drawRect(Brush.verticalGradient(0f to Color.Transparent, .88f to bg, 1f to bg, startY = from, endY = size.height),
+                            topLeft = Offset(0f, from), size = Size(size.width, size.height - from))
+                    })
+                }
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 26.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PhoneChip(if (film.series) "مسلسل" else "فيلم", ChipKind.Accent)
+                    PText(mediaTitle(film), 34.sp, weight = FontWeight.Bold, lines = 2, align = TextAlign.Center)
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PhoneDotted(listOf(film.year, formatContentDuration(film.duration)))
+                        PhoneChip(film.contentQuality, ChipKind.Glass)
+                        PhoneRating(film.rating)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { if (film.series) vm.open(film) else vm.play(film) }) {
-                            Icon(Icons.Rounded.PlayArrow, null); Text(if (film.series) "الحلقات" else "شاهد الآن")
+                    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        PhoneGlassCircle(if (saved) Icons.Rounded.Check else Icons.Rounded.Add, if (saved) "إزالة من قائمتي" else "أضف إلى قائمتي") { vm.toggle(film) }
+                        val label = when {
+                            recent != null -> "شاهد الحلقة ${recent.episode}"
+                            film.series -> "عرض الحلقات"
+                            started -> "استئناف"
+                            else -> "شاهد الآن"
                         }
-                        OutlinedButton(onClick = { vm.open(film) }) { Text("التفاصيل") }
+                        PhonePrimaryButton(label, Modifier.weight(1f)) {
+                            when { recent != null -> vm.play(recent); film.series -> vm.open(film); else -> vm.play(film) }
+                        }
+                        PhoneGlassCircle(Icons.Rounded.Info, "التفاصيل") { vm.open(film) }
                     }
                 }
             }
         }
-        if (featured.size > 1) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+        if (featured.size > 1) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
             repeat(featured.size) { dot ->
-                Box(Modifier.size(if (dot == pager.currentPage) 16.dp else 6.dp, 6.dp)
-                    .background(if (dot == pager.currentPage) Accent else Color.White.copy(alpha = .35f), CircleShape))
+                Box(Modifier.size(if (dot == pager.currentPage) 16.dp else 4.dp, 4.dp)
+                    .background(if (dot == pager.currentPage) Color.White else Brand.BorderStrong, CircleShape))
             }
         }
+        Box(Modifier.align(Alignment.TopCenter)) { topBar() }
     }
 }
 
