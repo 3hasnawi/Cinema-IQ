@@ -1,6 +1,6 @@
 # Cinema iQ — iPhone preview
 
-Native SwiftUI starter app, isolated from the Android application. Requires iOS 17+, Xcode 16+ and a Mac. This is source code for an initial preview, not a signed IPA or a published iOS release.
+Native SwiftUI starter app, isolated from the Android application. Requires iOS 17+. Local development needs Xcode 16+ and a Mac; Windows testing can use the manual GitHub macOS build and Sideloadly. This is source code for an initial preview, not a signed IPA or a published iOS release.
 
 ## Included
 
@@ -33,6 +33,10 @@ swift test --package-path Core
 ```
 
 `iOS Core Checks` runs these tests on Linux for changes to this folder. Passing core tests does **not** establish that the SwiftUI app compiles or plays video on iOS. No automatic macOS build/export/release workflow is added.
+
+## Windows testing without a Mac
+
+See [Windows installation steps](WINDOWS-TESTING.md). The manual-only **Build unsigned iPhone IPA** workflow tests the core, generates the Xcode project and compiles a Release arm64 device app without signing. It uploads a private artifact for three days, with no public release. It must only be run after an explicit build request. The first Xcode build has not been performed yet.
 
 ## Firebase next step
 
