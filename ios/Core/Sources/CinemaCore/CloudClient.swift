@@ -33,6 +33,7 @@ public struct CloudRecord: Sendable, Equatable {
     public let key: String
     public let value: String
     public let updatedAt: Date?
+    public init(key: String, value: String, updatedAt: Date?) { self.key = key; self.value = value; self.updatedAt = updatedAt }
 }
 
 public enum CloudError: LocalizedError, Equatable {
