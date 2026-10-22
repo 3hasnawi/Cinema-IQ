@@ -18,8 +18,8 @@ public struct VoduClient: Sendable {
         return url.url!
     }
     private func page(_ parameters: [String: String]) async throws -> String {
-        let data = try await SourceHTTP.read(Self.pageURL(parameters), expectedHost: "movie.vodu.me")
-        guard let html = String(data: data, encoding: .utf8) else { throw CinemaError.invalidResponse }
+        let data = try await SourceHTTP.read(Self.pageURL(parameters), root: "vodu.me")
+        guard let html = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else { throw CinemaError.invalidResponse }
         return html
     }
     public func catalog(series: Bool, query: String, page: Int) async throws -> [Media] {
@@ -51,7 +51,7 @@ public enum VoduParser {
     public static func catalog(_ html: String, series: Bool) throws -> [Media] {
         let doc = try document(html)
         // A blocked or redirected landing page must not be mistaken for a successful empty catalog.
-        guard try !doc.select(".pagehead, .myitem, .pagination").isEmpty() else { throw CinemaError.invalidResponse }
+        guard try !doc.select(".pagehead, .myitem, .pagination").isEmpty() else { throw CinemaError.redirected }
         return try doc.select(".mytitle a[href]").array().compactMap { link -> Media? in
             let raw = try link.attr("href")
             guard let linkURL = URL(string: raw, relativeTo: URL(string: base)),

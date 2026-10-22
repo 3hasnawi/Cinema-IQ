@@ -11,11 +11,7 @@ public struct DawwirliClient: Sendable {
         return c.url!
     }
     private func get(_ path: String, _ query: [String: String] = [:]) async throws -> [String: Any] {
-        var request = URLRequest(url: Self.url(path, query)); request.timeoutInterval = 30
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let response = response as? HTTPURLResponse else { throw CinemaError.invalidResponse }
-        guard (200..<300).contains(response.statusCode) else { throw CinemaError.http(response.statusCode) }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw CinemaError.invalidResponse }
+        guard let json = try await SourceHTTP.json(Self.url(path, query), root: "dawwirli.watch") as? [String: Any] else { throw CinemaError.invalidResponse }
         return json
     }
     public func home() async throws -> [Shelf] {

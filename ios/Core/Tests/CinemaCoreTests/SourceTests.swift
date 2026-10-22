@@ -62,4 +62,19 @@ final class SourceTests: XCTestCase {
         let url = VoduClient.pageURL(["title": "فيلم & test", "do": "list"])
         XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "title" })?.value, "فيلم & test")
     }
+    func testResponsesMayComeFromTheSourceNetworkOnly() {
+        XCTAssertTrue(SourceNetwork.belongs("cinemana.shabakaty.cc", to: "shabakaty.cc"))
+        XCTAssertTrue(SourceNetwork.belongs("CNTH2.Shabakaty.cc", to: "shabakaty.cc"))
+        XCTAssertTrue(SourceNetwork.belongs("movie.vodu.me", to: "vodu.me"))
+        XCTAssertFalse(SourceNetwork.belongs("evilshabakaty.cc", to: "shabakaty.cc"))
+        XCTAssertFalse(SourceNetwork.belongs("shabakaty.cc.evil.com", to: "shabakaty.cc"))
+        XCTAssertFalse(SourceNetwork.belongs(nil, to: "vodu.me"))
+    }
+    func testNetworkErrorsExplainTheCauseAndKeepTheCode() {
+        XCTAssertTrue(CinemaError.network(-1003).localizedDescription.contains("-1003"))
+        XCTAssertTrue(CinemaError.network(-1200).localizedDescription.contains("آمن"))
+        XCTAssertTrue(CinemaError.http(503).localizedDescription.contains("503"))
+        XCTAssertTrue(SourceNetwork.retryable(CinemaError.http(502)))
+        XCTAssertFalse(SourceNetwork.retryable(CinemaError.http(404)))
+    }
 }

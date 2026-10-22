@@ -4,12 +4,12 @@ import SwiftUI
     @StateObject private var library = LibraryStore()
     var body: some Scene {
         WindowGroup {
-            MainView()
+            // The system font (SF Arabic) and Dynamic Type throughout.
+            RootView()
                 .environmentObject(library)
                 .environment(\.layoutDirection, .rightToLeft)
                 .preferredColorScheme(.dark)
-                .tint(.orange)
-                .font(.custom("Cairo-Regular", size: 16, relativeTo: .body))
+                .tint(Theme.accent)
         }
     }
 }

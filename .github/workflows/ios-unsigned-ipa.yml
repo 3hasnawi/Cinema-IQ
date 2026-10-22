@@ -21,6 +21,13 @@ jobs:
         run: |
           echo "DERIVED_DATA=$RUNNER_TEMP/CinemaIQDerivedData" >> "$GITHUB_ENV"
           echo "IPA_STAGING=$RUNNER_TEMP/CinemaIQIPA" >> "$GITHUB_ENV"
+      - name: Select the newest installed Xcode
+        # Liquid Glass needs the iOS 26 SDK or later; the app still builds (without glass) on older Xcode.
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
       - name: Inspect Xcode toolchain
         run: |
           xcodebuild -version

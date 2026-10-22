@@ -4,7 +4,7 @@ public struct CinemanaClient: Sendable {
     public init() {}
     private func get(_ path: String) async throws -> Any {
         guard let url = URL(string: "https://cinemana.shabakaty.cc/api/android/" + path) else { throw CinemaError.invalidID }
-        return try await SourceHTTP.json(url, expectedHost: "cinemana.shabakaty.cc")
+        return try await SourceHTTP.json(url, root: "shabakaty.cc")
     }
     public static func catalogPath(series: Bool, query: String, page: Int) throws -> String {
         guard page >= 1 else { throw CinemaError.invalidID }

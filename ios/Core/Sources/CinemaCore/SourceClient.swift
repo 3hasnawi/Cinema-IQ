@@ -72,16 +72,69 @@ public struct SourceClient: Sendable {
 extension Array where Element == Media {
     func uniqueMedia() -> [Media] { var seen = Set<String>(); return filter { seen.insert($0.id).inserted } }
 }
+/// One session for every source. Android's OkHttp identifies itself as `okhttp`; some source front ends reject
+/// unknown clients, so the iPhone app sends the same agent instead of CFNetwork's default.
+enum SourceNetwork {
+    static let userAgent = "okhttp/4.12.0"
+    static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 45
+        config.httpAdditionalHeaders = ["User-Agent": userAgent, "Accept-Language": "ar,en;q=0.8"]
+        return URLSession(configuration: config)
+    }()
+    /// A response may come from the source's own subdomains (redirects inside its network are fine); anything else is not trusted.
+    static func belongs(_ host: String?, to root: String) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        let root = root.lowercased()
+        return host == root || host.hasSuffix("." + root)
+    }
+    static func retryable(_ error: Error) -> Bool {
+        if case CinemaError.http(let code) = error { return code >= 500 }
+        if case CinemaError.network(let code) = error { return [-1001, -1005, -1017].contains(code) }
+        return false
+    }
+}
 struct SourceHTTP {
-    static func read(_ url: URL, expectedHost: String) async throws -> Data {
-        var request = URLRequest(url: url); request.timeoutInterval = 30
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let response = response as? HTTPURLResponse,
-              response.url?.scheme == "https", response.url?.host == expectedHost else { throw CinemaError.invalidResponse }
-        guard (200..<300).contains(response.statusCode) else { throw CinemaError.http(response.statusCode) }
+    /// Idempotent read with one retry for a brief hiccup or a 5xx answer, as on Android.
+    static func read(_ url: URL, root: String) async throws -> Data {
+        do { return try await once(url, root: root) }
+        catch where SourceNetwork.retryable(error) {
+            try await Task.sleep(nanoseconds: 700_000_000)
+            return try await once(url, root: root)
+        }
+    }
+    private static func once(_ url: URL, root: String) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.setValue(SourceNetwork.userAgent, forHTTPHeaderField: "User-Agent")
+        let data: Data, response: URLResponse
+        do { (data, response) = try await SourceNetwork.session.data(for: request) }
+        catch let error as URLError {
+            if error.code == .cancelled { throw CancellationError() }
+            throw CinemaError.network(error.code.rawValue)
+        }
+        guard let http = response as? HTTPURLResponse else { throw CinemaError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else { throw CinemaError.http(http.statusCode) }
+        guard http.url?.scheme == "https", SourceNetwork.belongs(http.url?.host, to: root) else { throw CinemaError.redirected }
         return data
     }
-    static func json(_ url: URL, expectedHost: String) async throws -> Any {
-        try JSONSerialization.jsonObject(with: await read(url, expectedHost: expectedHost))
+    static func json(_ url: URL, root: String) async throws -> Any {
+        let data = try await read(url, root: root)
+        guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { throw CinemaError.notJSON }
+        return value
+    }
+}
+/// Result of a quick reachability test of one source, shown in Settings.
+public struct SourceProbe: Sendable {
+    public let source: ContentSource
+    public let items: Int
+    public let error: String?
+}
+extension SourceClient {
+    public func probe(_ source: ContentSource) async -> SourceProbe {
+        do {
+            let shelves = try await home(source)
+            return SourceProbe(source: source, items: shelves.reduce(0) { $0 + $1.items.count }, error: nil)
+        } catch { return SourceProbe(source: source, items: 0, error: error.localizedDescription) }
     }
 }

@@ -61,15 +61,33 @@ public struct Season: Identifiable, Sendable {
     public let episodes: [Media]
     public init(id: Int, episodes: [Media]) { self.id = id; self.episodes = episodes }
 }
-public enum CinemaError: LocalizedError {
-    case invalidID, invalidResponse, http(Int), unsupportedVideo, unsupportedSource, noStreams
+public enum CinemaError: LocalizedError, Equatable {
+    case invalidID, invalidResponse, notJSON, redirected, http(Int), network(Int), unsupportedVideo, unsupportedSource, noStreams
     public var errorDescription: String? {
         switch self {
         case .invalidID, .invalidResponse: return "تعذّر قراءة بيانات العمل من المصدر."
-        case .http: return "تعذّر الاتصال بالمصدر. تأكد من أن شبكتك تدعمه وأعد المحاولة."
-        case .unsupportedVideo: return "صيغة هذه النسخة غير مدعومة بالمشغّل الأولي للآيفون. جرّب عملاً بصيغة MP4."
+        case .notJSON, .redirected:
+            return "أعاد المصدر صفحة غير متوقعة بدل البيانات. قد تكون شبكتك تحجبه أو تحوّله لصفحة أخرى."
+        case .http(let code):
+            return code == 403 || code == 503
+                ? "رفض المصدر الطلب من شبكتك الحالية (HTTP \(code)). جرّب الشبكة التي يعمل عليها المصدر."
+                : "تعذّر الاتصال بالمصدر (HTTP \(code)). أعد المحاولة."
+        case .network(let code): return Self.networkMessage(code) + " (رمز \(code))"
+        case .unsupportedVideo: return "صيغة هذه النسخة غير مدعومة بمشغّل الآيفون. جرّب جودة أخرى أو عملاً بصيغة MP4."
         case .noStreams: return "لم يوفّر المصدر رابط تشغيل متاحاً لهذا العمل."
         case .unsupportedSource: return "مصدر هذا العمل غير معروف."
+        }
+    }
+    /// Plain Arabic explanations for the URL loading errors seen most with network-restricted sources.
+    static func networkMessage(_ code: Int) -> String {
+        switch code {
+        case -1009: return "لا يوجد اتصال بالإنترنت."
+        case -1001: return "انتهت مهلة الاتصال بالمصدر."
+        case -1003, -1004, -1006:
+            return "لا يمكن الوصول إلى خادم المصدر من شبكتك الحالية. اتصل بالشبكة التي يعمل عليها المصدر، وأوقف VPN أو «ترحيل iCloud الخاص» إن كان مفعّلاً."
+        case -1200, -1201, -1202, -1203, -1204, -1205, -1206, -1022:
+            return "تعذّر إنشاء اتصال آمن مع المصدر."
+        default: return "تعذّر الاتصال بالمصدر."
         }
     }
 }
