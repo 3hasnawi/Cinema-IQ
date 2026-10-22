@@ -14,7 +14,10 @@ import CinemaCore
     func open(_ media: Media, resume: Double, save: @escaping (Double, Double, Bool) -> Void) {
         close(); self.save = save; error = nil; ended = false
         do {
-            let item = AVPlayerItem(url: try DawKey(media.id).streamURL())
+            let url = try DawKey(media.id).streamURL()
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try AVAudioSession.sharedInstance().setActive(true)
+            let item = AVPlayerItem(url: url)
             player.replaceCurrentItem(with: item)
             statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
                 if item.status == .failed { Task { @MainActor in self?.error = "تعذّر تشغيل هذه النسخة. قد تكون صيغة الفيديو أو الصوت غير مدعومة على iOS." } }
@@ -44,6 +47,7 @@ import CinemaCore
         if let endToken { NotificationCenter.default.removeObserver(endToken) }; endToken = nil
         if let failureToken { NotificationCenter.default.removeObserver(failureToken) }; failureToken = nil
         statusObservation = nil; player.replaceCurrentItem(with: nil); save = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }
 struct NativePlayer: UIViewControllerRepresentable {
