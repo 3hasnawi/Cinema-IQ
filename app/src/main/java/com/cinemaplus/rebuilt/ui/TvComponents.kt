@@ -36,6 +36,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -68,22 +69,24 @@ import androidx.tv.material3.ButtonDefaults as TvButtonDefaults
 object TvMetrics {
     val PosterWidth = 160.dp
     val PosterHeight = 240.dp
-    val ContinueWidth = 288.dp
-    val ContinueHeight = 162.dp
+    val ContinueWidth = 400.mx
+    val ContinueHeight = 225.mx
     const val PosterRatio = 2f / 3f
     const val LandscapeRatio = 16f / 9f
-    const val CardFocusScale = 1.08f
+    const val CardFocusScale = 1.06f
     const val ButtonFocusScale = 1.06f
-    val CardRadius = 14.dp
-    val CardGap = 16.dp
+    val CardRadius = 16.mx
+    val CardGap = 28.mx
     val RowGap = 12.dp
     val EdgeInset = 48.dp
     /** Space reserved at the top of every non-home page above page titles (the section rail is at the side). */
     val TabBarSpace = 24.dp
     /** Browse and details pages are laid out at this fraction of the device density so more content fits. */
     /** Collapsed (icons only) and expanded (icons + labels) width of the section rail. */
-    val RailCollapsed = 84.dp
-    val RailExpanded = 212.dp
+    val RailCollapsed = 112.mx
+    val RailExpanded = 460.mx
+    /** Home content starts 168 px from the right edge of the screen, 56 px inside the rail. */
+    val HomeInset = 56.mx
     const val UiScale = 0.74f
     /** Text shrinks less than layout so it stays readable from the couch. */
     const val TextScale = 0.86f
@@ -109,7 +112,7 @@ val LocalTabBarState = staticCompositionLocalOf { TabBarState() }
 
 /** Translucent "material" used for tvOS style pills and panels. */
 val Glass = Color.White.copy(alpha = .30f)
-val GlassStrong = Color(0xF21E1722)
+val GlassStrong = Brand.Surface.copy(alpha = .95f)
 
 /** Settings switch for the trailer on focused cards. */
 val LocalTrailerPreviewEnabled = compositionLocalOf { true }
@@ -247,7 +250,13 @@ fun FilmCard(
     else listOf(if (f.series) "مسلسل" else "فيلم", f.year).filter(String::isNotBlank).joinToString(" • ")
 
     val continueStyle = wide && progress > 0f
-    val continueStatus = if (!continueStyle || f.episode <= 0) "" else "الموسم ${f.season} • الحلقة ${f.episode}"
+    // Continue watching: "title · episode N" for episodes, "film · time left" for films (the mockup's captions).
+    val continueCaption = if (!continueStyle) "" else if (f.episode > 0) "${mediaTitle(f)} · الحلقة ${f.episode}" else {
+        val total = if (':' in f.duration) f.duration.split(':').mapNotNull { it.trim().toLongOrNull() }.fold(0L) { t, p -> t * 60 + p }
+            else f.duration.trim().toLongOrNull() ?: 0L
+        val left = if (total > 0) formatContentDuration((total * (1f - progress)).toLong().toString()) else ""
+        listOf(mediaTitle(f), if (left.isNotBlank()) "متبقٍ $left" else "").filter(String::isNotBlank).joinToString(" · ")
+    }
 
     // Focus changes are observed here, outside composition. The gold ring and scale animate immediately;
     // the trailer is resolved while the user dwells, so the card only expands when there is something to play.
@@ -282,14 +291,21 @@ fun FilmCard(
                     focused = it.isFocused
                     if (it.isFocused) onFocused(f)
                 }
+                // Focus: the card grows a little and a white ring appears just outside the artwork, both in the
+                // graphics layer, so moving focus never recomposes the row.
+                .graphicsLayer {
+                    val scale = 1f + (TvMetrics.CardFocusScale - 1f) * focusAnim.value
+                    scaleX = scale; scaleY = scale
+                }
                 .drawWithContent {
                     drawContent()
                     val p = focusAnim.value
                     if (p > 0.01f) {
-                        val stroke = 3.dp.toPx()
-                        drawRoundRect(Accent.copy(alpha = p), Offset(stroke / 2, stroke / 2),
-                            Size(size.width - stroke, size.height - stroke),
-                            CornerRadius(TvMetrics.CardRadius.toPx() - stroke / 2), style = Stroke(stroke))
+                        val stroke = 5.mx.toPx()
+                        val outset = 3.mx.toPx() + stroke / 2
+                        drawRoundRect(Color.White.copy(alpha = p), Offset(-outset, -outset),
+                            Size(size.width + outset * 2, size.height + outset * 2),
+                            CornerRadius(TvMetrics.CardRadius.toPx() + outset), style = Stroke(stroke))
                     }
                 }
                 .then(if (onLongClick != null) Modifier.combinedClickable(onClick = click, onLongClick = onLongClick)
@@ -318,12 +334,6 @@ fun FilmCard(
                     if (image.isNotBlank()) AsyncImage(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     else Icon(Icons.Rounded.PlayArrow, null, Modifier.align(Alignment.Center).size(40.dp), tint = Color.White.copy(alpha = .5f))
                 }
-                if (!expanded) {
-                    // Rating on the artwork's start corner; series carry their own tag unless this is an episode card.
-                    RatingChip(f.rating, Modifier.align(Alignment.TopStart).padding(8.dp), 11)
-                    if (f.series && f.episode == 0 && progress <= 0f)
-                        KindBadge(true, Modifier.align(Alignment.BottomStart).padding(8.dp), 11)
-                }
                 if (TrailerDebug && expanded && trailerStatus.isNotEmpty() && !trailerPlaying)
                     Text(trailerStatus, Modifier.align(Alignment.TopStart).fillMaxWidth().background(Color.Black.copy(alpha = .75f)).padding(6.dp),
                         color = Color(0xFFFFD60A), fontSize = 9.sp, lineHeight = 11.sp, maxLines = 4, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
@@ -338,32 +348,26 @@ fun FilmCard(
                         if (!trailerPlaying && about.isNotBlank()) Label(about, 12, Color.White.copy(alpha = .8f), lines = if (wide) 3 else 4)
                     }
                 }
-                if (continueStyle && !expanded) {
-                    // Continue-watching cards carry their own title and a small status pill inside the artwork.
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                        0f to Color.Transparent, .35f to Color.Transparent, 1f to Color.Black.copy(alpha = .88f))))
-                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 22.dp),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Label(mediaTitle(f), 13, Color.White, true, lines = 1)
-                        if (continueStatus.isNotBlank()) Label(continueStatus, 10, Color.White.copy(alpha = .7f), lines = 1)
-                    }
-                } else if (progress > 0f) {
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                        0f to Color.Transparent, .7f to Color.Transparent, 1f to Color.Black.copy(alpha = .7f))))
-                }
                 if (progress > 0f) {
-                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
-                        .height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .3f))) {
-                        Box(Modifier.fillMaxHeight().fillMaxWidth(progress.coerceIn(0f, 1f)).background(Accent))
-                    }
+                    // A flush progress strip on the bottom edge: accent on the focused card, light grey otherwise.
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(6.mx).drawBehind {
+                        drawRect(Color.White.copy(alpha = .2f))
+                        val fill = size.width * progress.coerceIn(0f, 1f)
+                        val left = if (layoutDirection == LayoutDirection.Rtl) size.width - fill else 0f
+                        drawRect(lerp(Brand.TextSecondary, Brand.Accent, focusAnim.value), Offset(left, 0f), Size(fill, size.height))
+                    })
                 }
             }
         }
         // The caption brightens with the same animation value; the card never recomposes for it.
-        if (!continueStyle) Column(Modifier.fillMaxWidth().graphicsLayer { alpha = .78f + .22f * focusAnim.value }
-            .padding(top = 10.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Label(mediaTitle(f), 14, Color.White, true, lines = 1)
-            if (subtitle.isNotBlank() && !titleOnly) Label(subtitle, 12, Muted, lines = 1)
+        // Grey caption that turns white with the focus, through the layer alpha only.
+        Column(Modifier.fillMaxWidth().graphicsLayer { alpha = .64f + .36f * focusAnim.value }
+            .padding(top = 12.mx, start = 2.dp, end = 2.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (continueStyle) Label(continueCaption, 13, Color.White, true, lines = 1)
+            else {
+                Label(mediaTitle(f), 13, Color.White, true, lines = 1)
+                if (subtitle.isNotBlank() && !titleOnly) Label(subtitle, 11, Brand.TextTertiary, lines = 1)
+            }
         }
     }
     LaunchedEffect(restoreFocus) {
@@ -386,6 +390,8 @@ fun TvShelfRow(
     cardModifier: (Int) -> Modifier = { Modifier },
     preview: Boolean = true,
     titleOnly: Boolean = false,
+    /** Distance of the first card and the title from the page edge. */
+    inset: Dp = TvMetrics.EdgeInset,
     onCardLongClick: ((Film) -> Unit)? = null,
     onCardClick: (Film) -> Unit = { vm.open(it) }
 ) {
@@ -412,11 +418,11 @@ fun TvShelfRow(
         }
     }
     Column {
-        SectionHeader(shelf.title, Modifier.padding(horizontal = TvMetrics.EdgeInset), count = shelf.films.size)
+        SectionHeader(shelf.title, Modifier.padding(horizontal = inset), count = shelf.films.size)
         CompositionLocalProvider(LocalBringIntoViewSpec provides CenteredTvBringIntoView) {
             // Vertical padding leaves room for the focus scale.
             LazyRow(state = rowState, contentPadding = PaddingValues(
-                horizontal = TvMetrics.EdgeInset, vertical = 16.dp),
+                horizontal = inset, vertical = 18.mx),
                 horizontalArrangement = Arrangement.spacedBy(TvMetrics.CardGap),
                 modifier = Modifier.fillMaxWidth().then(if(entryRequester != null) Modifier.focusRequester(entryRequester) else Modifier).focusGroup()) {
                 itemsIndexed(shelf.films, key = { _, film -> film.id }, contentType = { _, _ -> "film-card" }) { index, film ->
