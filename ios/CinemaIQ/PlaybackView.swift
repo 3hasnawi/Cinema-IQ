@@ -44,8 +44,9 @@ struct MediaOption: Identifiable, Hashable {
     private var legibleGroup: AVMediaSelectionGroup?
     private var audibleGroup: AVMediaSelectionGroup?
     private var cues: [SubtitleCue] = []
-    /// Cleared once the viewer turns subtitles off, so they are not switched back on by themselves.
-    private(set) var wantsArabic = true
+    /// The language chosen automatically for a new title (from Settings); cleared once the viewer turns
+    /// subtitles off, so they are not switched back on by themselves.
+    private(set) var preferredLanguage: String? = "ar"
     private var timer: Any?
     private var endToken: NSObjectProtocol?
     private var failureToken: NSObjectProtocol?
@@ -134,14 +135,14 @@ struct MediaOption: Identifiable, Hashable {
         if player.timeControlStatus != .paused { player.rate = value }
     }
 
-    /// A new title starts with no subtitle chosen; Arabic is picked automatically when offered.
-    func resetSubtitles() {
-        subtitleID = nil; cues = []; cue = nil; wantsArabic = true
+    /// A new title starts with no subtitle chosen; the preferred language is picked automatically when offered.
+    func resetSubtitles(preferred: String?) {
+        subtitleID = nil; cues = []; cue = nil; preferredLanguage = preferred
     }
 
     func selectSubtitle(_ id: String?, external: [SubtitleTrack]) {
         subtitleID = id; cues = []; cue = nil; notice = nil
-        if id == nil { wantsArabic = false }
+        if id == nil { preferredLanguage = nil }
         applyEmbeddedSelection()
         guard let id, id.hasPrefix("ext:"), let track = external.first(where: { "ext:" + $0.id == id }) else { return }
         Task {
@@ -183,8 +184,8 @@ struct MediaOption: Identifiable, Hashable {
         audioOptions = (audible?.options ?? []).enumerated().map { MediaOption(id: "aud:\($0.offset)", title: $0.element.displayName) }
         if let audible, let selected = item.currentMediaSelection.selectedMediaOption(in: audible),
            let index = audible.options.firstIndex(of: selected) { audioID = "aud:\(index)" }
-        if subtitleID == nil, wantsArabic, let legible,
-           let index = legible.options.firstIndex(where: { $0.locale?.language.languageCode?.identifier == "ar" }) {
+        if subtitleID == nil, let preferred = preferredLanguage, let legible,
+           let index = legible.options.firstIndex(where: { $0.locale?.language.languageCode?.identifier == preferred }) {
             subtitleID = "emb:\(index)"
         }
         applyEmbeddedSelection()
@@ -246,6 +247,9 @@ struct PlaybackView: View {
     @State private var resolutionError: String?
     @State private var controlsVisible = true
     @State private var scrubbing: Double?
+    @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
+    @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
+    @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
     private var current: Media { active ?? selection.media }
     private var next: Media? {
         guard let index = selection.queue.firstIndex(where: { $0.id == current.id }), selection.queue.indices.contains(index + 1) else { return nil }
@@ -318,13 +322,7 @@ struct PlaybackView: View {
         VStack {
             Spacer()
             if let cue = controller.cue {
-                Text(cue)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .shadow(color: .black, radius: 2)
-                    .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                SubtitleText(text: cue, size: subtitleSize, background: subtitleBackground)
                     .padding(.horizontal, 24)
                     .padding(.bottom, controlsVisible ? 120 : 34)
             }
@@ -507,7 +505,7 @@ struct PlaybackView: View {
     }
 
     private func start(_ media: Media) async {
-        controller.close(); controller.resetSubtitles()
+        controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil; controlsVisible = true
         async let tracks = SourceClient().subtitles(media)
         do {
@@ -524,10 +522,10 @@ struct PlaybackView: View {
         let found = await tracks
         guard !Task.isCancelled else { return }
         externalTracks = found
-        // Arabic from the source is preferred, as on Android, unless the viewer already chose.
-        if controller.subtitleID == nil, controller.wantsArabic,
-           let arabic = found.first(where: { $0.language == "ar" }) {
-            controller.selectSubtitle("ext:" + arabic.id, external: found)
+        // The preferred language from Settings, from the source's files, unless the viewer already chose.
+        if controller.subtitleID == nil, let preferred = controller.preferredLanguage,
+           let track = found.first(where: { $0.language == preferred }) {
+            controller.selectSubtitle("ext:" + track.id, external: found)
         }
     }
 }

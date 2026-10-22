@@ -66,18 +66,6 @@ struct SourceMenu: View {
     }
 }
 
-struct Wordmark: View {
-    var body: some View {
-        HStack(spacing: 0) {
-            Text("Cinema").foregroundStyle(Theme.accent)
-            Text(" iQ")
-        }
-        .font(.headline.weight(.heavy))
-        .environment(\.layoutDirection, .leftToRight)
-        .accessibilityLabel("Cinema iQ")
-    }
-}
-
 // MARK: Artwork and cards
 
 struct Artwork: View {

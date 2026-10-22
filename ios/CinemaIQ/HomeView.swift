@@ -55,11 +55,8 @@ struct HomeView: View {
         }
         .background(Theme.ink)
         .ignoresSafeArea(edges: .top)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) { Wordmark() }
-            ToolbarItem(placement: .topBarTrailing) { SourceMenu() }
-        }
+        // No bar over the featured artwork; the source is chosen in Settings (and in Browse and Search).
+        .toolbar(.hidden, for: .navigationBar)
         .task(id: sourceName) {
             shelves = []; heroIndex = 0
             await load()

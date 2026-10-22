@@ -176,44 +176,77 @@ struct LibraryView: View {
     }
 }
 
+/// Subtitle appearance and language, shared by the settings and the player.
+enum SubtitlePreference {
+    static let sizeKey = "ios.subtitle.size.v1"
+    static let languageKey = "ios.subtitle.language.v1"
+    static let backgroundKey = "ios.subtitle.background.v1"
+    static let sizes: [(String, Double)] = [("صغير", 16), ("متوسط", 20), ("كبير", 24), ("كبير جداً", 28)]
+    static let languages: [(String, String)] = [("العربية", "ar"), ("الإنجليزية", "en"), ("بدون ترجمة", "off")]
+    static let backgrounds: [(String, Double)] = [("بدون", 0), ("خفيفة", 0.25), ("متوسطة", 0.5), ("داكنة", 0.75)]
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
-    @State private var probes: [ContentSource: SourceProbe] = [:]
-    @State private var probing = false
+    @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
+    @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
+    @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
     var body: some View {
         Form {
             Section {
+                VStack(spacing: 10) {
+                    Image("Logo")
+                        .resizable()
+                        .frame(width: 84, height: 84)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    HStack(spacing: 0) {
+                        Text("Cinema").foregroundStyle(Theme.accent)
+                        Text(" iQ")
+                    }
+                    .font(.title.weight(.heavy))
+                    .environment(\.layoutDirection, .leftToRight)
+                    Text("سينما آي كيو · الإصدار \(version)").font(.subheadline).foregroundStyle(Theme.muted)
+                }
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+            }
+            Section {
                 Picker("المصدر", selection: $sourceName) {
                     ForEach(ContentSource.allCases) { source in Text(source.title).tag(source.rawValue) }
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
+                .pickerStyle(.menu)
             } header: {
                 Text("مصدر المحتوى")
             } footer: {
                 Text("اختر المصدر الذي تدعمه شبكة الإنترنت لديك. الأعمال المحفوظة تبقى مرتبطة بمصدرها الأصلي.")
             }
             Section {
-                ForEach(ContentSource.allCases) { source in
-                    ProbeRow(source: source, probe: probes[source], running: probing)
+                Picker("الترجمة المفضلة", selection: $subtitleLanguage) {
+                    ForEach(SubtitlePreference.languages.indices, id: \.self) { index in Text(SubtitlePreference.languages[index].0).tag(SubtitlePreference.languages[index].1) }
                 }
-                Button { Task { await runProbes() } } label: {
-                    Label(probing ? "جارٍ الفحص…" : "فحص الاتصال", systemImage: "arrow.clockwise")
+                .pickerStyle(.menu)
+                Picker("حجم الخط", selection: $subtitleSize) {
+                    ForEach(SubtitlePreference.sizes.indices, id: \.self) { index in Text(SubtitlePreference.sizes[index].0).tag(SubtitlePreference.sizes[index].1) }
                 }
-                .disabled(probing)
+                .pickerStyle(.menu)
+                Picker("خلفية الترجمة", selection: $subtitleBackground) {
+                    ForEach(SubtitlePreference.backgrounds.indices, id: \.self) { index in Text(SubtitlePreference.backgrounds[index].0).tag(SubtitlePreference.backgrounds[index].1) }
+                }
+                .pickerStyle(.menu)
+                SubtitlePreview(size: subtitleSize, background: subtitleBackground)
+                    .listRowBackground(Color.black)
             } header: {
-                Text("فحص الاتصال بالمصادر")
+                Text("الترجمة")
             } footer: {
-                Text("يجرّب التطبيق تحميل الصفحة الرئيسية لكل مصدر ويعرض سبب الفشل ورمزه إن وُجد.")
+                Text("تُختار الترجمة المفضلة تلقائياً عند توفرها، ويمكن تغييرها من زر الخيارات أثناء المشاهدة.")
             }
             Section("البحث") {
                 Button("مسح سجل البحث", role: .destructive) { library.clearSearches() }
                     .disabled(library.searches.isEmpty)
             }
             Section("حول التطبيق") {
-                LabeledContent("الإصدار", value: version)
                 LabeledContent("الحفظ", value: "على هذا الجهاز فقط")
                 Text("تطوير Emad Hasnawi")
             }
@@ -221,44 +254,33 @@ struct SettingsView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.ink)
         .navigationTitle("الإعدادات")
-    }
-
-    private func runProbes() async {
-        probing = true
-        probes = [:]
-        await withTaskGroup(of: SourceProbe.self) { group in
-            for source in ContentSource.allCases { group.addTask { await SourceClient().probe(source) } }
-            for await result in group { probes[result.source] = result }
-        }
-        probing = false
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-private struct ProbeRow: View {
-    let source: ContentSource
-    let probe: SourceProbe?
-    let running: Bool
+/// How subtitles will look in the player.
+struct SubtitleText: View {
+    let text: String
+    let size: Double
+    let background: Double
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(source.title)
-                Spacer()
-                if let probe {
-                    if probe.error == nil {
-                        Label("متصل · \(probe.items) عمل", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.positive)
-                    } else {
-                        Label("غير متاح", systemImage: "xmark.circle.fill").foregroundStyle(Theme.negative)
-                    }
-                } else if running {
-                    ProgressView()
-                } else {
-                    Text("لم يُفحص").foregroundStyle(.secondary)
-                }
-            }
-            .font(.subheadline)
-            if let error = probe?.error {
-                Text(error).font(.caption).foregroundStyle(.secondary)
-            }
-        }
+        Text(text)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .shadow(color: .black.opacity(background < 0.3 ? 1 : 0.6), radius: 2)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(.black.opacity(background), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+private struct SubtitlePreview: View {
+    let size: Double
+    let background: Double
+    var body: some View {
+        SubtitleText(text: "هكذا ستظهر الترجمة", size: size, background: background)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
+            .accessibilityHidden(true)
     }
 }
