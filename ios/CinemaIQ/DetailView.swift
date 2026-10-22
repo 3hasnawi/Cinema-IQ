@@ -50,14 +50,14 @@ struct DetailView: View {
         }.navigationBarTitleDisplayMode(.inline)
             .task {
                 loading = true
-                do { let result = try await DawwirliClient().detail(initial); media = result.0; seasons = result.1; selectedSeason = seasons.first?.id ?? 0 }
+                do { let result = try await SourceClient().detail(initial); media = result.0; seasons = result.1; selectedSeason = seasons.first?.id ?? 0 }
                 catch { self.error = error.localizedDescription }
                 loading = false
             }
             .fullScreenCover(item: $playback) { selection in PlaybackView(selection: selection) }
     }
     private func play(_ media: Media) {
-        do { _ = try DawKey(media.id).streamURL(); playback = PlaybackSelection(media: media, queue: seasons.flatMap(\.episodes)) }
+        do { _ = try ContentSource.owner(of: media.id); playback = PlaybackSelection(media: media, queue: seasons.flatMap(\.episodes)) }
         catch { self.error = error.localizedDescription }
     }
 }

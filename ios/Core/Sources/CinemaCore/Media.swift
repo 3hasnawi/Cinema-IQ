@@ -16,7 +16,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     public var episodeTitle = ""
     public var quality = ""
     public init(id: String, title: String) { self.id = id; self.title = title }
-    public var isSupported: Bool { (try? DawKey(id)) != nil }
+    public var isSupported: Bool { (try? ContentSource.owner(of: id)) != nil }
     public var recentKey: String { "recent/" + (seriesID.isEmpty ? id : seriesID) }
     public var subtitle: String { episode > 0 ? "الموسم \(season) · الحلقة \(episode)" : [year, duration, quality].filter { !$0.isEmpty }.joined(separator: " · ") }
     enum CodingKeys: String, CodingKey {
@@ -62,13 +62,14 @@ public struct Season: Identifiable, Sendable {
     public init(id: Int, episodes: [Media]) { self.id = id; self.episodes = episodes }
 }
 public enum CinemaError: LocalizedError {
-    case invalidID, invalidResponse, http(Int), unsupportedVideo, unsupportedSource
+    case invalidID, invalidResponse, http(Int), unsupportedVideo, unsupportedSource, noStreams
     public var errorDescription: String? {
         switch self {
         case .invalidID, .invalidResponse: return "تعذّر قراءة بيانات العمل من المصدر."
-        case .http: return "تعذّر الاتصال بدورلي. أعد المحاولة بعد قليل."
+        case .http: return "تعذّر الاتصال بالمصدر. تأكد من أن شبكتك تدعمه وأعد المحاولة."
         case .unsupportedVideo: return "صيغة هذه النسخة غير مدعومة بالمشغّل الأولي للآيفون. جرّب عملاً بصيغة MP4."
-        case .unsupportedSource: return "هذا المصدر متاح على أندرويد؛ نسخة الآيفون الأولية تدعم دورلي."
+        case .noStreams: return "لم يوفّر المصدر رابط تشغيل متاحاً لهذا العمل."
+        case .unsupportedSource: return "مصدر هذا العمل غير معروف."
         }
     }
 }

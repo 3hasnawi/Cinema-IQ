@@ -11,10 +11,9 @@ import CinemaCore
     private var failureToken: NSObjectProtocol?
     private var statusObservation: NSKeyValueObservation?
     private var save: ((Double, Double, Bool) -> Void)?
-    func open(_ media: Media, resume: Double, save: @escaping (Double, Double, Bool) -> Void) {
+    func open(_ media: Media, url: URL, resume: Double, save: @escaping (Double, Double, Bool) -> Void) {
         close(); self.save = save; error = nil; ended = false
         do {
-            let url = try DawKey(media.id).streamURL()
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
             let item = AVPlayerItem(url: url)
@@ -23,7 +22,7 @@ import CinemaCore
                 if item.status == .failed { Task { @MainActor in self?.error = "تعذّر تشغيل هذه النسخة. قد تكون صيغة الفيديو أو الصوت غير مدعومة على iOS." } }
             }
             endToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.ended = true; self?.persist(completed: true); self?.player.pause() }
+                Task { @MainActor in guard let self, self.player.currentItem === item else { return }; self.ended = true; self.persist(completed: true); self.player.pause() }
             }
             failureToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.error = "انقطع تشغيل الفيديو. تحقق من الاتصال وأعد فتح العمل." }
@@ -69,17 +68,30 @@ struct PlaybackView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     @State private var previousIdleSetting = false
+    @State private var streams: [StreamChoice] = []
+    @State private var loading = false
+    @State private var resolutionError: String?
     private var current: Media { active ?? selection.media }
     private var next: Media? {
         guard let index = selection.queue.firstIndex(where: { $0.id == current.id }), selection.queue.indices.contains(index + 1) else { return nil }
         return selection.queue[index + 1]
+    }
+    private func open(_ media: Media, stream: StreamChoice, resume: Double) {
+        controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
+            library.save(media, seconds: seconds, duration: duration, completed: completed)
+        }
+        if phase != .active { controller.player.pause() }
     }
     var body: some View {
         ZStack(alignment: .topLeading) {
             Color.black.ignoresSafeArea()
             NativePlayer(player: controller.player).ignoresSafeArea()
             Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.largeTitle).foregroundStyle(.white).shadow(radius: 4).padding() }.accessibilityLabel("إغلاق المشغل")
-            if let error = controller.error {
+            VStack { HStack { Spacer(); if !streams.isEmpty { Menu {
+                ForEach(streams) { stream in Button(stream.quality) { open(current, stream: stream, resume: controller.player.currentTime().seconds) } }
+            } label: { Label("الجودة", systemImage: "slider.horizontal.3").padding().background(.ultraThinMaterial, in: Capsule()) } } }; Spacer() }.padding()
+            if loading { ProgressView("جلب رابط التشغيل…").padding().background(.black.opacity(0.7)).frame(maxWidth: .infinity, maxHeight: .infinity).allowsHitTesting(false) }
+            if let error = resolutionError ?? controller.error {
                 VStack(spacing: 20) { Text(error); Button("إغلاق") { dismiss() } }.padding().frame(maxWidth: .infinity, maxHeight: .infinity).background(.black.opacity(0.85))
             } else if controller.ended {
                 VStack(spacing: 20) {
@@ -91,8 +103,15 @@ struct PlaybackView: View {
         }
         .task(id: current.id) {
             let media = current
-            let prior = library.progress[media.id]
-            controller.open(media, resume: prior?.completed == false ? prior?.seconds ?? 0 : 0) { seconds, duration, completed in library.save(media, seconds: seconds, duration: duration, completed: completed) }
+            controller.close(); streams = []; loading = true; resolutionError = nil
+            do {
+                let result = try await SourceClient().streams(media)
+                try Task.checkCancellation()
+                streams = result
+                let prior = library.progress[media.id]
+                open(media, stream: result[0], resume: prior?.completed == false ? prior?.seconds ?? 0 : 0)
+            } catch { if !Task.isCancelled { resolutionError = error.localizedDescription } }
+            if !Task.isCancelled { loading = false }
         }
         .onAppear { previousIdleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true }
         .onChange(of: phase) { _, value in

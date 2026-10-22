@@ -5,14 +5,14 @@ Native SwiftUI starter app, isolated from the Android application. Requires iOS 
 ## Included
 
 - Arabic RTL, dark interface, Cairo font and existing Cinema iQ artwork.
-- Dawwirli home, search, movie details, seasons and horizontal episode cards.
-- Native AVPlayer controls and available embedded audio/subtitle tracks.
+- Cinemana, Vodu and Dawwirli source selection, home, search, movie details, seasons and horizontal episode cards. Cinemana/Vodu catalogs support paged browsing; Dawwirli browse shows its home selections and search results.
+- Native AVPlayer controls, available embedded audio/subtitle tracks, and source-provided stream quality selection.
 - Local favorites, continue watching, completed viewing history and playback resume.
 - Playback completion stops the movie and offers the next episode for series.
 - Screen stays awake while the player is visible; backgrounding pauses and saves progress.
 - Namespaced source IDs and strict stream URL validation, preserving panel prefixes.
 
-The app currently supports **Dawwirli only**. Cinemana and Vodu are not wired into this iPhone preview. Source access remains subject to the user's network. Native playback accepts MP4/M4V/MOV/HLS paths; actual video/audio codecs must also be supported by iOS. MKV/AVI, external subtitle downloads, IntroDB and advanced Android player features are not implemented here.
+Select **Cinemana, Vodu or Dawwirli** from the home/search source menu or profile settings, according to the service reachable on your network. Catalogs reload on source changes; saved works route to their own original source regardless of the selected catalog. Source choice uses the new `ios.contentSource.v1` setting; existing local library keys are preserved. Source access remains subject to the user's network. Native playback accepts MP4/M4V/MOV/HLS paths; actual video/audio codecs must also be supported by iOS. MKV/AVI, external subtitle downloads, IntroDB and advanced Android player features are not implemented here.
 
 ## Open in Xcode
 
@@ -26,7 +26,9 @@ open CinemaIQ.xcodeproj
 
 Select the CinemaIQ scheme and an iPhone simulator. For a real phone choose your own development team under Signing & Capabilities. The iOS bundle ID is `com.cinemaplus.rebuilt.ios`; the Android package/version/signing are unchanged. Generated Xcode files and personal signing settings are ignored by git; `project.yml` is the project source of truth.
 
-To run pure source/parser tests without Xcode:
+The core package uses SwiftSoup 2.7.0 (MIT) to parse Vodu HTML with the same selectors as Android. Its license is included in app resources.
+
+To run source/parser tests without Xcode:
 
 ```sh
 swift test --package-path Core
@@ -46,6 +48,7 @@ To prepare the shared Firebase backend, register a separate **iOS** app in the e
 
 ## Validation and remaining checks
 
-- Core tests cover stream identity/rejected paths/unsupported containers, Android media decoding and identity round-trip, duplicate search rows and real series fixture parsing.
+- Core tests cover source routing, Cinemana UTF-8/base64 query encoding and zero-based pagination, nested seasons and parent identity, HTTPS stream validation/deduplication, and Vodu catalog/movie/series fixtures, alongside existing Dawwirli and media round-trip tests.
+- Live Cinemana and Vodu probes returned HTTP 503 from the development environment. Their adapters follow the existing Android requests and are verified against fixtures; live browsing/playback must still be tested from a supported network.
 - Must still validate project generation, SwiftUI compilation, small-screen layout, landscape playback, seeking/resume, subtitle availability, network failures, foreground/background behavior and real-device resource use on a Mac/iPhone.
 - No IPA has been exported, no Apple signing identity was created and nothing has been published to App Store/TestFlight.
