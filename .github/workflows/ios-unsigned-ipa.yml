@@ -15,11 +15,12 @@ jobs:
   iphone-ipa:
     runs-on: macos-15
     timeout-minutes: 25
-    env:
-      DERIVED_DATA: ${{ runner.temp }}/CinemaIQDerivedData
-      IPA_STAGING: ${{ runner.temp }}/CinemaIQIPA
     steps:
       - uses: actions/checkout@v4
+      - name: Set temporary paths
+        run: |
+          echo "DERIVED_DATA=$RUNNER_TEMP/CinemaIQDerivedData" >> "$GITHUB_ENV"
+          echo "IPA_STAGING=$RUNNER_TEMP/CinemaIQIPA" >> "$GITHUB_ENV"
       - name: Inspect Xcode toolchain
         run: |
           xcodebuild -version
