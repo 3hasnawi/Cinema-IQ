@@ -66,7 +66,7 @@ private object CenteredDetailsRow : BringIntoViewSpec {
  * "similar titles" above a row of 16:9 cards. Up from the row goes to the tabs, then to the actions.
  * Back returns to the previous screen.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQuality: String? = null) {
     val sourceFilm = vm.selected ?: return
@@ -158,7 +158,7 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                     }
                     CircleButton(if (saved) Icons.Rounded.Check else Icons.Rounded.Add,
                         if (saved) "إزالة من قائمتي" else "أضف إلى قائمتي") { vm.toggle(film) }
-                    CircleButton(Icons.Rounded.Movie, "البرومو", Modifier.focusRequester(trailerFocus)) { showTrailer = true }
+                    CircleButton(TrailerIcon, "البرومو", Modifier.focusRequester(trailerFocus)) { showTrailer = true }
                 }
             }
 
@@ -256,7 +256,6 @@ private fun DetailsArtwork(film: Film, trailerAllowed: Boolean, modifier: Modifi
         })
         if (playing && LocalTrailerMuted.current) Row(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.mx)) {
-            Icon(Icons.Rounded.VolumeOff, null, Modifier.size(26.mx), tint = Brand.TextTertiary)
             Label("الصوت مكتوم", 11, Brand.TextTertiary, lines = 1)
         }
     }
