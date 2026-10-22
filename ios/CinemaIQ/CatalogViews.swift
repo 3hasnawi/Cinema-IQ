@@ -11,6 +11,8 @@ struct CatalogGrid: View {
     @State private var more = true
     @State private var loading = false
     @State private var message: String?
+    /// The tab (movies or series) whose items are loaded.
+    @State private var loadedSeries: Bool?
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 12)]
 
     var body: some View {
@@ -42,6 +44,8 @@ struct CatalogGrid: View {
         }
         .scrollDismissesKeyboard(.immediately)
         .task(id: series) {
+            // Returning from a title page re-runs this task: keep the loaded grid and its scroll position.
+            if loadedSeries == series && !items.isEmpty { return }
             items = []; page = 0; more = true; message = nil; loading = false
             // Typing restarts this task, so a search runs once the viewer pauses.
             if !query.isEmpty {
@@ -64,6 +68,7 @@ struct CatalogGrid: View {
             let existing = Set(items.map(\.id))
             let additions = result.filter { !existing.contains($0.id) }
             items.append(contentsOf: additions)
+            loadedSeries = kind
             page += 1
             more = !additions.isEmpty && source != .dawwirli
         } catch is CancellationError {

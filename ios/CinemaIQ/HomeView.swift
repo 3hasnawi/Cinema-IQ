@@ -11,6 +11,9 @@ struct HomeView: View {
     @State private var loading = false
     @State private var error: String?
     @State private var heroIndex = 0
+    /// The source whose shelves are on screen. Coming back from a title page re-runs `.task`; the page must
+    /// then stay as it was (same rows, same scroll position) instead of reloading from the top.
+    @State private var loadedSource: String?
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var featured: [Media] {
         var seen = Set<String>()
@@ -58,7 +61,8 @@ struct HomeView: View {
         // No bar over the featured artwork; the source is chosen in Settings (and in Browse and Search).
         .toolbar(.hidden, for: .navigationBar)
         .task(id: sourceName) {
-            shelves = []; heroIndex = 0
+            guard loadedSource != sourceName || shelves.isEmpty else { return }
+            if loadedSource != sourceName { shelves = []; heroIndex = 0 }
             await load()
         }
         .refreshable { await load() }
@@ -71,6 +75,7 @@ struct HomeView: View {
             let result = try await SourceClient().home(source)
             try Task.checkCancellation()
             shelves = result
+            loadedSource = sourceName
         } catch is CancellationError {
         } catch {
             if !Task.isCancelled { self.error = error.localizedDescription }
