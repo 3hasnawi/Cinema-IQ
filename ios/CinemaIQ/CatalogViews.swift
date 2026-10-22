@@ -218,6 +218,13 @@ struct SettingsView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
+                AccountRows()
+            } header: {
+                Text("حساب Cinema iQ والمزامنة")
+            } footer: {
+                Text("نفس حساب التلفاز والجوال. تتزامن «قائمتي» و«تابع المشاهدة» وموضع المشاهدة مع الملف الشخصي المختار.")
+            }
+            Section {
                 Picker("المصدر", selection: $sourceName) {
                     ForEach(ContentSource.allCases) { source in Text(source.title).tag(source.rawValue) }
                 }
@@ -287,5 +294,76 @@ private struct SubtitlePreview: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 18)
             .accessibilityHidden(true)
+    }
+}
+
+/// Sign-in, email confirmation, profile choice and sync actions, as rows of the settings form.
+private struct AccountRows: View {
+    @EnvironmentObject private var cloud: CloudSync
+    @State private var email = ""
+    @State private var password = ""
+    @State private var profileName = ""
+    @State private var confirmImport = false
+    private var profileBinding: Binding<String> {
+        Binding(get: { cloud.profileID ?? "" }, set: { id in
+            guard !id.isEmpty else { return }
+            Task { await cloud.choose(profile: id) }
+        })
+    }
+    var body: some View {
+        if !cloud.configured {
+            Text("إعداد المزامنة غير متوفر في هذه النسخة.").foregroundStyle(.secondary)
+        } else if let session = cloud.session {
+            LabeledContent("البريد", value: session.email)
+            if !session.verified {
+                Text("أكّد بريدك من الرابط المرسل إليه لتفعيل المزامنة.").font(.footnote).foregroundStyle(Theme.muted)
+                Button("تحققت من البريد") { Task { await cloud.checkVerification() } }
+                Button("إعادة إرسال رابط التأكيد") { Task { await cloud.resendVerification() } }
+            } else if cloud.profiles.isEmpty {
+                TextField("اسم الملف الشخصي", text: $profileName)
+                Button("إنشاء ملف شخصي") { Task { await cloud.createFirstProfile(name: profileName) } }
+            } else {
+                Picker("الملف الشخصي", selection: profileBinding) {
+                    if cloud.profileID == nil { Text("اختر ملفاً").tag("") }
+                    ForEach(cloud.profiles) { profile in Text(profile.name).tag(profile.id) }
+                }
+                .pickerStyle(.menu)
+                if cloud.profileID != nil {
+                    Button { Task { await cloud.pull() } } label: {
+                        Label("مزامنة الآن", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Button("نقل مكتبة هذا الجهاز إلى الملف") { confirmImport = true }
+                        .confirmationDialog("نقل مكتبة هذا الجهاز", isPresented: $confirmImport, titleVisibility: .visible) {
+                            Button("نقل") { Task { await cloud.importDeviceLibrary() } }
+                        } message: {
+                            Text("تُضاف قائمتك وتقدّم المشاهدة المحفوظة على الآيفون إلى الملف. الأعمال الموجودة في الاثنين تأخذ قيم هذا الجهاز.")
+                        }
+                    if !cloud.status.isEmpty { Text(cloud.status).font(.footnote).foregroundStyle(Theme.muted) }
+                }
+            }
+            Button("تسجيل الخروج", role: .destructive) { Task { await cloud.signOut() } }
+        } else {
+            TextField("البريد الإلكتروني", text: $email)
+                .textContentType(.emailAddress)
+                .keyboardType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            SecureField("كلمة المرور", text: $password)
+                .textContentType(.password)
+            Button("تسجيل الدخول") {
+                Task { await cloud.signIn(email: email, password: password); password = "" }
+            }
+            .disabled(email.isEmpty || password.isEmpty || cloud.busy)
+            Button("إنشاء حساب جديد") {
+                Task { await cloud.signUp(email: email, password: password); password = "" }
+            }
+            .disabled(email.isEmpty || password.count < 6 || cloud.busy)
+            Button("نسيت كلمة المرور") { Task { await cloud.resetPassword(email: email) } }
+                .disabled(email.isEmpty || cloud.busy)
+        }
+        if cloud.busy { ProgressView().frame(maxWidth: .infinity) }
+        if let message = cloud.message {
+            Text(message).font(.footnote).foregroundStyle(Theme.accent)
+        }
     }
 }

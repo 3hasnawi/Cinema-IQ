@@ -6,6 +6,7 @@ import CinemaCore
 struct HomeView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
+    @EnvironmentObject private var cloud: CloudSync
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @State private var shelves: [Shelf] = []
     @State private var loading = false
@@ -65,7 +66,7 @@ struct HomeView: View {
             if loadedSource != sourceName { shelves = []; heroIndex = 0 }
             await load()
         }
-        .refreshable { await load() }
+        .refreshable { await cloud.pull(); await load() }
     }
 
     private func load() async {
