@@ -225,8 +225,9 @@ struct ErrorState: View {
 /// Year, rating, length and quality in one quiet line.
 struct MetaLine: View {
     let media: Media
+    var imdb: String? = nil
     var body: some View {
-        Text(DisplayFormat.facts(media).joined(separator: " · "))
+        Text(DisplayFormat.facts(media, imdb: imdb).joined(separator: " · "))
             .font(.subheadline)
             .foregroundStyle(Theme.muted)
             .lineLimit(1)
@@ -234,10 +235,12 @@ struct MetaLine: View {
 }
 
 enum DisplayFormat {
-    static func facts(_ media: Media) -> [String] {
+    /// With an OMDb rating, IMDb's score replaces the source's stars.
+    static func facts(_ media: Media, imdb: String? = nil) -> [String] {
         var facts: [String] = []
         if !media.year.isEmpty { facts.append(media.year) }
-        if let value = Double(media.rating), value > 0 { facts.append("★ \(media.rating)") }
+        if let imdb, !imdb.isEmpty { facts.append("IMDb \(imdb)") }
+        else if let value = Double(media.rating), value > 0 { facts.append("★ \(media.rating)") }
         let length = duration(media.duration)
         if !length.isEmpty { facts.append(length) }
         if !media.quality.isEmpty { facts.append(media.quality) }
@@ -260,4 +263,13 @@ enum DisplayFormat {
         if hours == 0 { return "\(rest) د" }
         return rest == 0 ? "\(hours) س" : "\(hours) س \(rest) د"
     }
+}
+
+/// OMDb client of the app, set up from the key in Info.plist; nil when no key is configured.
+enum OMDb {
+    static let shared: OMDbClient? = {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "OMDbAPIKey") as? String, !key.isEmpty else { return nil }
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("omdb-cache.json")
+        return OMDbClient(key: key, cacheURL: cache)
+    }()
 }

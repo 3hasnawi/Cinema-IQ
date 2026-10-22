@@ -110,13 +110,14 @@ struct HeroCarousel: View {
 struct HeroPage: View {
     let media: Media
     let routeKey: String
+    @State private var omdb: OMDbInfo?
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.zoomNamespace) private var zoom
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.clear
-                .overlay { Artwork(url: media.backdrop.isEmpty ? media.poster : media.backdrop) }
+                .overlay { Artwork(url: heroImage) }
                 .clipped()
             LinearGradient(stops: [
                 .init(color: .clear, location: 0.3),
@@ -133,7 +134,7 @@ struct HeroPage: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
-                MetaLine(media: media)
+                MetaLine(media: media, imdb: omdb?.imdbRating)
                 // Compact single-line actions: the play button carries the text, the others are icons.
                 HStack(spacing: 12) {
                     if media.isSeries {
@@ -163,6 +164,11 @@ struct HeroPage: View {
             .padding(.bottom, 36)
         }
         .zoomSource(routeKey, in: zoom)
+        .task(id: media.id) { omdb = await OMDb.shared?.info(for: media) }
+    }
+    private var heroImage: String {
+        if let poster = omdb?.largePoster, !poster.isEmpty { return poster }
+        return media.backdrop.isEmpty ? media.poster : media.backdrop
     }
 }
 

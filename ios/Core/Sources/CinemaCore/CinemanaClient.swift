@@ -88,6 +88,7 @@ public struct CinemanaClient: Sendable {
             media.season = Int(DawwirliClient.text(row, "season")) ?? 1
             media.episode = Int(DawwirliClient.text(row, "episodeNummer", "episodeNumber", "episode")) ?? 0
             media.seriesID = DawwirliClient.text(row, "seriesId")
+            media.enTitle = DawwirliClient.text(row, "en_title")
             media.quality = DawwirliClient.text(row, "videoQuality", "quality", "resolution", "contentQuality")
             return media
         }.uniqueMedia()

@@ -37,6 +37,8 @@ targets:
       properties:
         CFBundleDisplayName: Cinema iQ
         CFBundleDevelopmentRegion: ar
+        # OMDb key for film information, posters and ratings (free tier: about 1000 requests a day).
+        OMDbAPIKey: "5b9c7295"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIApplicationSceneManifest:

@@ -14,6 +14,8 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     public var episode = 0
     public var seriesID = ""
     public var episodeTitle = ""
+    /// Latin title from the source, used to look the work up in OMDb.
+    public var enTitle = ""
     public var quality = ""
     public init(id: String, title: String) { self.id = id; self.title = title }
     public var isSupported: Bool { (try? ContentSource.owner(of: id)) != nil }
@@ -22,7 +24,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "nb", title = "ar_title", poster = "imgMediumThumbObjUrl", backdrop = "imgObjUrl"
         case overview = "ar_content", year, duration, rating = "stars", kind, season, episode = "episodeNummer"
-        case seriesID = "seriesId", episodeTitle, quality = "contentQuality"
+        case seriesID = "seriesId", episodeTitle, quality = "contentQuality", enTitle = "en_title"
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -37,7 +39,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
         poster = text(.poster); backdrop = text(.backdrop); overview = text(.overview)
         year = text(.year); duration = text(.duration); rating = text(.rating); isSeries = text(.kind) == "2"
         season = Int(text(.season)) ?? 1; episode = Int(text(.episode)) ?? 0
-        seriesID = text(.seriesID); episodeTitle = text(.episodeTitle); quality = text(.quality)
+        seriesID = text(.seriesID); episodeTitle = text(.episodeTitle); quality = text(.quality); enTitle = text(.enTitle)
     }
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -48,6 +50,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
         try c.encode(isSeries ? 2 : 1, forKey: .kind); try c.encode(season, forKey: .season)
         try c.encode(episode, forKey: .episode); try c.encode(seriesID, forKey: .seriesID)
         try c.encode(episodeTitle, forKey: .episodeTitle); try c.encode(quality, forKey: .quality)
+        try c.encode(enTitle, forKey: .enTitle)
     }
 }
 public struct Shelf: Identifiable, Sendable {

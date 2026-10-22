@@ -13,6 +13,7 @@ struct DetailView: View {
     @State private var error: String?
     @State private var loading = true
     @State private var expanded = false
+    @State private var omdb: OMDbInfo?
 
     private var current: Media { media ?? initial }
     private var episodes: [Media] { seasons.first { $0.id == seasonID }?.episodes ?? [] }
@@ -44,7 +45,8 @@ struct DetailView: View {
                 header
                 VStack(alignment: .leading, spacing: 18) {
                     actions
-                    if !current.overview.isEmpty { overview }
+                    if let omdb { OMDbSummary(info: omdb) }
+                    if !storyText.isEmpty { overview }
                     if loading && seasons.isEmpty { ProgressView().frame(maxWidth: .infinity) }
                     if let error { ErrorState(message: error) { Task { await load() } } }
                     if !seasons.isEmpty { episodeSection }
@@ -65,7 +67,7 @@ struct DetailView: View {
             let stretch = max(0, geometry.frame(in: .scrollView).minY)
             ZStack {
                 Color.clear
-                    .overlay { Artwork(url: current.backdrop.isEmpty ? current.poster : current.backdrop) }
+                    .overlay { Artwork(url: headerImage) }
                     .clipped()
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0.35),
@@ -100,10 +102,22 @@ struct DetailView: View {
         }
     }
 
+    /// OMDb's large poster when the work was found there, the source's artwork otherwise.
+    private var headerImage: String {
+        if let poster = omdb?.largePoster, !poster.isEmpty { return poster }
+        return current.backdrop.isEmpty ? current.poster : current.backdrop
+    }
+    /// The source's Arabic story first; OMDb's (English) plot when the source has none.
+    private var storyText: String { current.overview.isEmpty ? (omdb?.plot ?? "") : current.overview }
+
     private var chips: [String] {
         var values = [current.isSeries ? "مسلسل" : "فيلم"]
         if current.episode > 0 { values.append("الموسم \(current.season) • الحلقة \(current.episode)") }
-        values += DisplayFormat.facts(current)
+        values += DisplayFormat.facts(current, imdb: omdb?.imdbRating)
+        if let omdb {
+            if current.duration.isEmpty, !omdb.runtime.isEmpty { values.append(omdb.runtime.replacingOccurrences(of: " min", with: " د")) }
+            if !omdb.rated.isEmpty { values.append(omdb.rated) }
+        }
         var seen = Set<String>()
         return values.filter { seen.insert($0).inserted }
     }
@@ -131,7 +145,7 @@ struct DetailView: View {
 
     private var overview: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(current.overview)
+            Text(storyText)
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
                 .lineLimit(expanded ? nil : 4)
@@ -181,6 +195,7 @@ struct DetailView: View {
             let (detail, found) = try await SourceClient().detail(initial)
             media = detail
             seasons = found
+            if omdb == nil { omdb = await OMDb.shared?.info(for: detail) }
             if !found.contains(where: { $0.id == seasonID }) {
                 let opened: Int? = initial.episode > 0 && found.contains(where: { $0.id == initial.season }) ? initial.season : nil
                 seasonID = opened ?? found.first?.id ?? 0
@@ -234,5 +249,41 @@ private struct EpisodeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// Ratings and credits from OMDb.
+private struct OMDbSummary: View {
+    let info: OMDbInfo
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                if !info.imdbRating.isEmpty { score("IMDb", info.imdbRating + "/10", color: Color(red: 0.96, green: 0.77, blue: 0.09)) }
+                if !info.rottenTomatoes.isEmpty { score("Rotten Tomatoes", info.rottenTomatoes, color: Color(red: 0.98, green: 0.32, blue: 0.2)) }
+                if !info.metacritic.isEmpty { score("Metacritic", info.metacritic, color: Color(red: 0.4, green: 0.8, blue: 0.2)) }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                credit("النوع", info.genre)
+                credit("الإخراج", info.director)
+                credit("البطولة", info.actors)
+            }
+        }
+    }
+    private func score(_ source: String, _ value: String, color: Color) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.subheadline.bold()).foregroundStyle(color)
+            Text(source).font(.caption2).foregroundStyle(Theme.muted)
+        }
+        .environment(\.layoutDirection, .leftToRight)
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .glass(in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+    @ViewBuilder private func credit(_ label: String, _ value: String) -> some View {
+        if !value.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(label).font(.footnote.weight(.semibold)).foregroundStyle(Theme.muted).frame(width: 64, alignment: .leading)
+                Text(value).font(.footnote).lineLimit(2)
+            }
+        }
     }
 }
