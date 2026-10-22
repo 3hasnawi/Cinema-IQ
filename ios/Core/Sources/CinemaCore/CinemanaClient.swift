@@ -56,6 +56,10 @@ public struct CinemanaClient: Sendable {
         guard try ContentSource.owner(of: id) == .cinemana else { throw CinemaError.invalidID }
         return Self.parseStreams(try await get("transcoddedFiles/id/\(id)"))
     }
+    public func subtitles(_ id: String) async throws -> [SubtitleTrack] {
+        guard try ContentSource.owner(of: id) == .cinemana else { throw CinemaError.invalidID }
+        return SubtitleCatalog.cinemana(Self.rows(try await get("allVideoInfo/id/\(id)")).first?["translations"])
+    }
     public static func rows(_ value: Any?) -> [[String: Any]] {
         if let array = value as? [[String: Any]] { return array }
         guard let object = value as? [String: Any] else { return [] }

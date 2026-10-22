@@ -77,4 +77,34 @@ final class SourceTests: XCTestCase {
         XCTAssertTrue(SourceNetwork.retryable(CinemaError.http(502)))
         XCTAssertFalse(SourceNetwork.retryable(CinemaError.http(404)))
     }
+    func testSubtitleCuesFromWebVTTAndSubRip() {
+        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:03.500 line:90%\n<i>مرحبا</i>\n\n00:01:00.000 --> 00:01:02.000\nسطر ثاني"
+        let cues = SubtitleCatalog.cues(vtt)
+        XCTAssertEqual(cues.count, 2)
+        XCTAssertEqual(cues[0], SubtitleCue(start: 1, end: 3.5, text: "مرحبا"))
+        let srt = "1\r\n00:00:05,000 --> 00:00:06,250\r\nHello\r\n\r\n2\r\n01:00:00,000 --> 01:00:01,000\r\n{\\an8}Top"
+        let parsed = SubtitleCatalog.cues(srt)
+        XCTAssertEqual(parsed.map(\.text), ["Hello", "Top"])
+        XCTAssertEqual(parsed[1].start, 3600)
+        XCTAssertEqual(SubtitleCatalog.cue(at: 5.5, in: parsed)?.text, "Hello")
+        XCTAssertNil(SubtitleCatalog.cue(at: 7, in: parsed))
+        XCTAssertTrue(SubtitleCatalog.cues("<html>not subtitles</html>").isEmpty)
+    }
+    func testCinemanaTranslationsBecomeLabelledTracks() {
+        let tracks = SubtitleCatalog.cinemana([
+            ["file": "translations/a.vtt", "name": "Arabic"],
+            ["url": "https://cnth2.shabakaty.cc/t/b.srt", "language": ["code": "en"]],
+            ["file": "http://insecure.example/c.srt", "name": "French"],
+            ["file": "translations/a.vtt", "name": "Arabic"]
+        ] as [[String: Any]])
+        XCTAssertEqual(tracks.map(\.language), ["ar", "en"])
+        XCTAssertEqual(tracks.first?.title, "العربية")
+        XCTAssertEqual(tracks.first?.url.absoluteString, "https://cnth2.shabakaty.cc/translations/a.vtt")
+    }
+    func testVoduOffersItsWebVTTSubtitle() throws {
+        let tracks = try VoduParser.subtitles(fixture("movie"), id: "vodu:98489")
+        XCTAssertEqual(tracks.count, 1)
+        XCTAssertEqual(tracks.first?.language, "ar")
+        XCTAssertTrue(tracks.first?.url.absoluteString.hasSuffix(".webvtt") == true)
+    }
 }

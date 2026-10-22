@@ -131,36 +131,45 @@ struct HeroPage: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                 MetaLine(media: media)
-                HStack(spacing: 10) {
-                    // A series needs its episodes first, so its main action opens the page.
+                // Compact single-line actions: the play button carries the text, the others are icons.
+                HStack(spacing: 12) {
                     if media.isSeries {
-                        NavigationLink(value: DetailRoute(media: media, key: routeKey)) {
-                            Label("شاهد الآن", systemImage: "play.fill").font(.headline)
-                        }
-                        .primaryAction()
+                        NavigationLink(value: DetailRoute(media: media, key: routeKey)) { playLabel }
+                            .primaryAction()
                     } else {
-                        Button { player.play(media) } label: {
-                            Label("شاهد الآن", systemImage: "play.fill").font(.headline)
-                        }
-                        .primaryAction()
+                        Button { player.play(media) } label: { playLabel }
+                            .primaryAction()
                     }
                     NavigationLink(value: DetailRoute(media: media, key: routeKey)) {
-                        Label("التفاصيل", systemImage: "info.circle")
+                        Image(systemName: "info").font(.body.weight(.semibold)).frame(width: 20, height: 20)
                     }
                     .secondaryAction()
+                    .buttonBorderShape(.circle)
+                    .accessibilityLabel("التفاصيل")
                     Button { library.toggle(media) } label: {
                         Image(systemName: library.isFavorite(media) ? "checkmark" : "plus")
+                            .font(.body.weight(.semibold)).frame(width: 20, height: 20)
                     }
                     .secondaryAction()
                     .buttonBorderShape(.circle)
                     .accessibilityLabel(library.isFavorite(media) ? "إزالة من قائمتي" : "إضافة إلى قائمتي")
                 }
-                .controlSize(.large)
+                .controlSize(.regular)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 36)
         }
         .zoomSource(routeKey, in: zoom)
+    }
+}
+
+private extension HeroPage {
+    var playLabel: some View {
+        Label("شاهد", systemImage: "play.fill")
+            .font(.subheadline.weight(.bold))
+            .lineLimit(1)
+            .fixedSize()
+            .padding(.horizontal, 6)
     }
 }
 

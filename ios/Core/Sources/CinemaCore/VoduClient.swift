@@ -31,6 +31,10 @@ public struct VoduClient: Sendable {
         let key = try VoduKey(media.id)
         return try VoduParser.detail(await page(["do": "view", "type": "post", "id": key.parent]), media: media)
     }
+    public func subtitles(_ id: String) async throws -> [SubtitleTrack] {
+        let key = try VoduKey(id)
+        return try VoduParser.subtitles(await page(["do": "view", "type": "post", "id": key.parent]), id: id)
+    }
     public func streams(_ id: String) async throws -> [StreamChoice] {
         let key = try VoduKey(id)
         return try VoduParser.streams(await page(["do": "view", "type": "post", "id": key.parent]), id: id)
@@ -79,6 +83,13 @@ public enum VoduParser {
             guard let stream = StreamChoice(url(try anchor.attr(attribute)), quality: quality), seen.insert(stream.id).inserted else { return nil }
             return stream
         }
+    }
+    /// VODU offers one Arabic WebVTT file on the play link.
+    public static func subtitles(_ html: String, id: String) throws -> [SubtitleTrack] {
+        guard let anchor = try anchor(document(html), id: id) else { return [] }
+        let raw = url(try anchor.attr("data-webvtt"))
+        guard let link = URL(string: raw), !raw.isEmpty else { return [] }
+        return [SubtitleTrack(url: link, language: "ar", title: "العربية")]
     }
     public static func streams(_ html: String, id: String) throws -> [StreamChoice] {
         try streamList(anchor(document(html), id: id))
