@@ -53,7 +53,7 @@ jobs:
           test -d "$device_app"
           test -x "$device_app/CinemaIQ"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist"
-          xcrun lipo -verify_arch arm64 "$device_app/CinemaIQ"
+          xcrun lipo "$device_app/CinemaIQ" -verify_arch arm64
           mkdir -p "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output"
           ditto "$device_app" "$IPA_STAGING/Payload/CinemaIQ.app"
           ditto -c -k --keepParent "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
