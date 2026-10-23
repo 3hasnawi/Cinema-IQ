@@ -21,4 +21,21 @@ final class OMDbTests: XCTestCase {
         XCTAssertEqual(OMDbParser.seasonRatings(Data(json.utf8)), [1: "7.9", 3: "8.1"])
         XCTAssertNil(OMDbParser.seasonRatings(Data(#"{"Response":"False","Error":"Series or season not found!"}"#.utf8)))
     }
+    func testSeasonReleasesByEpisode() {
+        let json = #"{"Episodes":[{"Episode":"1","Released":"2022-04-01"},{"Episode":"2","Released":"N/A"},{"Episode":"3","Released":"2022-04-15"}],"Response":"True"}"#
+        XCTAssertEqual(OMDbParser.seasonReleases(Data(json.utf8)), [1: "2022-04-01", 3: "2022-04-15"])
+    }
+    func testAirDatesGiveSeasonYearAndDisplay() {
+        var first = Media(id: "a", title: "a"); first.airDate = "2019-09-12 21:00:00"
+        var second = Media(id: "b", title: "b"); second.airDate = "2018-12-30"
+        let none = Media(id: "c", title: "c")
+        XCTAssertEqual(AirDate.year(of: Season(id: 1, episodes: [first, second, none])), 2018)
+        XCTAssertNil(AirDate.year(of: Season(id: 2, episodes: [none])))
+        XCTAssertEqual(AirDate.display("2018-12-30"), "30 ديسمبر 2018")
+        XCTAssertEqual(AirDate.display("nonsense"), "")
+        // Kept through the library's JSON, and left out when empty.
+        let decoded = try? JSONDecoder().decode(Media.self, from: JSONEncoder().encode(second))
+        XCTAssertEqual(decoded?.airDate, "2018-12-30")
+        XCTAssertFalse(String(decoding: try! JSONEncoder().encode(none), as: UTF8.self).contains("airDate"))
+    }
 }

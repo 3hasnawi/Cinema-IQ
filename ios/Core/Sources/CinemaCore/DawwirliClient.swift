@@ -94,6 +94,7 @@ public struct DawwirliClient: Sendable {
                 media.seriesID = "daw:series:\(parent)"; media.episodeTitle = media.title
                 media.poster = image(text(meta, "movie_image")); if media.poster.isEmpty { media.poster = image(text(info, "cover")) }
                 media.overview = text(meta, "plot"); media.duration = text(meta, "duration")
+                media.airDate = text(meta, "releasedate", "release_date", "air_date")
                 return media
             }
             return Season(id: season, episodes: episodes.sorted { $0.episode < $1.episode })

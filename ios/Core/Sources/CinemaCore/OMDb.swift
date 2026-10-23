@@ -9,6 +9,13 @@ public struct OMDbRating: Codable, Hashable, Sendable {
 }
 
 /// What OMDb knows about a film or series. Empty strings where OMDb says "N/A".
+/// One season's episodes in OMDb: IMDb ratings and first-shown dates, by episode number.
+public struct OMDbSeason: Sendable, Equatable {
+    public var ratings: [Int: String] = [:]
+    public var released: [Int: String] = [:]
+    public init(ratings: [Int: String] = [:], released: [Int: String] = [:]) { self.ratings = ratings; self.released = released }
+}
+
 public struct OMDbInfo: Codable, Equatable, Sendable {
     public var imdbID = ""
     public var title = ""
@@ -70,6 +77,20 @@ public enum OMDbParser {
         return ratings
     }
 
+    /// First-shown dates of a season's episodes (episode number → "2008-01-20") from a `Season=` lookup.
+    public static func seasonReleases(_ data: Data) -> [Int: String]? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              (object["Response"] as? String) == "True" else { return nil }
+        var released: [Int: String] = [:]
+        for row in object["Episodes"] as? [[String: Any]] ?? [] {
+            guard let number = Int((row["Episode"] as? String ?? "").trimmingCharacters(in: .whitespaces)),
+                  let date = (row["Released"] as? String)?.trimmingCharacters(in: .whitespaces),
+                  date.count >= 10, date != "N/A" else { continue }
+            released[number] = date
+        }
+        return released
+    }
+
     /// The Latin title to search: the source's English title, or the title itself when it is written in Latin
     /// letters. Arabic-only titles cannot be matched reliably and are skipped.
     public static func searchTitle(_ media: Media) -> String? {
@@ -94,14 +115,14 @@ public enum OMDbParser {
 /// two weeks and misses for three days; network failures are not remembered.
 public actor OMDbClient {
     private struct Entry: Codable { let info: OMDbInfo?; let at: Date }
-    private struct SeasonEntry: Codable { let ratings: [Int: String]?; let at: Date }
+    private struct SeasonEntry: Codable { let ratings: [Int: String]?; var released: [Int: String]? = nil; let at: Date }
     private let key: String
     private let cacheURL: URL?
     private var cache: [String: Entry] = [:]
     private var seasonCache: [String: SeasonEntry] = [:]
     private var loaded = false
     private var inFlight: [String: Task<OMDbInfo?, Never>] = [:]
-    private var seasonsInFlight: [String: Task<[Int: String]?, Never>] = [:]
+    private var seasonsInFlight: [String: Task<OMDbSeason?, Never>] = [:]
     /// Season lookups live in their own file so the format of the works cache stays as it was.
     private var seasonCacheURL: URL? {
         cacheURL.map { $0.deletingPathExtension().appendingPathExtension("seasons.json") }
@@ -129,15 +150,22 @@ public actor OMDbClient {
 
     /// IMDb ratings of the episodes of one season of a series: one request per season, cached like works.
     public func episodeRatings(for media: Media, season: Int) async -> [Int: String] {
-        guard !key.isEmpty, season > 0, let title = OMDbParser.searchTitle(media) else { return [:] }
+        await seasonDetails(for: media, season: season).ratings
+    }
+
+    /// Ratings and first-shown dates of one season's episodes, from the same cached request.
+    public func seasonDetails(for media: Media, season: Int) async -> OMDbSeason {
+        guard !key.isEmpty, season > 0, let title = OMDbParser.searchTitle(media) else { return OMDbSeason() }
         let cacheKey = "\(title.lowercased())|\(season)"
         loadCache()
         let days: Double = 86_400
-        if let entry = seasonCache[cacheKey], -entry.at.timeIntervalSinceNow < (entry.ratings == nil ? 3 * days : 7 * days) {
-            return entry.ratings ?? [:]
+        // Entries saved before dates were kept (ratings without dates) are fetched again once.
+        if let entry = seasonCache[cacheKey], -entry.at.timeIntervalSinceNow < (entry.ratings == nil ? 3 * days : 7 * days),
+           entry.ratings == nil || entry.released != nil {
+            return OMDbSeason(ratings: entry.ratings ?? [:], released: entry.released ?? [:])
         }
-        if let running = seasonsInFlight[cacheKey] { return await running.value ?? [:] }
-        let task = Task { () -> [Int: String]? in
+        if let running = seasonsInFlight[cacheKey] { return await running.value ?? OMDbSeason() }
+        let task = Task { () -> OMDbSeason? in
             var components = URLComponents(string: "https://www.omdbapi.com/")!
             components.queryItems = [URLQueryItem(name: "apikey", value: self.key), URLQueryItem(name: "t", value: title),
                                      URLQueryItem(name: "type", value: "series"), URLQueryItem(name: "Season", value: String(season))]
@@ -145,17 +173,18 @@ public actor OMDbClient {
             request.timeoutInterval = 12
             guard let reply = try? await URLSession.shared.data(for: request),
                   (reply.1 as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-            return OMDbParser.seasonRatings(reply.0) ?? [:]
+            return OMDbSeason(ratings: OMDbParser.seasonRatings(reply.0) ?? [:], released: OMDbParser.seasonReleases(reply.0) ?? [:])
         }
         seasonsInFlight[cacheKey] = task
         let result = await task.value
         seasonsInFlight[cacheKey] = nil
         // Network failures are not remembered; "not found" is, as an empty entry.
         if let result {
-            seasonCache[cacheKey] = SeasonEntry(ratings: result.isEmpty ? nil : result, at: Date())
+            let empty = result.ratings.isEmpty && result.released.isEmpty
+            seasonCache[cacheKey] = SeasonEntry(ratings: empty ? nil : result.ratings, released: empty ? nil : result.released, at: Date())
             saveSeasonCache()
         }
-        return result ?? [:]
+        return result ?? OMDbSeason()
     }
 
     private func fetch(title: String, type: String, year: String?, cacheKey: String) async -> OMDbInfo? {

@@ -14,7 +14,8 @@ struct TVDetailView: View {
     @State private var error: String?
     @State private var loading = true
     @State private var omdb: OMDbInfo?
-    @State private var episodeRatings: [Int: [Int: String]] = [:]
+    /// OMDb's ratings and first-shown dates, by season.
+    @State private var omdbSeasons: [Int: OMDbSeason] = [:]
     @State private var belowFold = false
     @State private var showStory = false
     @FocusState private var focus: DetailFocus?
@@ -157,7 +158,7 @@ struct TVDetailView: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
                     ForEach(seasons) { season in
-                        Button { seasonID = season.id } label: { Text("الموسم \(season.id)") }
+                        Button { seasonID = season.id } label: { Text(seasonTitle(season)) }
                             .buttonStyle(SeasonTabStyle(selected: season.id == seasonID))
                             .focused($focus, equals: .season(season.id))
                     }
@@ -170,7 +171,8 @@ struct TVDetailView: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(episodes) { episode in
-                        EpisodeLockup(episode: episode, seriesTitle: current.title, rating: episodeRatings[seasonID]?[episode.episode]) {
+                        EpisodeLockup(episode: episode, seriesTitle: current.title, rating: omdbSeasons[seasonID]?.ratings[episode.episode],
+                                      aired: episode.airDate.isEmpty ? (omdbSeasons[seasonID]?.released[episode.episode] ?? "") : episode.airDate) {
                             player.play(episode, queue: queue)
                         }
                     }
@@ -183,10 +185,17 @@ struct TVDetailView: View {
             .focusSection()
         }
         .task(id: seasonID) {
-            guard seasonID > 0, episodeRatings[seasonID] == nil, let client = OMDb.shared else { return }
-            let found = await client.episodeRatings(for: current, season: seasonID)
-            if !found.isEmpty { episodeRatings[seasonID] = found }
+            guard seasonID > 0, omdbSeasons[seasonID] == nil, let client = OMDb.shared else { return }
+            let found = await client.seasonDetails(for: current, season: seasonID)
+            if !found.ratings.isEmpty || !found.released.isEmpty { omdbSeasons[seasonID] = found }
         }
+    }
+
+    /// "الموسم 2 · 2019": the year of its earliest episode, from the source or OMDb.
+    private func seasonTitle(_ season: Season) -> String {
+        let omdbYear = omdbSeasons[season.id]?.released.values.compactMap { AirDate.year($0) }.min()
+        guard let year = AirDate.year(of: season) ?? omdbYear else { return "الموسم \(season.id)" }
+        return "الموسم \(season.id) · \(year)"
     }
 
     private var castSection: some View {
@@ -258,6 +267,8 @@ struct EpisodeLockup: View {
     let episode: Media
     let seriesTitle: String
     let rating: String?
+    /// First shown, as the source or OMDb gives it.
+    var aired = ""
     let action: () -> Void
     @EnvironmentObject private var library: LibraryStore
     private var name: String {
@@ -287,6 +298,10 @@ struct EpisodeLockup: View {
                 Text(name.isEmpty ? "الحلقة \(episode.episode)" : name).font(.caption).lineLimit(1)
                 Text([DisplayFormat.duration(episode.duration), rating.map { "IMDb \($0)" } ?? ""].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                let date = AirDate.display(aired)
+                if !date.isEmpty {
+                    Label(date, systemImage: "calendar").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .containerRelativeFrame(.horizontal, count: 4, spacing: 40, alignment: .leading)

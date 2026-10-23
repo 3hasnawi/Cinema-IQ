@@ -17,6 +17,8 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     /// Latin title from the source, used to look the work up in OMDb.
     public var enTitle = ""
     public var quality = ""
+    /// When an episode was first shown, as the source gives it (usually "2024-05-01").
+    public var airDate = ""
     public init(id: String, title: String) { self.id = id; self.title = title }
     public var isSupported: Bool { (try? ContentSource.owner(of: id)) != nil }
     /// From an external provider added in Settings (not synced to the Android apps).
@@ -26,7 +28,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "nb", title = "ar_title", poster = "imgMediumThumbObjUrl", backdrop = "imgObjUrl"
         case overview = "ar_content", year, duration, rating = "stars", kind, season, episode = "episodeNummer"
-        case seriesID = "seriesId", episodeTitle, quality = "contentQuality", enTitle = "en_title"
+        case seriesID = "seriesId", episodeTitle, quality = "contentQuality", enTitle = "en_title", airDate
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -42,6 +44,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
         year = text(.year); duration = text(.duration); rating = text(.rating); isSeries = text(.kind) == "2"
         season = Int(text(.season)) ?? 1; episode = Int(text(.episode)) ?? 0
         seriesID = text(.seriesID); episodeTitle = text(.episodeTitle); quality = text(.quality); enTitle = text(.enTitle)
+        airDate = text(.airDate)
     }
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -53,6 +56,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
         try c.encode(episode, forKey: .episode); try c.encode(seriesID, forKey: .seriesID)
         try c.encode(episodeTitle, forKey: .episodeTitle); try c.encode(quality, forKey: .quality)
         try c.encode(enTitle, forKey: .enTitle)
+        if !airDate.isEmpty { try c.encode(airDate, forKey: .airDate) }
     }
 }
 public struct Shelf: Identifiable, Sendable {
@@ -120,5 +124,33 @@ public struct DawKey: Sendable {
         guard type != "series" else { throw CinemaError.invalidID }
         guard ["mp4", "m4v", "mov", "m3u8"].contains(ext.lowercased()) else { throw CinemaError.unsupportedVideo }
         return DawwirliClient.url("vod", ["kind": kind, "id": raw, "ext": ext])
+    }
+}
+
+public enum AirDate {
+    /// The year of a date such as "2024-05-01" or "2024-05-01 20:00:00"; nil when there is none.
+    public static func year(_ raw: String) -> Int? {
+        let digits = raw.trimmingCharacters(in: .whitespaces).prefix(4)
+        guard digits.count == 4, let year = Int(digits), (1900...2100).contains(year) else { return nil }
+        return year
+    }
+    /// The season's year: its earliest episode date.
+    public static func year(of season: Season) -> Int? {
+        season.episodes.compactMap { year($0.airDate) }.min()
+    }
+    /// "1 مايو 2024" (Latin digits, like the rest of the app); the text as it is when it is not a date.
+    public static func display(_ raw: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespaces)
+        guard text.count >= 10 else { return text.count == 4 ? text : "" }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(identifier: "UTC")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: String(text.prefix(10))) else { return "" }
+        let output = DateFormatter()
+        output.locale = Locale(identifier: "ar@numbers=latn")
+        output.timeZone = TimeZone(identifier: "UTC")
+        output.dateFormat = "d MMMM yyyy"
+        return output.string(from: date)
     }
 }
