@@ -91,9 +91,12 @@ struct WatchProgress: Codable {
 
     /// Replaces the active profile's library with the account's records (local unsent edits already applied).
     func applyRemote(_ records: [CloudRecord]) {
+        // External providers' items are not synced (Android does not know them); they are kept from this iPhone.
+        let localFavorites = favorites.filter(\.isExternal), localRecent = recent.filter(\.isExternal)
+        let localProgress = progress.filter { $0.key.hasPrefix("ext:") }
         let ordered = records.sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
-        favorites = ordered.filter { $0.key.hasPrefix("favorite/") }.compactMap { CloudLibraryCodec.film($0.value) }
-        recent = ordered.filter { $0.key.hasPrefix("recent/") }.compactMap { CloudLibraryCodec.film($0.value) }
+        favorites = ordered.filter { $0.key.hasPrefix("favorite/") }.compactMap { CloudLibraryCodec.film($0.value) } + localFavorites
+        recent = ordered.filter { $0.key.hasPrefix("recent/") }.compactMap { CloudLibraryCodec.film($0.value) } + localRecent
         var known: [String: Media] = [:]
         for media in favorites + recent { known[media.id] = media }
         var next: [String: WatchProgress] = [:]
@@ -104,7 +107,9 @@ struct WatchProgress: Codable {
             next[id] = WatchProgress(media: media, seconds: playback.seconds, duration: playback.duration,
                                      completed: playback.completed, updatedAt: record.updatedAt ?? Date())
         }
-        progress = next
+        progress = next.merging(localProgress) { remote, _ in remote }
+        // Continue watching in order of the last watch, local and synced items together.
+        if !localRecent.isEmpty { recent.sort { (progress[$0.id]?.updatedAt ?? .distantPast) > (progress[$1.id]?.updatedAt ?? .distantPast) } }
         persist()
     }
 

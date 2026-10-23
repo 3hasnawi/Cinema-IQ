@@ -124,6 +124,7 @@ extension SourceClient {
             case .cinemana: return try await CinemanaClient().subtitles(media.id)
             case .vodu: return try await VoduClient().subtitles(media.id)
             case .dawwirli: return []
+            case .external(let id): return try await ExternalClient(provider: try ExternalProviders.require(id)).playback(media).subtitles
             }
         } catch { return [] }
     }

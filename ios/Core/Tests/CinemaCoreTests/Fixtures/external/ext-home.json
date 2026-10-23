@@ -1,0 +1,6 @@
+{"shelves":[{"id":"latest","title":"الأحدث","items":[
+ {"id":"m1","title":"فيلم أول","type":"movie","year":2024,"duration":"95","poster":"https://img.example.com/m1.jpg","rating":7.5},
+ {"id":"m1","title":"مكرر","type":"movie"},
+ {"id":"../evil","title":"معرّف غير صالح","type":"movie"},
+ {"id":"s1","title":"مسلسل أول","type":"series","poster":"http://insecure.example.com/p.jpg"}]},
+ {"id":"empty","title":"فارغ","items":[]}]}

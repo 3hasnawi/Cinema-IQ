@@ -189,6 +189,8 @@ import CinemaCore
 
     private func enqueue(_ changes: [String: String], force: Bool = false) {
         guard namespace != nil else { return }
+        // Items of external providers stay on this iPhone: the Android apps do not know those sources.
+        let changes = changes.filter { !$0.key.contains("ext:") }
         var urgent = false
         for (key, value) in changes where force || known[key] != value {
             outbox[key] = value; known[key] = value

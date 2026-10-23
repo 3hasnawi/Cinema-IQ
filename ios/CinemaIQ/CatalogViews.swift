@@ -193,6 +193,7 @@ enum SubtitlePreference {
 
 struct SettingsView: View {
     @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var providers: ProviderStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
@@ -226,7 +227,9 @@ struct SettingsView: View {
             }
             Section {
                 Picker("المصدر", selection: $sourceName) {
-                    ForEach(ContentSource.allCases) { source in Text(source.title).tag(source.rawValue) }
+                    ForEach(ContentSource.builtIn + ([ExternalProvider.demo] + providers.providers).map { .external($0.id) }) { source in
+                        Text(source.title).tag(source.rawValue)
+                    }
                 }
                 .pickerStyle(.menu)
             } header: {
@@ -234,6 +237,7 @@ struct SettingsView: View {
             } footer: {
                 Text("اختر المصدر الذي تدعمه شبكة الإنترنت لديك. الأعمال المحفوظة تبقى مرتبطة بمصدرها الأصلي.")
             }
+            ExternalSourcesSection()
             Section {
                 Picker("الترجمة المفضلة", selection: $subtitleLanguage) {
                     ForEach(SubtitlePreference.languages.indices, id: \.self) { index in Text(SubtitlePreference.languages[index].0).tag(SubtitlePreference.languages[index].1) }
