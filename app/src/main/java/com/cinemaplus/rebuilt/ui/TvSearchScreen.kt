@@ -61,7 +61,11 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
     var typed by rememberSaveable { mutableStateOf(vm.query) }
     var mode by rememberSaveable { mutableStateOf(KeyboardMode.Arabic) }
     val firstKey = remember { FocusRequester() }
-    RegisterPageEntry(firstKey)
+    // Coming back from a result's page lands on that result, not on the keyboard.
+    var returnId by rememberSaveable { mutableStateOf<String?>(null) }
+    val returnFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (returnId != null && !awaitTvFocus { returnFocus }) returnId = null }
+    RegisterPageEntry(if (returnId != null) returnFocus else firstKey)
     LaunchedEffect(typed) {
         delay(400)
         if (typed.trim() != vm.query) vm.search(typed)
@@ -115,7 +119,8 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
                         verticalArrangement = Arrangement.spacedBy(24.mx), horizontalArrangement = Arrangement.spacedBy(22.mx)) {
                         items(films, key = { it.id }) { film ->
                             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                                FilmCard(film, vm.library.fraction(film.id), width = cardWidth, titleOnly = true) { vm.open(film) }
+                                FilmCard(film, vm.library.fraction(film.id), width = cardWidth, titleOnly = true,
+                                    requester = if (film.id == returnId) returnFocus else null) { returnId = film.id; vm.open(film) }
                             }
                         }
                         if (!vm.demo) item(span = { GridItemSpan(maxLineSpan) }, key = "more") {

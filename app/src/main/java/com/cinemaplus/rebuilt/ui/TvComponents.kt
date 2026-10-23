@@ -454,6 +454,11 @@ fun PosterGrid(
     header: (@Composable () -> Unit)? = null,
     footer: (@Composable () -> Unit)? = null
 ) {
+    // Coming back from a title's page lands on the card that opened it; the grid keeps its scroll by itself.
+    var returnId by rememberSaveable { mutableStateOf<String?>(null) }
+    val returnFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (returnId != null && !awaitTvFocus { returnFocus }) returnId = null }
+    RegisterPageEntry(if (returnId != null && films.any { it.id == returnId }) returnFocus else firstRequester)
     LazyVerticalGrid(
         GridCells.Adaptive(TvMetrics.PosterWidth + 20.dp), modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = TvMetrics.EdgeInset, end = TvMetrics.EdgeInset,
@@ -465,7 +470,11 @@ fun PosterGrid(
         items(films.size, key = { films[it].id }) { index ->
             val film = films[index]
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                FilmCard(film, vm.library.fraction(film.id), requester = if (index == 0) firstRequester else null) { vm.open(film) }
+                FilmCard(film, vm.library.fraction(film.id), requester = when {
+                    film.id == returnId -> returnFocus
+                    index == 0 -> firstRequester
+                    else -> null
+                }) { returnId = film.id; vm.open(film) }
             }
         }
         if (footer != null) item(span = { GridItemSpan(maxLineSpan) }, key = "footer") { footer() }
