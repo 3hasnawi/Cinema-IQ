@@ -4,6 +4,12 @@ name: Apple TV screenshots
 # screenshots. Nothing is signed or exported.
 on:
   workflow_dispatch:
+  # Also when the tour itself changes on an Apple TV work branch.
+  push:
+    branches: ['claude/ios-tvos-**']
+    paths:
+      - 'ios/CinemaIQTVUITests/**'
+      - '.github/workflows/tvos-screenshots.yml'
 
 permissions:
   contents: read
