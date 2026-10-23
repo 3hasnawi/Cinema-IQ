@@ -68,10 +68,15 @@ jobs:
           src, dst = sys.argv[1], sys.argv[2]
           for test in json.load(open(os.path.join(src, "manifest.json"))):
               for a in test.get("attachments", []):
-                  name = re.sub(r"(_\d+)?(_[0-9A-Fa-f-]{36})?\.png$", "", a.get("suggestedHumanReadableName", a["exportedFileName"]))
-                  shutil.copy(os.path.join(src, a["exportedFileName"]), os.path.join(dst, name + ".png"))
+                  name = re.sub(r"(_\d+)?(_[0-9A-Fa-f-]{36})?\.(png|jpe?g)$", "", a.get("suggestedHumanReadableName", a["exportedFileName"]))
+                  name = re.sub(r"[^\w\u0600-\u06FF .,\[\]·()-]", "-", name)[:120]
+                  ext = os.path.splitext(a["exportedFileName"])[1] or ".png"
+                  try:
+                      shutil.copy(os.path.join(src, a["exportedFileName"]), os.path.join(dst, name + ext))
+                  except OSError as error:
+                      print("skipped", a["exportedFileName"], error)
           PY
-          for f in "$out"/*.png; do sips -Z 1280 "$f" >/dev/null; done
+          for f in "$out"/*.png; do sips -Z 1280 "$f" >/dev/null 2>&1 || echo "could not resize $f"; done
           # Crash reports of the app, if any.
           find ~/Library/Logs/DiagnosticReports -name 'CinemaIQTV*' -exec cp {} "$out"/ \; 2>/dev/null || true
           ls "$out" | grep -v png || echo "no crash reports" 
