@@ -69,3 +69,54 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSExceptionMinimumTLSVersion: TLSv1.0
               NSExceptionRequiresForwardSecrecy: false
+  # Apple TV app: its own screens (CinemaIQTV) over the same Core and the same library, sync, providers and
+  # playback model as the iPhone app.
+  CinemaIQTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: CinemaIQTV
+      - path: CinemaIQ/LibraryStore.swift
+      - path: CinemaIQ/CloudSync.swift
+      - path: CinemaIQ/PlaybackController.swift
+      - path: CinemaIQ/ProviderStore.swift
+      - path: CinemaIQ/Resources/GoogleService-Info.plist
+        buildPhase: resources
+    dependencies:
+      - package: CinemaCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.tv
+        TARGETED_DEVICE_FAMILY: "3"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Cinema iQ
+        ASSETCATALOG_COMPILER_APPICON_NAME: Brand
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: Generated/TV-Info.plist
+      properties:
+        CFBundleDisplayName: Cinema iQ
+        CFBundleDevelopmentRegion: ar
+        OMDbAPIKey: "5b9c7295"
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIUserInterfaceStyle: Dark
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoadsForMedia: true
+          NSExceptionDomains:
+            shabakaty.cc:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSExceptionMinimumTLSVersion: TLSv1.0
+              NSExceptionRequiresForwardSecrecy: false
+            shabakaty.com:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSExceptionMinimumTLSVersion: TLSv1.0
+              NSExceptionRequiresForwardSecrecy: false
+            vodu.me:
+              NSIncludesSubdomains: true
+              NSExceptionAllowsInsecureHTTPLoads: true
+              NSExceptionMinimumTLSVersion: TLSv1.0
+              NSExceptionRequiresForwardSecrecy: false
