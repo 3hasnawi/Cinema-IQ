@@ -1,5 +1,9 @@
 package com.cinemaplus.rebuilt.ui.mobile
 
+import com.cinemaplus.rebuilt.ui.Brand
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import android.graphics.Color as AndroidColor
 import android.view.View
 import androidx.activity.compose.BackHandler
@@ -284,14 +288,34 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                 }
             }
         }
-        // Keep this action visible above the physical right side of the scrubber, even when controls fade.
+        // Skip intro / next episode above the scrubber on the left, in the TV design; it stays while controls fade.
         if ((introTarget != null || (offerNext && next != null)) && panel == null && !episodesOpen) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                Button(onClick = { val skip = introTarget; if (skip != null) player.seekTo(skip) else next?.let { saveProgress(); vm.play(it) } }, modifier = Modifier.align(Alignment.BottomEnd)
-                    .displayCutoutPadding().navigationBarsPadding().padding(end = 20.dp, bottom = 138.dp)) {
-                    PlayerTransportIcon("▶|", Color.Black, 20.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (introTarget != null) "تخطي المقدمة" else countdown?.let { "الحلقة التالية ($it)" } ?: "الحلقة التالية")
+                val place = Modifier.align(Alignment.BottomStart).displayCutoutPadding().navigationBarsPadding()
+                    .padding(start = 20.dp, bottom = 132.dp)
+                val skip = introTarget
+                if (skip != null) Row(place.height(44.dp).clip(RoundedCornerShape(22.dp)).background(Color.White)
+                    .clickable { player.seekTo(skip); interact() }.padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PlayerTransportIcon("▶|", Brand.OnPrimary, 18.dp)
+                    Label("تخطي المقدمة", 14, Brand.OnPrimary, true, lines = 1)
+                } else next?.let { upcoming ->
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                        Row(place.width(260.dp).clip(RoundedCornerShape(12.dp)).background(Brand.Surface.copy(alpha = .92f))
+                            .border(1.dp, Brand.Divider, RoundedCornerShape(12.dp))
+                            .clickable { saveProgress(); vm.play(upcoming) }.padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(96.dp, 54.dp).clip(RoundedCornerShape(8.dp)).background(Brand.Raised)) {
+                                val image = upcoming.backdrop.ifBlank { upcoming.poster }
+                                if (image.isNotBlank()) coil.compose.AsyncImage(image, null, Modifier.fillMaxSize(),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Label(countdown?.let { "الحلقة التالية خلال $it ثوانٍ" } ?: "الحلقة التالية", 11, Brand.TextTertiary, lines = 1)
+                                Label("الحلقة ${upcoming.episode}", 14, Color.White, true, lines = 1)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -314,7 +338,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         MobileOptionsPopup(title = when (shown) {
             MobilePanel.Quality -> "الجودة والسرعة"; MobilePanel.Tracks -> "الصوت والترجمة"; MobilePanel.SubtitleStyle -> "مظهر الترجمة"
         }, anchor = anchors[shown] ?: IntRect.Zero,
-            width = when (shown) { MobilePanel.Quality -> 200.dp; MobilePanel.Tracks -> 300.dp; MobilePanel.SubtitleStyle -> 280.dp },
+            width = when (shown) { MobilePanel.Quality -> 170.dp; MobilePanel.Tracks -> 240.dp; MobilePanel.SubtitleStyle -> 250.dp },
             onDismiss = { panel = null; interact() }) {
             when (shown) {
                 MobilePanel.Quality -> {
