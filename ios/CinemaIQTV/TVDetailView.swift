@@ -153,7 +153,7 @@ struct TVDetailView: View {
 
     private var episodesSection: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // Seasons switch as focus moves along them, like the Apple TV app; coming back up lands on the chosen one.
+            // A season is chosen by pressing it, so moving up from the episodes never changes the season by itself.
             ScrollView(.horizontal) {
                 HStack(spacing: 12) {
                     ForEach(seasons) { season in
@@ -167,7 +167,6 @@ struct TVDetailView: View {
             .scrollClipDisabled()
             .scrollIndicators(.hidden)
             .focusSection()
-            .defaultFocus($focus, .season(seasonID), priority: .userInitiated)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(episodes) { episode in
@@ -182,9 +181,6 @@ struct TVDetailView: View {
             .scrollClipDisabled()
             .scrollIndicators(.hidden)
             .focusSection()
-        }
-        .onChange(of: focus) { _, value in
-            if case .season(let id) = value, id != seasonID { seasonID = id }
         }
         .task(id: seasonID) {
             guard seasonID > 0, episodeRatings[seasonID] == nil, let client = OMDb.shared else { return }
