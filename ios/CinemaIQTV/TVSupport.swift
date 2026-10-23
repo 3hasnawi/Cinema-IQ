@@ -275,17 +275,15 @@ struct ShowcaseBackground: View {
     }
 }
 
-/// Scrolling snaps at the fold: either the whole showcase, or the shelves from the top of the screen.
+/// Scrolling snaps at the fold: any move down from the showcase lands on the shelves at the top of the screen,
+/// and any move back up past them shows the whole showcase again.
 struct FoldSnapping: ScrollTargetBehavior {
     var aboveFold: Bool
     var showcaseHeight: CGFloat
     func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
-        if aboveFold && target.rect.minY < showcaseHeight * 0.3 { return }
-        if !aboveFold && target.rect.minY > showcaseHeight { return }
-        let snapToHide = (showcaseHeight * 0.7)...showcaseHeight
-        if aboveFold || snapToHide.contains(target.rect.origin.y) {
-            target.rect.origin.y = showcaseHeight
-        } else {
+        if aboveFold {
+            if target.rect.minY > 1 { target.rect.origin.y = max(target.rect.minY, showcaseHeight) }
+        } else if target.rect.minY < showcaseHeight - 1 {
             target.rect.origin.y = 0
         }
     }

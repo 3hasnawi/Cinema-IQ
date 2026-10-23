@@ -51,7 +51,13 @@ final class ScreenshotTests: XCTestCase {
         press(.select, wait: 10)
         shot("24-title-page")
         press(.down, wait: 3)
-        shot("25-below-fold")
+        shot("25-title-list-button")
+        press(.down, wait: 3)
+        shot("26-below-fold")
+        press(.menu, wait: 4)
+        shot("27-back-on-home")
+        press(.up, wait: 3)
+        shot("28-home-top")
     }
 
     private func launch(source: String?) {

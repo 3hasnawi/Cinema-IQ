@@ -49,6 +49,7 @@ struct TVDetailView: View {
                     VStack(alignment: .leading, spacing: 60) {
                         header
                             .frame(height: showcase, alignment: .bottomLeading)
+                            .opacity(belowFold ? 0 : 1)
                             .onScrollVisibilityChange(threshold: 0.5) { visible in
                                 withAnimation { belowFold = !visible }
                             }
@@ -85,7 +86,7 @@ struct TVDetailView: View {
                             .font(.callout.weight(.semibold))
                             .frame(maxWidth: .infinity)
                     }
-                    .disabled(target == nil)
+                    // Not disabled while the seasons load, so focus starts here and not on the story.
                     .focused($focus, equals: .play)
                     Button { library.toggle(current) } label: {
                         Label(library.isFavorite(current) ? "في قائمتي" : "أضف إلى قائمتي",

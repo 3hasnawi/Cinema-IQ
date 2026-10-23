@@ -19,6 +19,8 @@ import CinemaCore
                 .environmentObject(router)
                 .environment(\.layoutDirection, .rightToLeft)
                 .preferredColorScheme(.dark)
+                // System white buttons and lockups, as on the Apple TV app; orange stays for progress only.
+                .tint(.white)
                 .task { cloud.start(library: library) }
                 .onChange(of: phase) { _, value in
                     if value == .active { cloud.scene(active: true) } else if value == .background { cloud.scene(active: false) }

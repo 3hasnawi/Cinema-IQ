@@ -34,6 +34,7 @@ struct TVHomeView: View {
                         TVHeroHeader(media: hero, count: featured.count, index: heroIndex, loading: loading, error: shelves.isEmpty ? error : nil,
                                      focus: $heroFocus, next: { advance(1) }, retry: { Task { await load() } })
                             .frame(height: showcase, alignment: .bottomLeading)
+                            .opacity(belowFold ? 0 : 1)
                             .onScrollVisibilityChange(threshold: 0.5) { visible in
                                 withAnimation { belowFold = !visible }
                             }
@@ -55,6 +56,8 @@ struct TVHomeView: View {
                 .scrollTargetBehavior(FoldSnapping(aboveFold: !belowFold, showcaseHeight: showcase + 56))
             }
         }
+        // The page opens on the featured title's Play button, as the Apple TV app does.
+        .defaultFocus($heroFocus, .play)
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
             if loadedSource != sourceName { shelves = []; heroIndex = 0 }
