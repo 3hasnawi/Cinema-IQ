@@ -14,6 +14,8 @@ struct DetailView: View {
     @State private var loading = true
     @State private var expanded = false
     @State private var omdb: OMDbInfo?
+    /// IMDb ratings of the episodes by season (season → episode → rating), from OMDb.
+    @State private var episodeRatings: [Int: [Int: String]] = [:]
 
     private var current: Media { media ?? initial }
     private var episodes: [Media] { seasons.first { $0.id == seasonID }?.episodes ?? [] }
@@ -177,9 +179,16 @@ struct DetailView: View {
             LazyVStack(spacing: 14) {
                 ForEach(episodes) { episode in
                     EpisodeRow(episode: episode, seriesTitle: current.title,
+                               rating: episodeRatings[seasonID]?[episode.episode],
                                fraction: library.fraction(episode),
                                completed: library.progress[episode.id]?.completed == true) { play(episode) }
                 }
+            }
+            // One OMDb request per season, only once the season is shown.
+            .task(id: seasonID) {
+                guard seasonID > 0, episodeRatings[seasonID] == nil, let client = OMDb.shared else { return }
+                let found = await client.episodeRatings(for: current, season: seasonID)
+                if !found.isEmpty { episodeRatings[seasonID] = found }
             }
         }
     }
@@ -210,6 +219,7 @@ struct DetailView: View {
 private struct EpisodeRow: View {
     let episode: Media
     let seriesTitle: String
+    let rating: String?
     let fraction: Double
     let completed: Bool
     let action: () -> Void
@@ -220,7 +230,8 @@ private struct EpisodeRow: View {
     private var status: String {
         let length = DisplayFormat.duration(episode.duration)
         let state = completed ? "شوهدت" : (fraction > 0 ? "قيد المشاهدة" : "")
-        return [length, state].filter { !$0.isEmpty }.joined(separator: " · ")
+        let imdb = rating.map { "IMDb \($0)" } ?? ""
+        return [length, imdb, state].filter { !$0.isEmpty }.joined(separator: " · ")
     }
     var body: some View {
         Button(action: action) {

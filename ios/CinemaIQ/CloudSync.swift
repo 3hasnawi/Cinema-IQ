@@ -20,6 +20,7 @@ import CinemaCore
     private var known: [String: String] = [:]
     private var flushTask: Task<Void, Never>?
     private var pollTask: Task<Void, Never>?
+    private var signingOut = false
     private let defaults = UserDefaults.standard
 
     var configured: Bool { client != nil }
@@ -97,7 +98,16 @@ import CinemaCore
         }
     }
     func signOut() async {
+        // The last flush can itself find the session expired; that path ends the session without another flush.
+        guard !signingOut else { return }
+        signingOut = true
+        defer { signingOut = false }
         await flush()
+        endSession()
+    }
+    /// Forgets the account on this iPhone. Unsent changes of the profile stay saved under its own outbox key.
+    private func endSession() {
+        flushTask?.cancel(); flushTask = nil
         session = nil; profiles = []; profileID = nil; outbox = [:]; known = [:]; status = ""
         Keychain.save(nil)
         library?.switchTo(account: nil)
@@ -202,10 +212,19 @@ import CinemaCore
         guard let client, let profileID, !outbox.isEmpty, namespace != nil,
               let current = try? await validSession() else { return }
         let pending = outbox
+        // The account or profile can change while the write is under way; the sent records then belong to the
+        // outbox that was saved for the old profile, never to the one now loaded.
+        let sentFrom = namespace, sentKey = outboxKey
         do {
             try await client.write(pending, session: current, profile: profileID)
-            for (key, value) in pending where outbox[key] == value { outbox[key] = nil }
-            saveOutbox()
+            if namespace == sentFrom {
+                for (key, value) in pending where outbox[key] == value { outbox[key] = nil }
+                saveOutbox()
+            } else if let sentKey {
+                var stored = defaults.dictionary(forKey: sentKey) as? [String: String] ?? [:]
+                for (key, value) in pending where stored[key] == value { stored[key] = nil }
+                if stored.isEmpty { defaults.removeObject(forKey: sentKey) } else { defaults.set(stored, forKey: sentKey) }
+            }
         } catch {
             status = "التغييرات محفوظة على الجهاز وستُرسل عند الاتصال."
         }
@@ -230,7 +249,8 @@ import CinemaCore
             return fresh
         } catch CloudError.auth(let code) {
             // The account was removed or the password changed elsewhere.
-            if ["TOKEN_EXPIRED", "INVALID_REFRESH_TOKEN", "USER_NOT_FOUND", "USER_DISABLED"].contains(code) { await signOut() }
+            // Nothing can be sent with this session any more, so it ends without flushing (which would refresh again).
+            if ["TOKEN_EXPIRED", "INVALID_REFRESH_TOKEN", "USER_NOT_FOUND", "USER_DISABLED"].contains(code) { endSession() }
             throw CloudError.auth(code)
         }
     }

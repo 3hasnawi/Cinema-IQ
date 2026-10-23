@@ -55,7 +55,9 @@ struct WatchProgress: Codable {
         recordSink?(["favorite/\(media.id)": adding ? CloudLibraryCodec.filmJSON(media) : ""])
     }
 
-    func save(_ media: Media, seconds: Double, duration: Double, completed: Bool = false) {
+    /// Saves the position. A finished episode hands continue watching to [next] (the following episode), or
+    /// takes the series off it when there is none, as on Android.
+    func save(_ media: Media, seconds: Double, duration: Double, completed: Bool = false, next: Media? = nil) {
         guard seconds.isFinite, duration.isFinite, seconds >= 0, duration > 0 else { return }
         progress[media.id] = WatchProgress(media: media, seconds: min(seconds, duration), duration: duration, completed: completed, updatedAt: Date())
         var records = ["playback/\(media.id)": CloudLibraryCodec.playbackJSON(
@@ -66,7 +68,13 @@ struct WatchProgress: Codable {
             recent.removeAll { $0.recentKey == key }
             recent.insert(media, at: 0)
             records[CloudLibraryCodec.recentKey(media)] = CloudLibraryCodec.filmJSON(media)
-        } else if completed && media.episode == 0 {
+        } else if completed, media.episode > 0, var following = next {
+            if following.seriesID.isEmpty { following.seriesID = media.seriesID }
+            recent.removeAll { $0.recentKey == key || $0.recentKey == following.recentKey }
+            recent.insert(following, at: 0)
+            records[CloudLibraryCodec.recentKey(following)] = CloudLibraryCodec.filmJSON(following)
+            if following.recentKey != key { records[CloudLibraryCodec.recentKey(media)] = "" }
+        } else if completed {
             recent.removeAll { $0.recentKey == key }
             records[CloudLibraryCodec.recentKey(media)] = ""
         }
