@@ -235,6 +235,8 @@ struct RoutePicker: UIViewRepresentable {
 struct PlaybackView: View {
     let selection: PlaybackSelection
     @State private var active: Media?
+    /// The season list when playback started without one (from continue watching).
+    @State private var fetchedQueue: [Media] = []
     @StateObject private var controller = PlaybackController()
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
@@ -251,9 +253,12 @@ struct PlaybackView: View {
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
     private var current: Media { active ?? selection.media }
-    private var next: Media? {
-        guard let index = selection.queue.firstIndex(where: { $0.id == current.id }), selection.queue.indices.contains(index + 1) else { return nil }
-        return selection.queue[index + 1]
+    private var queue: [Media] { selection.queue.isEmpty ? fetchedQueue : selection.queue }
+    private var next: Media? { following(current) }
+    private func following(_ media: Media) -> Media? {
+        let list = queue
+        guard let index = list.firstIndex(where: { $0.id == media.id }), list.indices.contains(index + 1) else { return nil }
+        return list[index + 1]
     }
     /// Without credits times from the source, the next episode is offered for the last 15 seconds (as on Android).
     private var offerNext: Bool {
@@ -499,7 +504,7 @@ struct PlaybackView: View {
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
         controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
-            library.save(media, seconds: seconds, duration: duration, completed: completed)
+            library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
         if phase != .active { controller.player.pause() }
     }
@@ -508,6 +513,12 @@ struct PlaybackView: View {
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil; controlsVisible = true
         async let tracks = SourceClient().subtitles(media)
+        // An episode opened from continue watching comes without its season: load it so the next episode is known.
+        if selection.queue.isEmpty, media.episode > 0, !fetchedQueue.contains(where: { $0.id == media.id }) {
+            Task {
+                if let found = try? await SourceClient().detail(media) { fetchedQueue = found.1.flatMap(\.episodes) }
+            }
+        }
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()

@@ -16,4 +16,9 @@ final class OMDbTests: XCTestCase {
         XCTAssertNil(OMDbParser.searchTitle(Media(id: "2", title: "حبك نار")))
         XCTAssertEqual(OMDbParser.searchTitle(Media(id: "vodu:3", title: "Slow Horses Season 4")), "Slow Horses")
     }
+    func testSeasonRatingsByEpisode() {
+        let json = #"{"Title":"Slow Horses","Season":"1","Episodes":[{"Title":"Failure's Contagious","Episode":"1","imdbRating":"7.9"},{"Title":"Work Drinks","Episode":"2","imdbRating":"N/A"},{"Title":"Visiting Hours","Episode":"3","imdbRating":"8.1"}],"Response":"True"}"#
+        XCTAssertEqual(OMDbParser.seasonRatings(Data(json.utf8)), [1: "7.9", 3: "8.1"])
+        XCTAssertNil(OMDbParser.seasonRatings(Data(#"{"Response":"False","Error":"Series or season not found!"}"#.utf8)))
+    }
 }
