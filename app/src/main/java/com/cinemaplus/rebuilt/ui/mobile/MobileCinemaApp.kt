@@ -106,9 +106,21 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
         }
     }
     LaunchedEffect(vm.page) { compactBar = false }
-    var exit by remember { mutableStateOf(false) }
+    // On Home a second Back within a moment closes the app, as on the TV.
+    val context = LocalContext.current
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
     BackHandler(enabled = !playback) {
-        when { vm.selected != null -> vm.backDetail(); vm.page == Page.Explore && vm.exploreMood != null -> vm.chooseMood(null); vm.page != Page.Home -> vm.backPage(); else -> exit = true }
+        val now = android.os.SystemClock.uptimeMillis()
+        when {
+            vm.selected != null -> vm.backDetail()
+            vm.page == Page.Explore && vm.exploreMood != null -> vm.chooseMood(null)
+            vm.page != Page.Home -> vm.backPage()
+            now - exitArmedAt < ExitWindowMillis -> activity?.finish()
+            else -> {
+                exitArmedAt = now
+                android.widget.Toast.makeText(context, "اضغط رجوع مرة أخرى للخروج", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
     }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl,
         LocalFilmTitle provides { film -> vm.withArtwork(film).displayTitle(vm.titleLanguage) }) {
@@ -127,9 +139,6 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
                     } },
                     confirmButton = {}, dismissButton = { TextButton(onClick = { vm.dismissRecentOptions() }) { Text("إلغاء") } })
             }
-            if (exit) AlertDialog(onDismissRequest = { exit = false }, title = { Text("الخروج من التطبيق؟") },
-                confirmButton = { TextButton(onClick = { activity?.finish() }) { Text("خروج") } },
-                dismissButton = { TextButton(onClick = { exit = false }) { Text("إلغاء") } })
             if (playback) MobilePlayerScreen(vm)
             else if (vm.selected != null) MobileDetails(vm)
             // Pages lay out under the status bar themselves (the home hero is full-bleed).

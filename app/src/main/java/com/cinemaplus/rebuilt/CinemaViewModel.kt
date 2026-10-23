@@ -249,6 +249,8 @@ class CinemaViewModel(app: Application) : AndroidViewModel(app) {
         navigateBack(pageHistory.removeLastOrNull() ?: Page.Home)
     }
     private fun navigateBack(to: Page) { page = to; pageNumber = 1; reload() }
+    /** Back from a section: straight to Home, forgetting the pages visited on the way. */
+    fun goHome() { pageHistory.clear(); if (page != Page.Home) { page = Page.Home; pageNumber = 1; closeDetail(); reload() } }
     fun search(text: String) { query = text.trim(); pageNumber = 1; reload() }
 
     var searchHistory by mutableStateOf(library.searchHistory)
