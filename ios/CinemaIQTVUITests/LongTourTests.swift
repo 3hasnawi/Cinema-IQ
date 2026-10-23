@@ -95,6 +95,12 @@ final class LongTourTests: XCTestCase {
 
         openTab("الإعدادات")
         shot("settings")
+        press(.select, wait: 2)
+        shot("settings-popup")
+        press(.down, wait: 1)
+        shot("settings-popup-down")
+        press(.menu, wait: 2)
+        shot("settings-popup-closed")
         for _ in 0..<5 { press(.down, wait: 1) }
         shot("settings-down")
 

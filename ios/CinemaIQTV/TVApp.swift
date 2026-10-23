@@ -35,6 +35,7 @@ struct TVRootView: View {
     @EnvironmentObject private var player: PlayerPresenter
     @EnvironmentObject private var router: TVRouter
     var body: some View {
+        ZStack {
         TabView(selection: $router.tab) {
             Tab("البحث", systemImage: "magnifyingglass", value: TVTab.search, role: .search) {
                 stack(.search) { TVSearchView() }
@@ -57,9 +58,16 @@ struct TVRootView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         .background(TVTheme.ink.ignoresSafeArea())
+        .disabled(router.popup != nil)
         .fullScreenCover(item: $player.selection) { selection in
             TVPlayerView(selection: selection)
         }
+            if let popup = router.popup {
+                TVOptionsPopup(popup: popup) { withAnimation(.easeOut(duration: 0.2)) { router.popup = nil } }
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: router.popup?.id)
     }
 
     private func stack<Content: View>(_ tab: TVTab, @ViewBuilder _ content: () -> Content) -> some View {

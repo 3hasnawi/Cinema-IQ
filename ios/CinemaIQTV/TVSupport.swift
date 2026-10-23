@@ -134,6 +134,8 @@ struct ErrorState: View {
 @MainActor final class TVRouter: ObservableObject {
     @Published var tab = TVTab.home
     @Published var paths: [TVTab: [Media]] = [:]
+    /// The options popup shown over the whole app (everything behind it is out of the remote's reach).
+    @Published var popup: TVPopup?
     func path(_ tab: TVTab) -> Binding<[Media]> {
         Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
     }
@@ -301,3 +303,77 @@ struct FactsLine: View {
             .lineLimit(1)
     }
 }
+
+/// A list of options to choose one from, shown in a glass popup.
+struct TVPopup: Identifiable {
+    let id = UUID()
+    let title: String
+    let options: [(id: String, title: String)]
+    let selected: String
+    let choose: (String) -> Void
+}
+
+/// The popup: a glass panel in the middle of the screen over a dimmed app; the chosen option has a checkmark and
+/// the focus when it opens; Menu closes it.
+struct TVOptionsPopup: View {
+    let popup: TVPopup
+    let close: () -> Void
+    @FocusState private var focused: String?
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.5).ignoresSafeArea()
+            VStack(spacing: 14) {
+                Text(popup.title).font(.title3.weight(.semibold)).padding(.bottom, 10)
+                ScrollView(.vertical) {
+                    VStack(spacing: 12) {
+                        ForEach(popup.options, id: \.id) { option in
+                            Button {
+                                popup.choose(option.id)
+                                close()
+                            } label: {
+                                HStack(spacing: 20) {
+                                    Text(option.title).font(.callout.weight(.medium))
+                                    Spacer(minLength: 20)
+                                    Image(systemName: "checkmark").font(.callout.weight(.bold))
+                                        .opacity(option.id == popup.selected ? 1 : 0)
+                                }
+                                .padding(.horizontal, 12)
+                                .frame(maxWidth: .infinity)
+                            }
+                            .focused($focused, equals: option.id)
+                        }
+                    }
+                    .padding(.vertical, 14).padding(.horizontal, 24)
+                }
+                .scrollClipDisabled()
+                .frame(maxHeight: 640)
+            }
+            .padding(.vertical, 40).padding(.horizontal, 30)
+            .frame(width: 760)
+            .fixedSize(horizontal: false, vertical: true)
+            .tvGlass(in: RoundedRectangle(cornerRadius: 48, style: .continuous))
+            .shadow(color: .black.opacity(0.4), radius: 40, y: 20)
+            .focusSection()
+            .defaultFocus($focused, popup.selected)
+            .onExitCommand(perform: close)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.94)))
+    }
+}
+
+// Liquid Glass on tvOS 26 and later where the SDK has it; a material on older systems or SDKs.
+#if compiler(>=6.2)
+extension View {
+    @ViewBuilder func tvGlass<S: Shape>(in shape: S) -> some View {
+        if #available(tvOS 26.0, *) {
+            self.glassEffect(.regular, in: shape)
+        } else {
+            self.background(.regularMaterial, in: shape)
+        }
+    }
+}
+#else
+extension View {
+    func tvGlass<S: Shape>(in shape: S) -> some View { background(.regularMaterial, in: shape) }
+}
+#endif

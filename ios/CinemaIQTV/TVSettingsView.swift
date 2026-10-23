@@ -4,12 +4,18 @@ import CinemaCore
 /// Settings: content source, Cinema iQ account and profile, subtitles, external providers, about.
 struct TVSettingsView: View {
     @EnvironmentObject private var providers: ProviderStore
+    @EnvironmentObject private var router: TVRouter
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
+    /// The row whose popup is open, to take focus back when it closes.
+    @FocusState private var row: SettingsRow?
+    @State private var lastRow: SettingsRow?
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
     private var sources: [ContentSource] { ContentSource.builtIn + ([ExternalProvider.demo] + providers.providers).map { .external($0.id) } }
+
+    private enum SettingsRow: Hashable { case source, language, size, background }
 
     var body: some View {
         HStack(alignment: .top, spacing: 80) {
@@ -30,26 +36,22 @@ struct TVSettingsView: View {
 
             List {
                 Section("مصدر المحتوى") {
-                    Picker("المصدر", selection: $sourceName) {
-                        ForEach(sources) { source in Text(source.title).tag(source.rawValue) }
-                    }
-                    .pickerStyle(.navigationLink)
+                    optionRow(.source, "المصدر", value: SourcePreference.source(sourceName).title,
+                              options: sources.map { ($0.rawValue, $0.title) }, selected: sourceName) { sourceName = $0 }
                     NavigationLink("المصادر الخارجية") { TVProvidersView() }
                 }
                 Section("حساب Cinema iQ والمزامنة") { TVAccountRows() }
                 Section("الترجمة") {
-                    Picker("الترجمة المفضلة", selection: $subtitleLanguage) {
-                        ForEach(SubtitlePreference.languages, id: \.1) { option in Text(option.0).tag(option.1) }
+                    optionRow(.language, "الترجمة المفضلة", value: title(SubtitlePreference.languages, subtitleLanguage),
+                              options: SubtitlePreference.languages.map { ($0.1, $0.0) }, selected: subtitleLanguage) { subtitleLanguage = $0 }
+                    optionRow(.size, "حجم الخط", value: title(SubtitlePreference.sizes, subtitleSize),
+                              options: SubtitlePreference.sizes.map { (String($0.1), $0.0) }, selected: String(subtitleSize)) {
+                        subtitleSize = Double($0) ?? subtitleSize
                     }
-                    .pickerStyle(.navigationLink)
-                    Picker("حجم الخط", selection: $subtitleSize) {
-                        ForEach(SubtitlePreference.sizes, id: \.1) { option in Text(option.0).tag(option.1) }
+                    optionRow(.background, "خلفية الترجمة", value: title(SubtitlePreference.backgrounds, subtitleBackground),
+                              options: SubtitlePreference.backgrounds.map { (String($0.1), $0.0) }, selected: String(subtitleBackground)) {
+                        subtitleBackground = Double($0) ?? subtitleBackground
                     }
-                    .pickerStyle(.navigationLink)
-                    Picker("خلفية الترجمة", selection: $subtitleBackground) {
-                        ForEach(SubtitlePreference.backgrounds, id: \.1) { option in Text(option.0).tag(option.1) }
-                    }
-                    .pickerStyle(.navigationLink)
                     SubtitleText(text: "هكذا ستظهر الترجمة", size: subtitleSize, background: subtitleBackground)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
@@ -60,6 +62,35 @@ struct TVSettingsView: View {
         }
         .padding(.horizontal, 90)
         .background(TVTheme.ink.ignoresSafeArea())
+        // Back on the row whose popup just closed.
+        .onChange(of: router.popup == nil) { _, closed in
+            guard closed, let lastRow else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(80))
+                row = lastRow
+            }
+        }
+    }
+
+    /// A setting with several options: its value on the right; pressing opens the glass popup.
+    private func optionRow(_ id: SettingsRow, _ title: String, value: String, options: [(String, String)], selected: String,
+                           choose: @escaping (String) -> Void) -> some View {
+        Button {
+            lastRow = id
+            router.popup = TVPopup(title: title, options: options.map { (id: $0.0, title: $0.1) }, selected: selected, choose: choose)
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(value).foregroundStyle(.secondary)
+                Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .focused($row, equals: id)
+    }
+
+    private func title<Value: Equatable>(_ options: [(String, Value)], _ value: Value) -> String {
+        options.first { $0.1 == value }?.0 ?? ""
     }
 }
 
