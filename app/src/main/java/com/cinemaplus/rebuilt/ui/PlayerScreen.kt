@@ -373,7 +373,9 @@ fun PlayerScreen(vm: CinemaViewModel) {
         delay(32)
         // The scrubber takes focus first so Left/Right scrub immediately, as on Apple TV.
         if(!nextEpisodeFocused) {
-            if(controlsVisible) seekFocus.requestFocus() else { episodesShown = false; rootFocus.requestFocus() }
+            // While skip-intro or next-episode shows, it keeps focus when the controls come up.
+            if(controlsVisible) { if(promptShown) runCatching { nextEpisodeFocus.requestFocus() } else seekFocus.requestFocus() }
+            else { episodesShown = false; rootFocus.requestFocus() }
         }
     }
     LaunchedEffect(scrubTick) {
@@ -519,13 +521,12 @@ fun PlayerScreen(vm: CinemaViewModel) {
                                 TransportButton("10↷", "تقديم ١٠ ثوانٍ", up) { interact(); seekBy(10_000) }
                             }
                         }
-                        // End side (left in RTL): quality badge, then the next-episode pill.
+                        // End side (left in RTL): the quality badge. Next episode appears above the timeline near the end instead.
                         Row(Modifier.align(Alignment.CenterEnd), horizontalArrangement = Arrangement.spacedBy(16.mx),
                             verticalAlignment = Alignment.CenterVertically) {
                             QualityBadge(vm.streams.getOrNull(streamIndex)?.resolution?.takeIf(String::isNotBlank) ?: "الجودة",
                                 enabled = vm.streams.isNotEmpty(), modifier = up.focusRequester(qualityFocus),
                                 onPlaced = { anchors[PlayerPanel.Quality] = it }) { openPanel(PlayerPanel.Quality, qualityFocus) }
-                            if(next != null && film.episode > 0) PlayerPill("الحلقة التالية", "▶|", primary = true, modifier = up) { playEpisode(next) }
                         }
                     }
                     AnimatedVisibility(episodesShown && episodes.isNotEmpty(),
@@ -539,7 +540,8 @@ fun PlayerScreen(vm: CinemaViewModel) {
         }
         if(promptShown && panel == null && !episodesShown) {
             // Skip-intro / next-episode prompt above the controls on the end side (left in RTL).
-            val promptModifier = Modifier.align(Alignment.BottomEnd).padding(end = 96.mx, bottom = 300.mx)
+            // Right above the timeline on the end side; it takes focus when it appears (see the prompt effect).
+            val promptModifier = Modifier.align(Alignment.BottomEnd).padding(end = 96.mx, bottom = 252.mx)
                 .focusRequester(nextEpisodeFocus)
                 .onFocusChanged { nextEpisodeFocused = it.isFocused }
                 .focusProperties { down = if(controlsVisible) seekFocus else rootFocus; up = if(controlsVisible) backFocus else rootFocus }
@@ -565,7 +567,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
             PlayerPanel.Quality -> "الجودة والسرعة"; PlayerPanel.Tracks -> "الصوت والترجمة"; PlayerPanel.SubtitleStyle -> "مظهر الترجمة"
         },
             anchor = panelAnchor,
-            width = when(shown) { PlayerPanel.Quality -> 480.mx; PlayerPanel.Tracks -> 680.mx; PlayerPanel.SubtitleStyle -> 640.mx },
+            width = when(shown) { PlayerPanel.Quality -> 300.mx; PlayerPanel.Tracks -> 400.mx; PlayerPanel.SubtitleStyle -> 420.mx },
             onDismiss = ::closePanel,
             onMediaToggle = { interact(); togglePlayback() }) { firstFocus ->
             when(shown) {
@@ -600,8 +602,8 @@ fun PlayerScreen(vm: CinemaViewModel) {
                     PlayerOption("إعادة الضبط الافتراضي", false) {
                         interact(); vm.chooseSubtitleSize(22f); vm.chooseSubtitleBackground(.5f); vm.chooseSubtitleHeight(.08f)
                     }
-                    Box(Modifier.fillMaxWidth().padding(top = 20.mx).background(Brand.Raised, RoundedCornerShape(16.mx))
-                        .padding(vertical = 36.mx), contentAlignment = Alignment.Center) {
+                    Box(Modifier.fillMaxWidth().padding(top = 10.mx).background(Brand.Raised, RoundedCornerShape(18.mx))
+                        .padding(vertical = 20.mx), contentAlignment = Alignment.Center) {
                         // The sample keeps the real subtitle size: this screen runs under the TV text scale.
                         androidx.compose.material3.Text("هذا نص تجريبي للترجمة", color = Color.White, fontFamily = Cairo,
                             fontSize = (vm.subtitleSize / TvMetrics.TextScale).sp, maxLines = 1,
@@ -609,7 +611,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                     }
                 }
                 PlayerPanel.Tracks -> {
-                    Label("الترجمة", 12, Brand.TextTertiary, true, modifier = Modifier.padding(start = 12.mx, top = 8.mx))
+                    Label("الترجمة", 10, Brand.TextMuted, true, modifier = Modifier.padding(start = 20.mx, top = 4.mx))
                     PlayerOption("إيقاف الترجمة", selected = player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT),
                         modifier = Modifier.focusRequester(firstFocus)) {
                         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -630,7 +632,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                         }
                     } }
                     if(textGroups.isEmpty()) Label("لا توجد مسارات ترجمة متاحة في هذا الفيديو.", 11, Brand.TextMuted, modifier = Modifier.padding(horizontal = 12.mx))
-                    Label("الصوت", 12, Brand.TextTertiary, true, modifier = Modifier.padding(start = 12.mx, top = 32.mx))
+                    Label("الصوت", 10, Brand.TextMuted, true, modifier = Modifier.padding(start = 20.mx, top = 14.mx))
                     val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                     var audioIndex = 0
                     audioGroups.forEach { group -> repeat(group.length) { index ->
@@ -907,14 +909,14 @@ private fun formatPlayerTime(value: Long): String {
 @Composable
 private fun PlayerOption(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(16.mx))
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(18.mx))
         .background(if(focused) Color.White else Color.Transparent)
         .onFocusChanged { focused = it.isFocused }
         .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)
-        .padding(horizontal = 28.mx, vertical = 18.mx),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Label(text, 14, if(focused) Brand.OnPrimary else Color.White, selected, lines = 1, modifier = Modifier.weight(1f))
-        if(selected) Label("✓", 15, if(focused) Brand.OnPrimary else Brand.Accent, true)
+        .padding(horizontal = 20.mx, vertical = 10.mx),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.mx)) {
+        Label(text, 12, if(focused) Brand.OnPrimary else Color.White, selected, lines = 1, modifier = Modifier.weight(1f))
+        if(selected) Label("✓", 12, if(focused) Brand.OnPrimary else Brand.Accent, true)
     }
 }
 
@@ -929,11 +931,11 @@ private fun PlayerOptionsDialog(
     val widthPx = with(density) { width.roundToPx() }
     val margin = with(density) { 32.mx.roundToPx() }
     val windowWidth = androidx.compose.ui.platform.LocalView.current.rootView.width
-    // Horizontal start of the panel and the point of the icon it grows from (as a fraction of the panel width).
-    val panelStart = (anchor.center.x - widthPx / 2).coerceIn(margin, (windowWidth - widthPx - margin).coerceAtLeast(margin))
+    // The panel lines up with the edge of its button that faces the screen edge, so it reads as part of the button.
+    val panelStart = panelX(anchor, widthPx, windowWidth, margin)
     val originX = if(anchor == IntRect.Zero) .5f else ((anchor.center.x - panelStart).toFloat() / widthPx).coerceIn(0f, 1f)
-    val gap = with(density) { 28.mx.roundToPx() }
-    val shape = RoundedCornerShape(24.mx)
+    val gap = with(density) { 18.mx.roundToPx() }
+    val shape = RoundedCornerShape(28.mx)
     LaunchedEffect(Unit) { entered = true }
     Popup(popupPositionProvider = remember(anchor, widthPx, gap, margin) { AboveAnchor(anchor, widthPx, gap, margin) },
         onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
@@ -943,15 +945,15 @@ private fun PlayerOptionsDialog(
                 transformOrigin = TransformOrigin(originX, 1f)) +
                 expandVertically(tween(240, easing = FastOutSlowInEasing), expandFrom = Alignment.Bottom),
             exit = fadeOut(tween(100))) {
-            Column(Modifier.width(width).heightIn(max = 720.mx)
-                .background(Brand.Surface.copy(alpha = .96f), shape).border(1.dp, Brand.Divider, shape)
-                .padding(16.mx).onPreviewKeyEvent { event ->
+            Column(Modifier.width(width).heightIn(max = 560.mx)
+                .background(Brand.Surface.copy(alpha = .94f), shape).border(1.dp, Brand.GlassStroke, shape)
+                .padding(10.mx).onPreviewKeyEvent { event ->
                     if(event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
                         if(event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN && event.nativeKeyEvent.repeatCount == 0) onMediaToggle()
                         true
                     } else false
                 }.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Label(title, 13, Color.White, true, modifier = Modifier.padding(start = 20.mx, top = 8.mx, bottom = 8.mx))
+                Label(title, 10, Brand.TextTertiary, true, lines = 1, modifier = Modifier.padding(start = 20.mx, top = 6.mx, bottom = 4.mx))
                 content(firstFocus)
             }
         }
@@ -959,13 +961,19 @@ private fun PlayerOptionsDialog(
     }
 }
 
-/** Places a panel directly above the button that opened it, centred on it and kept inside the window. */
+/** Left edge of a panel: flush with its button's outer edge (right edge for buttons on the right half). */
+private fun panelX(anchor: IntRect, widthPx: Int, windowWidth: Int, margin: Int): Int {
+    val x = if(anchor.center.x > windowWidth / 2) anchor.right - widthPx else anchor.left
+    return x.coerceIn(margin, (windowWidth - widthPx - margin).coerceAtLeast(margin))
+}
+
+/** Places a panel directly above the button that opened it, lined up with it and kept inside the window. */
 private class AboveAnchor(private val anchor: IntRect, private val widthPx: Int, private val gap: Int, private val margin: Int) :
     PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection,
         popupContentSize: IntSize): IntOffset {
         val a = if(anchor == IntRect.Zero) anchorBounds else anchor
-        val x = (a.center.x - widthPx / 2).coerceIn(margin, (windowSize.width - widthPx - margin).coerceAtLeast(margin))
+        val x = panelX(a, widthPx, windowSize.width, margin)
         val y = (a.top - popupContentSize.height - gap).coerceAtLeast(margin)
         return IntOffset(x, y)
     }
