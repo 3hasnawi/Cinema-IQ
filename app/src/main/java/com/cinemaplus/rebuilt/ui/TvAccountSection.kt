@@ -31,7 +31,7 @@ internal fun TvAccountSection(vm: CinemaViewModel, cloudVisible: Boolean, openCl
 }
 
 @Composable
-private fun SourceAccountDialog(vm: CinemaViewModel, dismiss: () -> Unit) {
+internal fun SourceAccountDialog(vm: CinemaViewModel, dismiss: () -> Unit) {
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     val userFocus = remember { FocusRequester() }
