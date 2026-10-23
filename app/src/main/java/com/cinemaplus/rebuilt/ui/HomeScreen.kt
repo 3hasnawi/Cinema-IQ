@@ -94,13 +94,14 @@ fun HomeScreen(vm: CinemaViewModel) {
         Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
             Box(Modifier.fillMaxWidth()) {
                 val hero = featured.getOrNull(heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork)
-                HomeHeroArtwork(hero, Modifier.fillMaxWidth().height(760.mx))
+                // The artwork runs the full screen height, behind the continue-watching row too.
+                HomeHeroArtwork(hero, Modifier.fillMaxWidth().height(1080.mx))
                 Column(Modifier.fillMaxWidth()) {
                     if (hero != null) {
                         HomeHero(vm, hero, featured.size, heroIndex.intValue, recent, playFocus,
                             Modifier.onFocusChanged { if (it.hasFocus) scope.launch { scroll.animateScrollTo(0) } })
                     } else {
-                        Box(Modifier.fillMaxWidth().height(680.mx)) {
+                        Box(Modifier.fillMaxWidth().height(HeroHeight)) {
                             if (vm.busy) HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeInset).width(820.mx))
                         }
                     }
@@ -168,15 +169,21 @@ private fun HomeHeroArtwork(film: Film?, modifier: Modifier) {
         Box(Modifier.fillMaxSize().drawWithCache {
             val bg = Brand.Background
             // From the text edge: solid, 92% at 28%, 35% at 58%, clear from 80%.
-            val stops = arrayOf(0f to bg, .28f to bg.copy(alpha = .92f), .58f to bg.copy(alpha = .35f), .80f to Color.Transparent, 1f to Color.Transparent)
+            val stops = arrayOf(0f to bg.copy(alpha = .90f), .34f to bg.copy(alpha = .62f), .62f to bg.copy(alpha = .16f), .84f to Color.Transparent, 1f to Color.Transparent)
             val side = Brush.horizontalGradient(*(if (rtl) stops.map { (1f - it.first) to it.second }.reversed().toTypedArray() else stops))
-            val bottom = Brush.verticalGradient(0f to Color.Transparent, (460f / 760f) to Color.Transparent, 1f to bg)
+            val bottom = Brush.verticalGradient(0f to Color.Transparent, .55f to Color.Transparent, .80f to bg.copy(alpha = .75f), 1f to bg)
             onDrawBehind { drawRect(side); drawRect(bottom) }
         })
     }
 }
 
-/** Title block of the hero (kind chip, title, facts, two-line story, actions, rotation dots). 680 px tall. */
+/**
+ * Height of the hero: the screen less the continue-watching row, which alone shows at the bottom; the other
+ * shelves follow on scrolling down.
+ */
+private val HeroHeight = 735.mx
+
+/** Title block of the hero (kind chip, title, facts, two-line story, actions, rotation dots). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, recent: List<Film>,
@@ -195,8 +202,9 @@ private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, re
         !film.series && started -> "استئناف"
         else -> "شاهد الآن"
     }
-    Box(modifier.fillMaxWidth().height(680.mx)) {
-        Column(Modifier.align(Alignment.TopStart).padding(start = TvMetrics.HomeInset, top = 150.mx).width(820.mx),
+    Box(modifier.fillMaxWidth().height(HeroHeight)) {
+        // Anchored low, so the artwork shows clearly above the text.
+        Column(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeInset, bottom = 64.mx).width(820.mx),
             verticalArrangement = Arrangement.spacedBy(20.mx)) {
             AccentChip(if (film.series) "مسلسل" else "فيلم")
             Text(mediaTitle(film), color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
@@ -226,7 +234,7 @@ private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, re
                 PillButton("التفاصيل", Icons.Rounded.Info, primary = false) { vm.open(film) }
             }
         }
-        if (count > 1) Row(Modifier.align(Alignment.TopStart).padding(start = TvMetrics.HomeInset, top = 640.mx),
+        if (count > 1) Row(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeInset, bottom = 30.mx),
             horizontalArrangement = Arrangement.spacedBy(8.mx)) {
             repeat(count) { dot ->
                 val on = dot == index
