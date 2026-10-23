@@ -38,6 +38,9 @@ import coil.request.ImageRequest
 import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.Film
 import com.cinemaplus.rebuilt.data.Shelf
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -70,11 +73,22 @@ fun HomeScreen(vm: CinemaViewModel) {
     val lastInput = remember { longArrayOf(System.currentTimeMillis()) }
     val playFocus = remember { FocusRequester() }
     val scroll = rememberScrollState()
+    // The card that opened a title or started playback ("shelf/film"); coming back lands on it, not on the hero.
+    var returnKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val returnFocus = remember { FocusRequester() }
+    var restoring by remember { mutableStateOf(returnKey != null) }
+    LaunchedEffect(Unit) {
+        if (returnKey != null) { if (awaitTvFocus { returnFocus }) delay(400) else returnKey = null }
+        restoring = false
+    }
+    // Height of the first row under the hero, measured, so that row alone shows at the bottom of any screen.
+    var firstRowHeight by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     LaunchedEffect(featured) { vm.enrich(featured) }
     // Entering the page from the rail, or coming back to it, lands on the hero's main button.
-    RegisterPageEntry(if (featured.isNotEmpty()) playFocus else null)
+    RegisterPageEntry(if (returnKey != null) returnFocus else if (featured.isNotEmpty()) playFocus else null)
     LaunchedEffect(featured) {
         while (true) {
             delay(1_000)
@@ -91,29 +105,39 @@ fun HomeScreen(vm: CinemaViewModel) {
     Box(Modifier.fillMaxSize().background(Brand.Background).onPreviewKeyEvent {
         lastInput[0] = System.currentTimeMillis(); false
     }) {
+      BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Sizes come from the real screen: TVs report different densities, so fixed heights left two rows showing.
+        val screen = maxHeight
+        val row = if (firstRowHeight > 0) with(density) { firstRowHeight.toDp() } else 330.mx
+        val heroHeight = (screen - row).coerceAtLeast(screen * .55f)
         Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
             Box(Modifier.fillMaxWidth()) {
                 val hero = featured.getOrNull(heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork)
                 // The artwork runs the full screen height, behind the continue-watching row too.
-                HomeHeroArtwork(hero, Modifier.fillMaxWidth().height(1080.mx))
+                HomeHeroArtwork(hero, Modifier.fillMaxWidth().height(screen))
                 Column(Modifier.fillMaxWidth()) {
                     if (hero != null) {
-                        HomeHero(vm, hero, featured.size, heroIndex.intValue, recent, playFocus,
-                            Modifier.onFocusChanged { if (it.hasFocus) scope.launch { scroll.animateScrollTo(0) } })
+                        HomeHero(vm, hero, featured.size, heroIndex.intValue, recent, playFocus, heroHeight,
+                            Modifier.onFocusChanged { if (it.hasFocus && !restoring) { returnKey = null; scope.launch { scroll.animateScrollTo(0) } } })
                     } else {
-                        Box(Modifier.fillMaxWidth().height(HeroHeight)) {
+                        Box(Modifier.fillMaxWidth().height(heroHeight)) {
                             if (vm.busy) HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeInset).width(820.mx))
                         }
                     }
-                    if (recent.isNotEmpty()) HomeShelf {
+                    if (recent.isNotEmpty()) HomeShelf(Modifier.onSizeChanged { firstRowHeight = it.height }) {
                         TvShelfRow(Shelf("recent", "متابعة المشاهدة", recent), vm, wide = true, width = TvMetrics.ContinueWidth,
                             preview = false, inset = TvMetrics.HomeInset,
+                            firstRequester = returnFocus.takeIf { returnKey?.substringBefore('/') == "recent" },
+                            firstRequesterIndex = recent.indexOfFirst { "recent/${it.id}" == returnKey }.coerceAtLeast(0),
                             onCardLongClick = { film -> vm.showRecentOptions(film) },
-                            onCardClick = { vm.play(it) })
+                            onCardClick = { returnKey = "recent/${it.id}"; vm.play(it) })
                     }
-                    shelves.forEach { shelf ->
-                        HomeShelf {
-                            TvShelfRow(shelf, vm, preview = false, titleOnly = true, inset = TvMetrics.HomeInset)
+                    shelves.forEachIndexed { index, shelf ->
+                        HomeShelf(if (index == 0 && recent.isEmpty()) Modifier.onSizeChanged { firstRowHeight = it.height } else Modifier) {
+                            TvShelfRow(shelf, vm, preview = false, titleOnly = true, inset = TvMetrics.HomeInset,
+                                firstRequester = returnFocus.takeIf { returnKey?.substringBeforeLast('/') == shelf.id },
+                                firstRequesterIndex = shelf.films.indexOfFirst { "${shelf.id}/${it.id}" == returnKey }.coerceAtLeast(0),
+                                onCardClick = { returnKey = "${shelf.id}/${it.id}"; vm.open(it) })
                         }
                     }
                     if (vm.busy && shelves.isEmpty()) ShelfSkeleton()
@@ -133,16 +157,17 @@ fun HomeScreen(vm: CinemaViewModel) {
                 Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
             }
         }
+      }
     }
 }
 
 /** Keeps a whole shelf (title and cards) on screen when focus enters it. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun HomeShelf(content: @Composable () -> Unit) {
+private fun HomeShelf(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val bring = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
-    Box(Modifier.fillMaxWidth().padding(bottom = 22.mx).bringIntoViewRequester(bring)
+    Box(modifier.fillMaxWidth().padding(bottom = 22.mx).bringIntoViewRequester(bring)
         .onFocusChanged { if (it.hasFocus) scope.launch { bring.bringIntoView() } }) { content() }
 }
 
@@ -177,17 +202,11 @@ private fun HomeHeroArtwork(film: Film?, modifier: Modifier) {
     }
 }
 
-/**
- * Height of the hero: the screen less the continue-watching row, which alone shows at the bottom; the other
- * shelves follow on scrolling down.
- */
-private val HeroHeight = 735.mx
-
 /** Title block of the hero (kind chip, title, facts, two-line story, actions, rotation dots). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, recent: List<Film>,
-    playFocus: FocusRequester, modifier: Modifier) {
+    playFocus: FocusRequester, height: Dp, modifier: Modifier) {
     var about by remember(film.id) { mutableStateOf(film.description) }
     var quality by remember(film.id) { mutableStateOf(film.contentQuality) }
     LaunchedEffect(film.id) { if (about.isBlank()) about = runCatching { vm.describe(film) }.getOrDefault("") }
@@ -202,7 +221,8 @@ private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, re
         !film.series && started -> "استئناف"
         else -> "شاهد الآن"
     }
-    Box(modifier.fillMaxWidth().height(HeroHeight)) {
+    // The screen less the first row under it; it grows rather than cut the text when the text needs more room.
+    Box(modifier.fillMaxWidth().heightIn(min = height)) {
         // Anchored low, so the artwork shows clearly above the text.
         Column(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeInset, bottom = 64.mx).width(820.mx),
             verticalArrangement = Arrangement.spacedBy(20.mx)) {

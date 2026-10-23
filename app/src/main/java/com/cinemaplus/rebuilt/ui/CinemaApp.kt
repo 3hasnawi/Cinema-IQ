@@ -459,7 +459,7 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
     val libraryFilms = remember(vm.libraryRevision, vm.librarySection) { vm.libraryItems() }
     val films = if(vm.page == Page.Library) vm.filter.apply(libraryFilms) else vm.shelves.flatMap { it.films }.distinctBy { it.id }
     val firstFocus = remember { FocusRequester() }
-    RegisterPageEntry(if (films.isNotEmpty()) firstFocus else null)
+    // The grid names the page entry itself: its first card, or the card a title was opened from.
     Column(Modifier.fillMaxSize().padding(top = TvMetrics.TabBarSpace)) {
         PosterGrid(films, vm, firstRequester = firstFocus,
             header = {
