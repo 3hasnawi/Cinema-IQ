@@ -15,7 +15,7 @@ final class LongTourTests: XCTestCase {
 
     func testLongTour() {
         launch()
-        shot("home")
+        shot("home tvOS " + ProcessInfo.processInfo.operatingSystemVersionString.replacingOccurrences(of: "/", with: "-"))
 
         for pick in 0..<3 {
             openTab("مسلسلات")
@@ -39,6 +39,7 @@ final class LongTourTests: XCTestCase {
             shot("player-panel-down")
             press(.right, wait: 2)
             shot("player-panel-right")
+            press(.menu, wait: 2)
             press(.menu, wait: 2)
             press(.menu, wait: 4)
             shot("after-player")

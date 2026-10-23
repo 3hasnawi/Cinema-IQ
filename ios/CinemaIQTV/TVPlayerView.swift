@@ -40,11 +40,14 @@ struct TVPlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            // On an error the system player is taken away, so the remote reaches the panel's buttons and Menu.
+            if failure == nil {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: offerNext ? (next?.id ?? "") : "", actions: { actions },
                          episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
                 .ignoresSafeArea()
+            }
             VStack {
                 Spacer()
                 if let cue = controller.cue {
@@ -54,22 +57,37 @@ struct TVPlayerView: View {
             }
             .allowsHitTesting(false)
             if loading && resolutionError == nil && controller.error == nil { ProgressView().allowsHitTesting(false) }
-            if let message = resolutionError ?? controller.error {
-                VStack(spacing: 24) {
-                    Text(message).multilineTextAlignment(.center).frame(maxWidth: 1000)
+            if let message = failure {
+                VStack(spacing: 28) {
+                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 60)).foregroundStyle(TVTheme.accent)
+                    Text(current.episode > 0 ? "\(current.title) · الموسم \(current.season) · الحلقة \(current.episode)" : current.title)
+                        .font(.headline)
+                    Text(message).multilineTextAlignment(.center).foregroundStyle(TVTheme.muted).frame(maxWidth: 1000)
                     HStack(spacing: 30) {
                         if streams.count > 1 && resolutionError == nil {
                             Menu("جودة أخرى") { ForEach(streams) { stream in Button(stream.quality) { choose(stream) } } }
                         }
+                        if let next {
+                            Button("الحلقة \(next.episode)") { active = next }
+                        }
                         Button("إغلاق") { dismiss() }
                     }
                 }
-                .padding(50)
+                .padding(60)
                 .background(TVTheme.panel.opacity(0.95), in: RoundedRectangle(cornerRadius: 36, style: .continuous))
+                .focusSection()
+                .onExitCommand { dismiss() }
             }
         }
         .task(id: current.id) { await start(current) }
         .onDisappear { controller.close() }
+    }
+
+    /// The error to show, worded for the Apple TV (the shared messages speak of the iPhone's player).
+    private var failure: String? {
+        (resolutionError ?? controller.error).map {
+            $0.replacingOccurrences(of: "بمشغّل الآيفون", with: "على Apple TV").replacingOccurrences(of: "الآيفون", with: "Apple TV")
+        }
     }
 
     // MARK: Menus in the transport bar

@@ -20,7 +20,14 @@ struct TVDetailView: View {
     @State private var showStory = false
     @FocusState private var focus: DetailFocus?
 
-    private enum DetailFocus: Hashable { case play, list, story, season(Int) }
+    /// Where Down goes is also set by hand (header → chosen season → its first episode), so the page never depends
+    /// on the focus engine finding a row that is still below the screen.
+    enum DetailFocus: Hashable { case play, list, story, season(Int), episode(String) }
+
+    private func downToSeasons(_ direction: MoveCommandDirection) {
+        guard direction == .down, !seasons.isEmpty else { return }
+        focus = .season(seasonID)
+    }
 
     private var current: Media { media ?? initial }
     private var episodes: [Media] { seasons.first { $0.id == seasonID }?.episodes ?? [] }
@@ -100,6 +107,7 @@ struct TVDetailView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .focused($focus, equals: .list)
+                    .onMoveCommand(perform: downToSeasons)
                 }
                 .frame(width: 440)
                 VStack(alignment: .leading, spacing: 14) {
@@ -114,6 +122,7 @@ struct TVDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .focused($focus, equals: .story)
+                        .onMoveCommand(perform: downToSeasons)
                     }
                 }
                 .frame(maxWidth: 820, alignment: .leading)
@@ -161,6 +170,12 @@ struct TVDetailView: View {
                         Button { seasonID = season.id } label: { Text(seasonTitle(season)) }
                             .buttonStyle(SeasonTabStyle(selected: season.id == seasonID))
                             .focused($focus, equals: .season(season.id))
+                            .onMoveCommand { direction in
+                                guard direction == .down, let first = episodes.first else { return }
+                                // Only episodes already on screen can take focus in the lazy row.
+                                let inProgress = episodes.prefix(4).first { library.progress[$0.id]?.completed == false }
+                                focus = .episode((inProgress ?? first).id)
+                            }
                     }
                 }
                 .padding(.vertical, 8)
@@ -171,7 +186,7 @@ struct TVDetailView: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(episodes) { episode in
-                        EpisodeLockup(episode: episode, seriesTitle: current.title, rating: omdbSeasons[seasonID]?.ratings[episode.episode],
+                        EpisodeLockup(episode: episode, focus: $focus, seriesTitle: current.title, rating: omdbSeasons[seasonID]?.ratings[episode.episode],
                                       aired: episode.airDate.isEmpty ? (omdbSeasons[seasonID]?.released[episode.episode] ?? "") : episode.airDate) {
                             player.play(episode, queue: queue)
                         }
@@ -265,6 +280,7 @@ struct SeasonTabStyle: ButtonStyle {
 /// Episode lockup: 16:9 still with progress, then "episode N", its name and length with the IMDb rating.
 struct EpisodeLockup: View {
     let episode: Media
+    var focus: FocusState<TVDetailView.DetailFocus?>.Binding
     let seriesTitle: String
     let rating: String?
     /// First shown, as the source or OMDb gives it.
@@ -307,5 +323,6 @@ struct EpisodeLockup: View {
             .containerRelativeFrame(.horizontal, count: 4, spacing: 40, alignment: .leading)
         }
         .buttonStyle(.borderless)
+        .focused(focus, equals: .episode(episode.id))
     }
 }
