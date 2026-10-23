@@ -85,6 +85,9 @@ targets:
         buildPhase: resources
     dependencies:
       - package: CinemaCore
+    scheme:
+      testTargets:
+        - CinemaIQTVUITests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.tv
@@ -120,3 +123,17 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSExceptionMinimumTLSVersion: TLSv1.0
               NSExceptionRequiresForwardSecrecy: false
+  # Screenshot tour of the Apple TV app in the simulator (the "Apple TV screenshots" workflow).
+  CinemaIQTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: CinemaIQTVUITests
+    dependencies:
+      - target: CinemaIQTV
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.tv.uitests
+        TEST_TARGET_NAME: CinemaIQTV

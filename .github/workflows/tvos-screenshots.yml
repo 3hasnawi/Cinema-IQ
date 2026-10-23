@@ -1,0 +1,61 @@
+name: Apple TV screenshots
+
+# Manual only: runs the Apple TV app in the tvOS simulator, walks its screens with the remote and uploads the
+# screenshots. Nothing is signed or exported.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    runs-on: macos-15
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest installed Xcode
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+      - name: Prepare an Apple TV simulator
+        run: |
+          set -euo pipefail
+          if ! xcrun simctl list runtimes | grep -q "tvOS"; then
+            xcodebuild -downloadPlatform tvOS
+          fi
+          xcrun simctl list runtimes
+          runtime="$(xcrun simctl list runtimes | grep tvOS | tail -1 | sed -E 's/.* - (com\.apple\.CoreSimulator\.SimRuntime\.[^ ]+).*/\1/')"
+          type="$(xcrun simctl list devicetypes | grep -m1 'Apple TV 4K' | sed -E 's/.*\((com\.apple\.[^)]+)\).*/\1/')"
+          device="$(xcrun simctl create CinemaTV "$type" "$runtime")"
+          xcrun simctl boot "$device"
+          echo "TV_DEVICE=$device" >> "$GITHUB_ENV"
+      - name: Walk the app and take screenshots
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project ios/CinemaIQ.xcodeproj \
+            -scheme CinemaIQTV \
+            -destination "id=$TV_DEVICE" \
+            -resultBundlePath "$RUNNER_TEMP/shots.xcresult" \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | grep -E "error:|Test Case|TEST (SUCCEEDED|FAILED)" || true
+      - name: Export screenshots
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/shots"
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/shots.xcresult" --output-path "$RUNNER_TEMP/shots"
+          ls -la "$RUNNER_TEMP/shots"
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinema-iQ-AppleTV-screenshots-${{ github.run_number }}
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: error
+          retention-days: 3
