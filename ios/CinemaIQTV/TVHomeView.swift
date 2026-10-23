@@ -38,16 +38,20 @@ struct TVHomeView: View {
                             .onScrollVisibilityChange(threshold: 0.5) { visible in
                                 withAnimation { belowFold = !visible }
                             }
-                        if !recent.isEmpty {
-                            TVShelf(title: "تابع المشاهدة") {
-                                ForEach(recent) { media in ContinueLockup(media: media) }
+                        // At least a screen tall, so the page can always scroll to the fold.
+                        VStack(alignment: .leading, spacing: 56) {
+                            if !recent.isEmpty {
+                                TVShelf(title: "تابع المشاهدة") {
+                                    ForEach(recent) { media in ContinueLockup(media: media) }
+                                }
+                            }
+                            ForEach(shelves) { shelf in
+                                TVShelf(title: shelf.title) {
+                                    ForEach(shelf.items) { media in PosterLockup(media: media) }
+                                }
                             }
                         }
-                        ForEach(shelves) { shelf in
-                            TVShelf(title: shelf.title) {
-                                ForEach(shelf.items) { media in PosterLockup(media: media) }
-                            }
-                        }
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height - 56, alignment: .topLeading)
                     }
                     .padding(.bottom, 60)
                 }

@@ -281,9 +281,11 @@ struct FoldSnapping: ScrollTargetBehavior {
     var aboveFold: Bool
     var showcaseHeight: CGFloat
     func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+        // The fold can never be past the end of the page (a short page ends before it).
+        let fold = min(showcaseHeight, max(0, context.contentSize.height - context.containerSize.height))
         if aboveFold {
-            if target.rect.minY > 1 { target.rect.origin.y = max(target.rect.minY, showcaseHeight) }
-        } else if target.rect.minY < showcaseHeight - 1 {
+            if target.rect.minY > 1 { target.rect.origin.y = max(target.rect.minY, fold) }
+        } else if target.rect.minY < fold - 1 {
             target.rect.origin.y = 0
         }
     }

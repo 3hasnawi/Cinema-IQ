@@ -53,8 +53,12 @@ struct TVDetailView: View {
                             .onScrollVisibilityChange(threshold: 0.5) { visible in
                                 withAnimation { belowFold = !visible }
                             }
-                        if !seasons.isEmpty { episodesSection }
-                        if !actors.isEmpty { castSection }
+                        // At least a screen tall, so the page can always scroll to the fold.
+                        VStack(alignment: .leading, spacing: 60) {
+                            if !seasons.isEmpty { episodesSection }
+                            if !actors.isEmpty { castSection }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: proxy.size.height - 60, alignment: .topLeading)
                     }
                     .padding(.bottom, 60)
                 }
