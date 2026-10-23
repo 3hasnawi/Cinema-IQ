@@ -8,11 +8,12 @@ on:
   push:
     branches: ['claude/ios-tvos-**']
     paths:
+      - 'ios/CinemaIQTV/**'
       - 'ios/CinemaIQTVUITests/**'
       - '.github/workflows/tvos-screenshots.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   screenshots:
@@ -58,6 +59,24 @@ jobs:
           mkdir -p "$RUNNER_TEMP/shots"
           xcrun xcresulttool export attachments --path "$RUNNER_TEMP/shots.xcresult" --output-path "$RUNNER_TEMP/shots"
           ls -la "$RUNNER_TEMP/shots"
+      - name: Publish screenshots to the tvos-screenshots branch
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/named"; mkdir -p "$out"
+          python3 - "$RUNNER_TEMP/shots" "$out" <<'PY'
+          import json, shutil, sys, os
+          src, dst = sys.argv[1], sys.argv[2]
+          for test in json.load(open(os.path.join(src, "manifest.json"))):
+              for a in test.get("attachments", []):
+                  name = a.get("suggestedHumanReadableName", a["exportedFileName"]).split("_")[0]
+                  shutil.copy(os.path.join(src, a["exportedFileName"]), os.path.join(dst, name + ".png"))
+          PY
+          for f in "$out"/*.png; do sips -Z 1280 "$f" >/dev/null; done
+          cd "$out"
+          git init -q -b tvos-screenshots
+          git -c user.name=github-actions -c user.email=actions@github.com add .
+          git -c user.name=github-actions -c user.email=actions@github.com commit -qm "Apple TV screenshots ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" tvos-screenshots
       - name: Upload screenshots
         uses: actions/upload-artifact@v4
         with:
