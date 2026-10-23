@@ -80,7 +80,12 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
     // A series shows the selected season's year; it falls back to the series year when TMDB gave no season date.
-    val seasonYear = if (film.series) season?.airDate?.take(4)?.takeIf { y -> y.length == 4 && y.all { it.isDigit() } } else null
+    // The selected season's own year: its air date, else its first episode's air date or year; the series year last.
+    val seasonYear = if (!film.series || season == null) null else {
+        fun year(text: String?) = text?.trim()?.take(4)?.takeIf { y -> y.length == 4 && y.all { it.isDigit() } }
+        year(season.airDate) ?: season.episodes.mapNotNull { year(it.airDate) }.minOrNull()
+            ?: season.episodes.mapNotNull { year(it.year) }.minOrNull()
+    }
     LaunchedEffect(film.id, season?.number) { if (season != null) vm.enrichSelectedSeason() }
     val candidates = vm.shelves.map { it.copy(films = it.films.map(vm::withArtwork)) }
     val related = relatedFilms(film, candidates)
@@ -187,15 +192,24 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
                     .onFocusChanged { if (it.hasFocus) stage = 1 }.padding(bottom = 40.mx),
                     verticalArrangement = Arrangement.spacedBy(18.mx)) {
                     if (tabs.isNotEmpty()) {
-                        Row(Modifier.padding(start = 96.mx).focusGroup(), horizontalArrangement = Arrangement.spacedBy(12.mx),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            tabs.forEachIndexed { index, tab ->
-                                if (tab.season < 0 && index > 0) Box(Modifier.padding(horizontal = 8.mx).size(1.dp, 28.mx).background(Color.White.copy(alpha = .15f)))
-                                DetailsTabPill(tab.label, tab == activeTab,
-                                    Modifier.then(if (tab == activeTab) Modifier.focusRequester(tabFocus) else Modifier)
-                                        .focusProperties { up = playFocus; down = rowFocus }) {
-                                    tabKey = tab.key
-                                    if (tab.season >= 0 && vm.seasonIndex != tab.season) vm.seasonIndex = tab.season
+                        // A scrolling row: series with many seasons used to overflow and overlap here.
+                        val tabState = rememberLazyListState()
+                        val activeIndex = tabs.indexOf(activeTab).coerceAtLeast(0)
+                        LaunchedEffect(film.id, tabs.size) { tabState.scrollToItem(activeIndex) }
+                        CompositionLocalProvider(LocalBringIntoViewSpec provides CenteredDetailsRow) {
+                            LazyRow(state = tabState, contentPadding = PaddingValues(start = 96.mx, end = 58.mx),
+                                horizontalArrangement = Arrangement.spacedBy(12.mx), verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().focusGroup()) {
+                                itemsIndexed(tabs, key = { _, tab -> tab.key }) { index, tab ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (tab.season < 0 && index > 0) Box(Modifier.padding(end = 20.mx).size(1.dp, 28.mx).background(Color.White.copy(alpha = .15f)))
+                                        DetailsTabPill(tab.label, tab == activeTab,
+                                            Modifier.then(if (tab == activeTab) Modifier.focusRequester(tabFocus) else Modifier)
+                                                .focusProperties { up = playFocus; down = rowFocus }) {
+                                            tabKey = tab.key
+                                            if (tab.season >= 0 && vm.seasonIndex != tab.season) vm.seasonIndex = tab.season
+                                        }
+                                    }
                                 }
                             }
                         }

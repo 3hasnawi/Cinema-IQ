@@ -128,6 +128,27 @@ private object NoFocusScroll : BringIntoViewSpec {
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
 }
 
+/**
+ * Scrolls only as far as needed to show the requested area, like a phone list. Android TV's default instead keeps
+ * the focused element 30 % from the top, which on Home pushed the hero up and showed two rows under it.
+ */
+private object MinimalFocusScroll : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val trailing = offset + size
+        return when {
+            offset >= 0f && trailing <= containerSize -> 0f
+            offset < 0f && trailing > containerSize -> 0f
+            kotlin.math.abs(offset) < kotlin.math.abs(trailing - containerSize) -> offset
+            else -> trailing - containerSize
+        }
+    }
+}
+
+@Composable
+fun WithMinimalFocusScroll(content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalBringIntoViewSpec provides MinimalFocusScroll, content = content)
+}
+
 @Composable
 fun WithoutFocusScroll(content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalBringIntoViewSpec provides NoFocusScroll, content = content)
