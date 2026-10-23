@@ -21,6 +21,7 @@ final class ScreenshotTests: XCTestCase {
         shot("03-series-focused")
         press(.select, wait: 8)
         shot("04-series-page")
+        press(.down, wait: 2)
         press(.down, wait: 3)
         shot("05-seasons")
         press(.down, wait: 3)
