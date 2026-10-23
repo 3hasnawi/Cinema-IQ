@@ -110,6 +110,7 @@ fun HomeScreen(vm: CinemaViewModel) {
         val screen = maxHeight
         val row = if (firstRowHeight > 0) with(density) { firstRowHeight.toDp() } else 330.mx
         val heroHeight = (screen - row).coerceAtLeast(screen * .55f)
+        WithMinimalFocusScroll {
         Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
             Box(Modifier.fillMaxWidth()) {
                 val hero = featured.getOrNull(heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork)
@@ -156,6 +157,7 @@ fun HomeScreen(vm: CinemaViewModel) {
                 }
                 Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
             }
+        }
         }
       }
     }
