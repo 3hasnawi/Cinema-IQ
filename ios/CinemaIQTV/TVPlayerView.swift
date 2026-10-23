@@ -76,10 +76,18 @@ struct TVPlayerView: View {
     /// Everything the menus show; they are rebuilt only when this changes, so an open menu is not replaced while
     /// the video plays (the controller publishes its position several times a second).
     private var menuKey: String {
-        [streams.map(\.id).joined(separator: ","), quality ?? "", controller.subtitleID ?? "",
-         externalTracks.map(\.id).joined(separator: ","), controller.embeddedSubtitles.map(\.id).joined(separator: ","),
-         "\(subtitleSize)", "\(subtitleBackground)", controller.audioOptions.map(\.id).joined(separator: ","),
-         controller.audioID ?? "", "\(controller.rate)"].joined(separator: "|")
+        var parts: [String] = []
+        parts.append(streams.map(\.id).joined(separator: ","))
+        parts.append(quality ?? "")
+        parts.append(controller.subtitleID ?? "")
+        parts.append(externalTracks.map(\.id).joined(separator: ","))
+        parts.append(controller.embeddedSubtitles.map(\.id).joined(separator: ","))
+        parts.append(String(subtitleSize))
+        parts.append(String(subtitleBackground))
+        parts.append(controller.audioOptions.map(\.id).joined(separator: ","))
+        parts.append(controller.audioID ?? "")
+        parts.append(String(controller.rate))
+        return parts.joined(separator: "|")
     }
 
     private var menus: [UIMenuElement] {
