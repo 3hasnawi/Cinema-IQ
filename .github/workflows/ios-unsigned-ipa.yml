@@ -71,7 +71,7 @@ jobs:
           name: Cinema-iQ-iPhone-unsigned-${{ github.run_number }}
           path: ${{ runner.temp }}/ipa-output/Cinema-iQ-iPhone-unsigned.ipa
           if-no-files-found: error
-          retention-days: 3
+          retention-days: 1
       - name: Explain installation
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
