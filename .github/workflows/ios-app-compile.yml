@@ -1,0 +1,55 @@
+name: iOS App Compile Check
+
+# Compiles the SwiftUI app for a physical iPhone without signing and without uploading anything (no IPA export).
+# Runs only for pushes to iOS work branches, so ordinary Android work never uses macOS minutes.
+on:
+  push:
+    branches: ['claude/ios-**', 'chatgpt/ios-**']
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-app-compile.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-app-compile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest installed Xcode
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          echo "::notice::$(xcodebuild -version | head -1), iOS SDK $(xcrun --sdk iphoneos --show-sdk-version), $(swift --version 2>&1 | head -1)"
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Test source parsing
+        run: swift test --package-path ios/Core
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+      - name: Compile for physical iPhone without signing
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/CinemaIQ.xcodeproj \
+            -scheme CinemaIQ \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            build 2>&1 | tee "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
+          grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
+      - name: Report compile errors
+        if: failure()
+        run: grep -E "error:" "$RUNNER_TEMP/build.log" | head -40 | while read -r line; do echo "::error::$line"; done

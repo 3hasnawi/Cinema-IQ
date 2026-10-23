@@ -1,0 +1,20 @@
+name: iOS Core Checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-core-checks.yml'
+permissions:
+  contents: read
+concurrency:
+  group: ios-core-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  swift-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test source parsing and media identity
+        run: swift test --package-path ios/Core

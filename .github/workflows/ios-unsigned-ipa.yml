@@ -1,0 +1,84 @@
+name: Build unsigned iPhone IPA
+
+# Manual only: exporting an app requires an explicit user build request.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-unsigned-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  iphone-ipa:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set temporary paths
+        run: |
+          echo "DERIVED_DATA=$RUNNER_TEMP/CinemaIQDerivedData" >> "$GITHUB_ENV"
+          echo "IPA_STAGING=$RUNNER_TEMP/CinemaIQIPA" >> "$GITHUB_ENV"
+      - name: Select the newest installed Xcode
+        # Liquid Glass needs the iOS 26 SDK or later; the app still builds (without glass) on older Xcode.
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+      - name: Inspect Xcode toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Test source parsing
+        run: swift test --package-path ios/Core
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+      - name: Compile Release for physical iPhone without signing
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/CinemaIQ.xcodeproj \
+            -scheme CinemaIQ \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            build
+      - name: Package unsigned device app
+        run: |
+          set -euo pipefail
+          device_app="$DERIVED_DATA/Build/Products/Release-iphoneos/CinemaIQ.app"
+          test -d "$device_app"
+          test -x "$device_app/CinemaIQ"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist"
+          xcrun lipo "$device_app/CinemaIQ" -verify_arch arm64
+          mkdir -p "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output"
+          ditto "$device_app" "$IPA_STAGING/Payload/CinemaIQ.app"
+          ditto -c -k --keepParent "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
+          unzip -t "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
+      - name: Upload IPA for Windows sideloading
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinema-iQ-iPhone-unsigned-${{ github.run_number }}
+          path: ${{ runner.temp }}/ipa-output/Cinema-iQ-iPhone-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 3
+      - name: Explain installation
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
+          ## iPhone preview for Windows testing
+          Download the artifact ZIP, extract it, and select **Cinema-iQ-iPhone-unsigned.ipa** in Sideloadly on Windows. This is an arm64 iPhone app, not a simulator build.
+
+          Install and use Sideloadly from https://sideloadly.io/. Connect and trust the iPhone, sign with your own Apple account, and enable Developer Mode on the phone if requested. Free-account signing normally expires after 7 days and must be renewed. Do not send Apple credentials, verification codes or signing certificates to the repository or chat.
+
+          No Apple developer certificate or GitHub signing secret is required for this unsigned artifact. The download expires after 3 days. No public release or TestFlight upload is performed. See `ios/WINDOWS-TESTING.md` for steps and preview limitations.
+          SUMMARY
