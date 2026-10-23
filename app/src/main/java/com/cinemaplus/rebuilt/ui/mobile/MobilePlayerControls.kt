@@ -173,10 +173,10 @@ fun MobileSeekBar(player: Player, onScrubbing: (Boolean) -> Unit, onInteract: ()
 @Composable
 fun MobileOption(text: String, selected: Boolean, onClick: () -> Unit) {
     Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick)
-        .padding(horizontal = 14.dp, vertical = 11.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Label(text, 15, Color.White, selected, lines = 1, modifier = Modifier.weight(1f))
-        if (selected) Label("✓", 16, Accent, true)
+        .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Label(text, 13, Color.White, selected, lines = 1, modifier = Modifier.weight(1f))
+        if (selected) Label("✓", 13, Accent, true)
     }
 }
 
@@ -189,9 +189,10 @@ fun MobileOptionsPopup(title: String, anchor: IntRect, width: Dp, onDismiss: () 
     val margin = with(density) { 12.dp.roundToPx() }
     val gap = with(density) { 12.dp.roundToPx() }
     val windowWidth = with(density) { LocalConfiguration.current.screenWidthDp.dp.roundToPx() }
-    val panelStart = (anchor.center.x - widthPx / 2).coerceIn(margin, (windowWidth - widthPx - margin).coerceAtLeast(margin))
+    // Lined up with the outer edge of its button, so the panel reads as part of it.
+    val panelStart = mobilePanelX(anchor, widthPx, windowWidth, margin)
     val originX = if (anchor == IntRect.Zero) .5f else ((anchor.center.x - panelStart).toFloat() / widthPx).coerceIn(0f, 1f)
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(18.dp)
     LaunchedEffect(Unit) { entered = true }
     Popup(popupPositionProvider = remember(anchor, widthPx, gap, margin) { MobileAboveAnchor(anchor, widthPx, gap, margin) },
         onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
@@ -201,22 +202,28 @@ fun MobileOptionsPopup(title: String, anchor: IntRect, width: Dp, onDismiss: () 
                 expandVertically(tween(240, easing = FastOutSlowInEasing), expandFrom = Alignment.Bottom),
             exit = fadeOut(tween(100))) {
             Column(Modifier.width(width).heightIn(max = 230.dp)
-                .background(PanelGlass, shape).border(1.dp, Color.White.copy(alpha = .10f), shape)
-                .padding(8.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Label(title, 13, Muted, true, modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 4.dp))
+                .background(PanelGlass, shape).border(1.dp, com.cinemaplus.rebuilt.ui.Brand.GlassStroke, shape)
+                .padding(6.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Label(title, 11, Muted, true, lines = 1, modifier = Modifier.padding(start = 12.dp, top = 4.dp, bottom = 2.dp))
                 content()
             }
         }
     }
 }
 
-/** Places a panel directly above its button, centred on it and kept inside the window. */
+/** Left edge of a panel: flush with its button's outer edge (right edge for buttons on the right half). */
+private fun mobilePanelX(anchor: IntRect, widthPx: Int, windowWidth: Int, margin: Int): Int {
+    val x = if (anchor.center.x > windowWidth / 2) anchor.right - widthPx else anchor.left
+    return x.coerceIn(margin, (windowWidth - widthPx - margin).coerceAtLeast(margin))
+}
+
+/** Places a panel directly above its button, lined up with it and kept inside the window. */
 private class MobileAboveAnchor(private val anchor: IntRect, private val widthPx: Int, private val gap: Int, private val margin: Int) :
     PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection,
         popupContentSize: IntSize): IntOffset {
         val a = if (anchor == IntRect.Zero) anchorBounds else anchor
-        val x = (a.center.x - widthPx / 2).coerceIn(margin, (windowSize.width - widthPx - margin).coerceAtLeast(margin))
+        val x = mobilePanelX(a, widthPx, windowSize.width, margin)
         val y = (a.top - popupContentSize.height - gap).coerceAtLeast(margin)
         return IntOffset(x, y)
     }

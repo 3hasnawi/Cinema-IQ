@@ -95,6 +95,7 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
             activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).show(WindowInsetsCompat.Type.systemBars()) }
         }
     }
+    val browseState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var compactBar by remember { mutableStateOf(false) }
     val scrollConnection = remember {
         object : NestedScrollConnection {
@@ -142,8 +143,11 @@ fun MobileCinemaApp(vm: CinemaViewModel) {
             if (playback) MobilePlayerScreen(vm)
             else if (vm.selected != null) MobileDetails(vm)
             // Pages lay out under the status bar themselves (the home hero is full-bleed).
+            // Each page keeps its scroll while a title or the player is open, so Back returns to the same place.
             else Box(Modifier.fillMaxSize().background(Brand.Background).nestedScroll(scrollConnection)) {
-                when (vm.page) { Page.Settings -> MobileSettings(vm); Page.Explore -> MobileExplore(vm); else -> MobileBrowse(vm) }
+                browseState.SaveableStateProvider("${vm.page.name}-${vm.demo}") {
+                    when (vm.page) { Page.Settings -> MobileSettings(vm); Page.Explore -> MobileExplore(vm); else -> MobileBrowse(vm) }
+                }
                 if (vm.page != Page.Settings) MobileGlassNavigation(vm, compactBar, Modifier.align(Alignment.BottomCenter))
             }
         }
@@ -301,6 +305,12 @@ private fun MobileDetails(vm: CinemaViewModel) {
     LaunchedEffect(film.id) { vm.loadDetailsCredits() }
     LaunchedEffect(film.id, season?.number) { if (season != null) vm.enrichSelectedSeason() }
     val credits = vm.detailsCredits
+    // The selected season's own year: its air date, else its episodes' dates or years; the series year last.
+    val seasonYear = if (!film.series || season == null) null else {
+        fun year(text: String?) = text?.trim()?.take(4)?.takeIf { y -> y.length == 4 && y.all { it.isDigit() } }
+        year(season.airDate) ?: season.episodes.mapNotNull { year(it.airDate) }.minOrNull()
+            ?: season.episodes.mapNotNull { year(it.year) }.minOrNull()
+    }
     // The episode Play starts: the one in progress, else the first not yet watched.
     val resume = remember(film.id, vm.seasons, revision) { if (film.series) vm.resumeEpisode(film) else null }
     val target = if (film.series) resume else film
@@ -335,7 +345,7 @@ private fun MobileDetails(vm: CinemaViewModel) {
                     PhoneRating(film.imdbRating.ifBlank { film.rating }, glass = false)
                     val seasons = if (film.series && vm.seasons.isNotEmpty())
                         (if (vm.seasons.size == 1) "موسم واحد" else if (vm.seasons.size == 2) "موسمان" else "${vm.seasons.size} مواسم") else ""
-                    PhoneDotted(listOf(film.year, seasons, formatContentDuration(film.duration)))
+                    PhoneDotted(listOf(seasonYear ?: film.year, seasons, formatContentDuration(film.duration)))
                     listOf(film.contentQuality, film.edition).filter(String::isNotBlank).distinct().forEach { PhoneChip(it, ChipKind.Glass) }
                 }
                 PhonePrimaryButton(playLabel, Modifier.fillMaxWidth(), height = 48.dp, radius = 8.dp, progress = playProgress,
