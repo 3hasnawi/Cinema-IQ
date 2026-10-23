@@ -142,6 +142,9 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     else com.cinemaplus.rebuilt.ui.mobile.MobileCinemaApp(vm)
 }
 
+/** Second Back on Home within this time closes the app. */
+internal const val ExitWindowMillis = 2_500L
+
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable private fun TvCinemaApp(vm: CinemaViewModel) {
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -159,10 +162,19 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     val railFocus = remember { FocusRequester() }
     // Focus moves into the page once after launch, when the first page has loaded.
     var pendingFocus by remember { mutableStateOf(true) }
+    // Back inside a section goes to the rail, Back on the rail goes Home, and on Home two presses close the app.
+    var exitArmedAt by remember { mutableLongStateOf(0L) }
     BackHandler(enabled = vm.playing == null && vm.selected == null) {
-        // Back first returns to the section rail; from there it goes back a page, and on Home it exits without asking.
-        if (!tabBar.hasFocus) runCatching { railFocus.requestFocus() }
-        else if (vm.page != Page.Home) vm.backPage() else (context as? android.app.Activity)?.finish()
+        val now = android.os.SystemClock.uptimeMillis()
+        when {
+            vm.page != Page.Home && !tabBar.hasFocus && runCatching { railFocus.requestFocus() }.getOrDefault(false) -> Unit
+            vm.page != Page.Home -> { vm.goHome(); pendingFocus = true }
+            now - exitArmedAt < ExitWindowMillis -> (context as? android.app.Activity)?.finish()
+            else -> {
+                exitArmedAt = now
+                android.widget.Toast.makeText(context, "اضغط رجوع مرة أخرى للخروج", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
     }
     val fonts = Typography().let { t -> t.copy(
         headlineLarge = t.headlineLarge.copy(fontFamily = Cairo, fontWeight = FontWeight.Bold),
@@ -335,29 +347,27 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
     height: Dp = 72.mx, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused && expanded) 1.03f else 1f, tween(140), label = "Rail focus")
-    if (!expanded) {
-        // Collapsed: a 64 px rounded square; accent for the current section, white when focused.
-        val bg = when { focused -> Color.White; selected -> Brand.Accent; else -> Color.Transparent }
-        val fg = when { focused -> Brand.Background; selected -> Brand.OnAccent; else -> Brand.TextTertiary }
-        Box(modifier.size(64.mx).clip(RoundedCornerShape(16.mx)).background(bg)
-            .onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
-            .semantics { contentDescription = page.label }, contentAlignment = Alignment.Center) {
-            RailGlyph(page, fg, 30.mx)
-        }
-        return
+    val fg = when {
+        focused -> Brand.Background
+        expanded -> if (selected) Color.White else Brand.TextTertiary
+        else -> if (selected) Brand.OnAccent else Brand.TextTertiary
     }
-    val fg = when { focused -> Brand.Background; selected -> Color.White; else -> Brand.TextTertiary }
-    Box(modifier.fillMaxWidth()) {
-        // The current section is marked by an accent bar on the outer edge and an accent icon.
-        if (selected && !focused) Box(Modifier.align(Alignment.CenterStart).offset(x = (-12).mx).size(5.mx, 36.mx)
+    // One node tree for both states: the focused item must survive the rail widening when focus enters it,
+    // otherwise its focus target is disposed, focus drops and the rail folds again (Back then seemed to do nothing).
+    Box(modifier.then(if (expanded) Modifier.fillMaxWidth() else Modifier)) {
+        // Expanded, the current section is marked by an accent bar on the outer edge and an accent icon.
+        if (expanded && selected && !focused) Box(Modifier.align(Alignment.CenterStart).offset(x = (-12).mx).size(5.mx, 36.mx)
             .clip(CircleShape).background(Brand.Accent))
-        Row(Modifier.fillMaxWidth().height(height).graphicsLayer { scaleX = scale; scaleY = scale }
-            .clip(RoundedCornerShape(16.mx)).background(if (focused) Color.White else Color.Transparent)
+        Row(Modifier.then(if (expanded) Modifier.fillMaxWidth().height(height) else Modifier.size(64.mx))
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(16.mx))
+            .background(when { focused -> Color.White; !expanded && selected -> Brand.Accent; else -> Color.Transparent })
             .onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
-            .semantics { contentDescription = page.label }.padding(horizontal = 20.mx),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.mx)) {
-            RailGlyph(page, if (selected && !focused) Brand.Accent else fg, 30.mx)
-            Label(page.label, if (height < 70.mx) 14 else 15, fg, focused || selected, lines = 1)
+            .semantics { contentDescription = page.label }.padding(horizontal = if (expanded) 20.mx else 0.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (expanded) Arrangement.spacedBy(20.mx) else Arrangement.Center) {
+            RailGlyph(page, if (expanded && selected && !focused) Brand.Accent else fg, 30.mx)
+            if (expanded) Label(page.label, if (height < 70.mx) 14 else 15, fg, focused || selected, lines = 1)
         }
     }
 }
