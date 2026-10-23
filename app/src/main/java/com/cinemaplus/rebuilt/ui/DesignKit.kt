@@ -58,10 +58,9 @@ fun PageHeader(title: String, subtitle: String = "", modifier: Modifier = Modifi
 /** Shelf title with the gold marker and the number of titles in it. */
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier, count: Int? = null) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.width(4.dp).height(20.dp).background(Accent, CircleShape))
-        Label(title, 17, Color.White.copy(alpha = .95f), true, lines = 1)
-        if (count != null && count > 0) Label("$count", 13, Muted, lines = 1)
+    // Plain semibold shelf title (redesign); the count is no longer shown.
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        Label(title, 16, Color.White, true, lines = 1)
     }
 }
 

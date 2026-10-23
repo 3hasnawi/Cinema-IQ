@@ -1,31 +1,23 @@
 package com.cinemaplus.rebuilt.ui
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,22 +25,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
-import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -56,23 +39,20 @@ import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.Film
 import com.cinemaplus.rebuilt.data.Shelf
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import androidx.tv.material3.Button as TvButton
-import androidx.tv.material3.ButtonDefaults as TvButtonDefaults
 
 /*
- * Home. Performance rules that keep D-pad navigation smooth on weak devices:
- *  - the hero rotation index is a State object read only inside the hero composables, so a swap never
- *    recomposes the shelves;
- *  - the next backdrop is prefetched at the exact size the screen requests, so a swap never waits on I/O;
- *  - rotation pauses while the list scrolls or the user is below the hero;
- *  - the remembered card of the first shelf is a plain holder (no state), so focus moves recompose nothing.
+ * TV home of the 2026 redesign (01-home.png): a 760 px hero with the title block on the right, then the shelves
+ * in one vertical page. Performance rules that keep D-pad navigation smooth on weak devices:
+ *  - the hero index is read only by the hero, so a swap never recomposes the shelves;
+ *  - the next artwork is prefetched at the size the screen requests;
+ *  - card focus is drawn in the graphics layer (see [FilmCard]).
  */
 
 /** Backdrops are requested at one fixed size so the prefetched bitmap is the one the screen shows. */
 private const val HeroImageWidth = 1280
 private const val HeroImageHeight = 720
+/** The hero changes after this long without a key press (the brief's "~8 s", paused while the viewer acts). */
 private const val HeroRotationMillis = 8_000L
 
 private fun heroRequest(context: android.content.Context, url: String): ImageRequest =
@@ -80,186 +60,180 @@ private fun heroRequest(context: android.content.Context, url: String): ImageReq
 
 private fun Film.heroArt(): String = backdrop.ifBlank { poster }
 
-/** Not observable on purpose: remembering a card never triggers composition. Saved so it survives opening a title. */
-private class StageMemory(var row: Int = 0, val cards: MutableMap<String, Int> = mutableMapOf())
-private val StageMemorySaver = listSaver<StageMemory, String>(
-    save = { memory -> listOf(memory.row.toString()) + memory.cards.map { "${it.key}|${it.value}" } },
-    restore = { saved -> StageMemory(saved[0].toInt(), saved.drop(1).mapNotNull { entry ->
-        entry.substringAfterLast('|').toIntOrNull()?.let { entry.substringBeforeLast('|') to it } }.toMap().toMutableMap()) })
-
-/** What the fixed stage shows. Written only by the debounce below, read only by the stage layers. */
-@Stable
-private class StageState { var film by mutableStateOf<Film?>(null) }
-
-/** Small cards keep the stage clean; the artwork of the title in focus carries the page. */
-private val StripWideWidth = 208.dp
-private const val FeaturedId = "featured"
-/** The featured backdrop changes by itself at this pace. */
-private const val HeroAutoMillis = 6_000L
-
-/**
- * Home is one fixed stage: the artwork and details of the title in focus fill the screen, and the shelves come
- * up from the bottom one at a time. The first shelf holds the featured titles and its cursor moves along by
- * itself until the viewer takes over. Down brings the next shelf, Up the previous one.
- */
 @Composable
 fun HomeScreen(vm: CinemaViewModel) {
     val revision = vm.libraryRevision
-    // Parsing the saved list on every recomposition made focus moves stutter; recompute only when it changes.
     val recent = remember(revision, vm.demo) { vm.library.recent().filter { it.id.startsWith("demo-") == vm.demo } }
     val featured = remember(vm.shelves) { featuredFilms(vm.shelves) }
-    // While the first load is running there is nothing to show yet; "continue watching" must not take the first slot.
-    val waiting = vm.busy && featured.isEmpty()
-    val rows = remember(vm.shelves, recent, featured, waiting) {
-        if (waiting) emptyList() else (if (featured.isNotEmpty()) listOf(Shelf(FeaturedId, "الأعمال المميزة", featured)) else emptyList()) +
-            (if (recent.isNotEmpty()) listOf(Shelf("recent", "تابع المشاهدة", recent)) else emptyList()) +
-            vm.shelves.filter { it.films.isNotEmpty() }
-    }
-    val memory = rememberSaveable(saver = StageMemorySaver) { StageMemory() }
-    // The index of the shelf on screen.
-    val rowIndex = remember { mutableIntStateOf(memory.row.coerceIn(0, (rows.size - 1).coerceAtLeast(0))) }
-    val focused = remember { mutableStateOf<Film?>(null) }
-    val stage = remember { StageState() }
-    val entryRequesters = remember { mutableMapOf<String, FocusRequester>() }
-    val entryIndexes = remember { mutableMapOf<String, MutableIntState>() }
-    val rowStates = remember { mutableMapOf<String, androidx.compose.foundation.lazy.LazyListState>() }
-    val navigationJob = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    val shelves = remember(vm.shelves) { vm.shelves.filter { it.films.isNotEmpty() } }
+    val heroIndex = rememberSaveable { mutableIntStateOf(0) }
     val lastInput = remember { longArrayOf(System.currentTimeMillis()) }
+    val playFocus = remember { FocusRequester() }
+    val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
-    val tabBar = LocalTabBarState.current
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     val context = LocalContext.current
     LaunchedEffect(featured) { vm.enrich(featured) }
-    // Before any card has focus the stage already shows the first title.
-    LaunchedEffect(rows) { if (focused.value == null) focused.value = rows.getOrNull(rowIndex.intValue)?.films?.firstOrNull() }
-    // Choose what the stage shows. Moving fast along a shelf waits for the viewer to settle, so artwork is not decoded per key press.
-    LaunchedEffect(Unit) {
-        snapshotFlow { focused.value }.collectLatest { target ->
-            if (stage.film != null) delay(140)
-            stage.film = target ?: stage.film
+    // Entering the page from the rail, or coming back to it, lands on the hero's main button.
+    RegisterPageEntry(if (featured.isNotEmpty()) playFocus else null)
+    LaunchedEffect(featured) {
+        while (true) {
+            delay(1_000)
+            if (featured.size < 2 || System.currentTimeMillis() - lastInput[0] < HeroRotationMillis) continue
+            val next = (heroIndex.intValue + 1) % featured.size
+            featured.getOrNull((next + 1) % featured.size)?.let { upcoming ->
+                val art = vm.withArtwork(upcoming).heroArt()
+                if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
+            }
+            heroIndex.intValue = next
+            lastInput[0] = System.currentTimeMillis()
         }
     }
-    fun entryIndex(shelf: Shelf) = entryIndexes.getOrPut(shelf.id) {
-        mutableIntStateOf((memory.cards[shelf.id] ?: 0).coerceIn(0, shelf.films.lastIndex))
-    }
-    // Back from a title, or a return to this page, puts focus where the viewer was.
-    LaunchedEffect(rows.firstOrNull()?.id) {
-        if (!tabBar.hasFocus) awaitTvFocus { rows.getOrNull(rowIndex.intValue)?.let { entryRequesters[it.id] } }
-    }
-    // The list can change under the viewer (a shelf appears or goes). Stay on the same shelf, or the nearest one.
-    val shownShelf = remember { arrayOfNulls<String>(1) }
-    LaunchedEffect(rows) {
-        val current = rowIndex.intValue
-        val id = shownShelf[0] ?: rows.getOrNull(current)?.id
-        val moved = rows.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: current.coerceAtMost((rows.size - 1).coerceAtLeast(0))
-        shownShelf[0] = rows.getOrNull(moved)?.id
-        if (moved != current) {
-            rowIndex.intValue = moved; memory.row = moved
-            rows.getOrNull(moved)?.let { entryIndex(it) }
-            awaitTvFocus { rows.getOrNull(moved)?.let { entryRequesters[it.id] } }
-        }
-    }
-    fun go(destination: Int) {
-        if (navigationJob[0]?.isActive == true) return
-        navigationJob[0] = scope.launch {
-            rowIndex.intValue = destination; memory.row = destination
-            shownShelf[0] = rows.getOrNull(destination)?.id
-            rows.getOrNull(destination)?.let { entryIndex(it).intValue = (memory.cards[it.id] ?: 0).coerceIn(0, it.films.lastIndex) }
-            awaitTvFocus { rows.getOrNull(destination)?.let { entryRequesters[it.id] } }
-        }
-    }
-    Box(Modifier.fillMaxSize().background(Ink).onPreviewKeyEvent { event ->
-        lastInput[0] = System.currentTimeMillis()
-        val down = event.key == Key.DirectionDown
-        if (!down && event.key != Key.DirectionUp) return@onPreviewKeyEvent false
-        if (event.type == KeyEventType.KeyDown) {
-            val target = rowIndex.intValue + if (down) 1 else -1
-            if (target in rows.indices) go(target)
-        }
-        // Vertical keys never fall through to the focus search: the stage decides what Up and Down mean.
-        rows.isNotEmpty()
+    Box(Modifier.fillMaxSize().background(Brand.Background).onPreviewKeyEvent {
+        lastInput[0] = System.currentTimeMillis(); false
     }) {
-        StageBackdrop(vm, stage, Modifier.fillMaxSize())
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            StageInfo(vm, stage, Modifier.fillMaxWidth()
-                .padding(start = TvMetrics.EdgeInset, end = TvMetrics.EdgeInset, bottom = 4.dp))
-            ShelfStage(rows, rowIndex, vm, entryRequesters, ::entryIndex, rowStates, memory, focused)
-        }
-        if (vm.busy && featured.isEmpty() && rows.isEmpty()) Box(Modifier.align(Alignment.BottomStart)) { ShelfSkeleton() }
-        vm.error?.let { error ->
-            Column(Modifier.align(Alignment.Center).padding(horizontal = TvMetrics.EdgeInset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Label(error, 14, Muted, lines = 2)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Action("إعادة المحاولة", true) { vm.reload() }
-                    Action("تجربة التصميم") { vm.changeDemo(true) }
+        Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+            Box(Modifier.fillMaxWidth()) {
+                val hero = featured.getOrNull(heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork)
+                HomeHeroArtwork(hero, Modifier.fillMaxWidth().height(760.mx))
+                Column(Modifier.fillMaxWidth()) {
+                    if (hero != null) {
+                        HomeHero(vm, hero, featured.size, heroIndex.intValue, recent, playFocus,
+                            Modifier.onFocusChanged { if (it.hasFocus) scope.launch { scroll.animateScrollTo(0) } })
+                    } else {
+                        Box(Modifier.fillMaxWidth().height(680.mx)) {
+                            if (vm.busy) HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeInset).width(820.mx))
+                        }
+                    }
+                    if (recent.isNotEmpty()) HomeShelf {
+                        TvShelfRow(Shelf("recent", "متابعة المشاهدة", recent), vm, wide = true, width = TvMetrics.ContinueWidth,
+                            preview = false, inset = TvMetrics.HomeInset,
+                            onCardLongClick = { film -> vm.showRecentOptions(film) },
+                            onCardClick = { vm.play(it) })
+                    }
+                    shelves.forEach { shelf ->
+                        HomeShelf {
+                            TvShelfRow(shelf, vm, preview = false, titleOnly = true, inset = TvMetrics.HomeInset)
+                        }
+                    }
+                    if (vm.busy && shelves.isEmpty()) ShelfSkeleton()
+                    vm.error?.let { error ->
+                        Column(Modifier.padding(horizontal = TvMetrics.HomeInset, vertical = 24.mx), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Label(error, 14, Brand.TextTertiary, lines = 2)
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Action("إعادة المحاولة", true) { vm.reload() }
+                                Action("تجربة التصميم") { vm.changeDemo(true) }
+                            }
+                        }
+                    }
+                    if (!vm.busy && vm.error == null && featured.isEmpty() && shelves.isEmpty() && recent.isEmpty())
+                        Label("لا يوجد محتوى متاح حاليًا", 17, Brand.TextTertiary, modifier = Modifier.padding(TvMetrics.HomeInset))
+                    Spacer(Modifier.height(48.mx))
                 }
+                Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
             }
         }
-        if (!vm.busy && vm.error == null && featured.isEmpty() && rows.isEmpty())
-            Label("لا يوجد محتوى متاح حاليًا", 17, Muted, modifier = Modifier.align(Alignment.Center))
     }
 }
 
-/** One shelf at a time, anchored to the bottom. A new shelf rises from below; the old one drifts away. */
+/** Keeps a whole shelf (title and cards) on screen when focus enters it. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ShelfStage(rows: List<Shelf>, rowIndex: IntState, vm: CinemaViewModel,
-    entryRequesters: MutableMap<String, FocusRequester>, entryIndex: (Shelf) -> MutableIntState,
-    rowStates: MutableMap<String, androidx.compose.foundation.lazy.LazyListState>,
-    memory: StageMemory, focused: MutableState<Film?>) {
-    androidx.compose.animation.AnimatedContent(targetState = rowIndex.intValue,
-        transitionSpec = {
-            val forward = targetState > initialState
-            (androidx.compose.animation.slideInVertically(tween(260)) { if (forward) it / 2 else -it / 4 } +
-                androidx.compose.animation.fadeIn(tween(220))) togetherWith
-                (androidx.compose.animation.slideOutVertically(tween(200)) { if (forward) -it / 4 else it / 2 } +
-                    androidx.compose.animation.fadeOut(tween(150)))
-        }, label = "Shelf stage") { index ->
-        val shelf = rows.getOrNull(index)
-        if (shelf != null) {
-            val entry = entryRequesters.getOrPut(shelf.id) { FocusRequester() }
-            // The card the viewer last stood on in this shelf (the first one on a first visit) takes focus on entry.
-            val entryCard = entryIndex(shelf).intValue
-            val state = rowStates.getOrPut(shelf.id) { androidx.compose.foundation.lazy.LazyListState(entryCard) }
-            // Every shelf uses landscape cards of one size; only the continue-watching cards carry text inside.
-            val wide = true
-            if (shelf.id == FeaturedId) FeaturedHero(shelf, entry, vm, memory, focused)
-            else TvShelfRow(shelf, vm, wide = wide, width = StripWideWidth,
-                suppliedRowState = state, preview = false, titleOnly = true,
-                firstRequester = entry, firstRequesterIndex = entryCard,
-                onFilmFocused = { film ->
-                    memory.cards[shelf.id] = shelf.films.indexOfFirst { it.id == film.id }.coerceAtLeast(0)
-                    focused.value = film
-                },
-                onCardLongClick = if (shelf.id == "recent") { film -> vm.showRecentOptions(film) } else null,
-                onCardClick = { if (shelf.id == "recent") vm.play(it) else vm.open(it) })
-        } else Spacer(Modifier.height(0.dp))
+private fun HomeShelf(content: @Composable () -> Unit) {
+    val bring = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+    Box(Modifier.fillMaxWidth().padding(bottom = 22.mx).bringIntoViewRequester(bring)
+        .onFocusChanged { if (it.hasFocus) scope.launch { bring.bringIntoView() } }) { content() }
+}
+
+/** "Cinema iQ" at the top of the page, on the side away from the rail. */
+@Composable
+private fun Wordmark(modifier: Modifier) {
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Row(modifier) {
+            Text("Cinema ", color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 26.ms)
+            Text("iQ", color = Brand.Accent, fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 26.ms)
+        }
     }
 }
 
-/** The artwork of the title the stage is on; it fills the screen and fades between titles. */
+/** The featured artwork with the brief's scrims: dark on the text side, fading into the page at the bottom. */
 @Composable
-private fun StageBackdrop(vm: CinemaViewModel, stage: StageState, modifier: Modifier) {
-    HeroBackdrop(stage.film?.let(vm::withArtwork), modifier, fadeFrom = .30f)
+private fun HomeHeroArtwork(film: Film?, modifier: Modifier) {
+    val context = LocalContext.current
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    Box(modifier) {
+        Crossfade(targetState = film?.heroArt().orEmpty(), animationSpec = tween(600), label = "Hero artwork") { url ->
+            if (url.isNotBlank()) HeroArt(heroRequest(context, url)) else Box(Modifier.fillMaxSize().background(Brand.Raised))
+        }
+        Box(Modifier.fillMaxSize().drawWithCache {
+            val bg = Brand.Background
+            // From the text edge: solid, 92% at 28%, 35% at 58%, clear from 80%.
+            val stops = arrayOf(0f to bg, .28f to bg.copy(alpha = .92f), .58f to bg.copy(alpha = .35f), .80f to Color.Transparent, 1f to Color.Transparent)
+            val side = Brush.horizontalGradient(*(if (rtl) stops.map { (1f - it.first) to it.second }.reversed().toTypedArray() else stops))
+            val bottom = Brush.verticalGradient(0f to Color.Transparent, (460f / 760f) to Color.Transparent, 1f to bg)
+            onDrawBehind { drawRect(side); drawRect(bottom) }
+        })
+    }
 }
 
-/** Details of the title the stage is on. Only this block recomposes when the title changes. */
+/** Title block of the hero (kind chip, title, facts, two-line story, actions, rotation dots). 680 px tall. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StageInfo(vm: CinemaViewModel, stage: StageState, modifier: Modifier) {
-    val hero = stage.film?.let(vm::withArtwork)
-    var about by remember(hero?.id) { mutableStateOf(hero?.description.orEmpty()) }
-    var quality by remember(hero?.id) { mutableStateOf(hero?.contentQuality.orEmpty()) }
-    LaunchedEffect(hero?.id) {
-        if (hero != null && about.isBlank()) about = runCatching { vm.describe(hero) }.getOrDefault("")
+private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, recent: List<Film>,
+    playFocus: FocusRequester, modifier: Modifier) {
+    var about by remember(film.id) { mutableStateOf(film.description) }
+    var quality by remember(film.id) { mutableStateOf(film.contentQuality) }
+    LaunchedEffect(film.id) { if (about.isBlank()) about = runCatching { vm.describe(film) }.getOrDefault("") }
+    LaunchedEffect(film.id) { if (quality.isBlank()) quality = runCatching { vm.bestQuality(film) }.getOrDefault("") }
+    val revision = vm.libraryRevision
+    val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
+    // A series resumes its episode in progress; without one its page opens so an episode can be chosen.
+    val episode = recent.firstOrNull { film.series && it.seriesId == film.id }
+    val started = remember(revision, film.id) { vm.library.progress(film.id) > 0 }
+    val playLabel = when {
+        episode != null -> "شاهد الحلقة ${episode.episode}"
+        !film.series && started -> "استئناف"
+        else -> "شاهد الآن"
     }
-    LaunchedEffect(hero?.id) {
-        if (hero != null && quality.isBlank()) quality = runCatching { vm.bestQuality(hero) }.getOrDefault("")
-    }
-    if (hero == null) {
-        if (vm.busy) HeroSkeleton(modifier)
-        return
-    }
-    Crossfade(hero, modifier, animationSpec = tween(300), label = "Stage info") { film ->
-        HeroPosterInfo(film, if (film.id == hero.id) about else film.description, if (film.id == hero.id) quality else film.contentQuality)
+    Box(modifier.fillMaxWidth().height(680.mx)) {
+        Column(Modifier.align(Alignment.TopStart).padding(start = TvMetrics.HomeInset, top = 150.mx).width(820.mx),
+            verticalArrangement = Arrangement.spacedBy(20.mx)) {
+            AccentChip(if (film.series) "مسلسل" else "فيلم")
+            Text(mediaTitle(film), color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
+                fontSize = 84.ms, lineHeight = (84 * 1.1).toInt().ms, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(14.mx), verticalArrangement = Arrangement.spacedBy(6.mx),
+                itemVerticalAlignment = Alignment.CenterVertically) {
+                val facts = listOf(film.year, formatContentDuration(film.duration),
+                    film.rating.takeIf { (it.toFloatOrNull() ?: 0f) > 0f }?.let { "★ $it" }.orEmpty()).filter(String::isNotBlank)
+                facts.forEachIndexed { i, fact ->
+                    if (i > 0) Label("•", 13, Brand.BorderStrong)
+                    Label(fact, 13, Brand.TextSecondary, lines = 1)
+                }
+                MetaChip(quality, glass = true)
+                if (film.subtitles.isNotEmpty()) MetaChip("CC", glass = true)
+            }
+            if (about.isNotBlank()) Text(about, color = Brand.TextSecondary, fontFamily = Cairo, fontSize = 24.ms,
+                lineHeight = (24 * 1.6).toInt().ms, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 760.mx))
+            Row(Modifier.padding(top = 16.mx), horizontalArrangement = Arrangement.spacedBy(20.mx), verticalAlignment = Alignment.CenterVertically) {
+                PillButton(playLabel, Icons.Rounded.PlayArrow, primary = true, modifier = Modifier.focusRequester(playFocus)) {
+                    when {
+                        episode != null -> vm.play(episode)
+                        film.series -> vm.open(film)
+                        else -> vm.play(film)
+                    }
+                }
+                PillButton("قائمتي", if (saved) Icons.Rounded.Check else Icons.Rounded.Add, primary = false) { vm.toggle(film) }
+                PillButton("التفاصيل", Icons.Rounded.Info, primary = false) { vm.open(film) }
+            }
+        }
+        if (count > 1) Row(Modifier.align(Alignment.TopStart).padding(start = TvMetrics.HomeInset, top = 640.mx),
+            horizontalArrangement = Arrangement.spacedBy(8.mx)) {
+            repeat(count) { dot ->
+                val on = dot == index
+                val width by animateDpAsState(if (on) 32.mx else 6.mx, tween(200), label = "Hero dot")
+                Box(Modifier.size(width, 6.mx).clip(CircleShape).background(if (on) Color.White else Brand.BorderStrong))
+            }
+        }
     }
 }
 
@@ -276,6 +250,7 @@ private fun featuredFilms(shelves: List<Shelf>): List<Film> {
     val mixed = popular.flatMapIndexed { i, film -> listOfNotNull(film, newest.getOrNull(i)) }
     return mixed + newest.drop(popular.size)
 }
+
 
 /**
  * Wide artwork fills the screen. Artwork that is not wide (a poster) is shown whole at the full height of the
@@ -326,30 +301,6 @@ fun HeroBackdrop(film: Film?, modifier: Modifier = Modifier, sideScrim: Boolean 
     }
 }
 
-/** Title, badges and "open" cue on one side; rating, facts and story beside them. No frame: it floats over the artwork. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun HeroPosterInfo(film: Film, about: String, quality: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(40.dp), verticalAlignment = Alignment.Bottom) {
-        Column(Modifier.width(470.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            KindBadge(film.series, size = 12)
-            Label(mediaTitle(film), 38, Color.White, true, lines = 2)
-            if (film.enTitle.isNotBlank() && film.enTitle != mediaTitle(film)) Label(film.enTitle, 15, Muted, lines = 1)
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            // Only facts present in the model are shown; nothing is invented. Quality is the best the source offers.
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                RatingChip(film.rating, size = 13)
-                InfoChip(film.year, size = 13); InfoChip(formatContentDuration(film.duration), size = 13)
-                InfoChip(quality, size = 13)
-            }
-            if (about.isNotBlank()) Text(about, color = Color.White.copy(alpha = .88f), fontFamily = Cairo,
-                fontSize = 15.sp, lineHeight = 23.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            val languages = film.subtitles.map { it.title }.distinct().take(3)
-            if (languages.isNotEmpty()) Label("الترجمة: " + languages.joinToString(" · "), 12, Muted, lines = 1)
-        }
-    }
-}
 
 /** Grey placeholder blocks shown instead of a loading message. */
 @Composable
@@ -379,135 +330,3 @@ private fun ShelfSkeleton() {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun HeroContentInfo(film: Film, about: String = film.description) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        // Only facts present in the model are shown; nothing is invented.
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            KindBadge(film.series, size = 12)
-            RatingChip(film.rating, size = 12)
-            InfoChip(film.year); InfoChip(formatContentDuration(film.duration))
-        }
-        Text(mediaTitle(film), color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
-            fontSize = 40.sp, lineHeight = 48.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (film.enTitle.isNotBlank() && film.enTitle != mediaTitle(film))
-            Label(film.enTitle, 15, Muted, lines = 1)
-        if (about.isNotBlank()) Text(about, color = Color.White.copy(alpha = .86f),
-            fontFamily = Cairo, fontSize = 15.sp, lineHeight = 23.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        val languages = film.subtitles.map { it.title }.distinct().take(3)
-        if (languages.isNotEmpty()) Label("الترجمة: " + languages.joinToString(" · "), 13, Muted, lines = 1)
-    }
-}
-
-@Composable
-fun HeroActionButtons(film: Film, saved: Boolean, playFocus: FocusRequester, belowTarget: FocusRequester?,
-    onPlay: () -> Unit, onWatchlist: () -> Unit, onDetails: () -> Unit) {
-    // Down always lands on the remembered card of the first shelf instead of the nearest one.
-    val down = Modifier.focusProperties { if (belowTarget != null) this.down = belowTarget }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        HeroButton(if (film.series) "الحلقات" else "شاهد الآن", Icons.Rounded.PlayArrow, true,
-            Modifier.focusRequester(playFocus).then(down), onPlay)
-        HeroButton(if (saved) "إزالة من قائمتي" else "إضافة إلى قائمتي", if (saved) Icons.Rounded.Check else Icons.Rounded.Add, false,
-            down, onWatchlist)
-        HeroButton("التفاصيل", Icons.Rounded.Info, false, down, onDetails)
-    }
-}
-
-/** Primary = gold pill with label. Secondary = round glass button. Focus lifts and turns solid white or light gold. */
-@Composable
-internal fun HeroButton(label: String, icon: ImageVector, primary: Boolean,
-    modifier: Modifier, onClick: () -> Unit, focusScale: Float = 1.08f, labelled: Boolean = false) {
-    var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) focusScale else 1f,
-        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium), label = "Hero button scale")
-    val pill = primary || labelled
-    val shape = if (pill) RoundedCornerShape(50) else CircleShape
-    // No drop shadow: it is expensive to draw on weak GPUs; the colour change and scale carry the focus.
-    TvButton(onClick, modifier.height(48.dp).then(if (pill) Modifier else Modifier.width(48.dp))
-        .onFocusChanged { focused = it.isFocused }.zIndex(if (focused) 10f else 0f)
-        .semantics { contentDescription = label }
-        .graphicsLayer { scaleX = scale; scaleY = scale },
-        shape = TvButtonDefaults.shape(shape),
-        scale = TvButtonDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
-        colors = TvButtonDefaults.colors(
-            containerColor = if (primary) Accent else Color.White.copy(alpha = .20f),
-            contentColor = if (primary) OnAccent else Color.White,
-            focusedContainerColor = if (primary) AccentLight else Color.White, focusedContentColor = if (primary) OnAccent else Color.Black),
-        contentPadding = PaddingValues(horizontal = if (primary) 28.dp else if (labelled) 22.dp else 0.dp, vertical = 8.dp)) {
-        Icon(icon, contentDescription = label, Modifier.size(if (primary) 24.dp else 22.dp))
-        if (pill) { Spacer(Modifier.width(10.dp)); Label(label, 16, if (primary || focused) OnAccent else Color.White, true) }
-    }
-}
-
-/** Round icon button with its label beside it (used on the details page). */
-@Composable
-internal fun RoundLabelButton(label: String, icon: ImageVector, modifier: Modifier, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        HeroButton(label, icon, false, modifier.onFocusChanged { focused = it.isFocused }, onClick)
-        Label(label, 14, if (focused) Color.White else Color.White.copy(alpha = .75f), focused, lines = 1)
-    }
-}
-
-@Composable
-fun ContentRailRow(shelf: Shelf, vm: CinemaViewModel, firstRequester: FocusRequester?,
-    heroFocus: FocusRequester?, returnId: String? = null, wide: Boolean = true,
-    rowState: androidx.compose.foundation.lazy.LazyListState? = null, onFocused: (Film) -> Unit) {
-    TvShelfRow(shelf, vm, wide = wide || shelf.id == "recent", firstRequester = firstRequester, suppliedRowState = rowState,
-        cardModifier = { Modifier.focusProperties { if (heroFocus != null) up = heroFocus } },
-        onFilmFocused = onFocused,
-        onCardLongClick = if (shelf.id == "recent") { film -> vm.showRecentOptions(film) } else null,
-        onCardClick = { if (shelf.id == "recent") vm.play(it) else vm.open(it) })
-}
-
-/** Shared card implementation preserves progress, centered scrolling and restored focus. */
-@Composable
-fun LandscapeMediaCard(film: Film, progress: Float = 0f, modifier: Modifier = Modifier,
-    onFocused: (Film) -> Unit = {}, onClick: () -> Unit) {
-    FilmCard(film, progress, wide = true, modifier = modifier, onFocused = onFocused, click = onClick)
-}
-
-/**
- * The featured titles have no cards: the artwork of one title fills the stage and the next one replaces it every
- * six seconds. Small dots at the bottom show the position. Left and right on the remote move along by hand (the
- * timer starts over), OK opens the title on show. The bar is only a margin and a focus target; it draws no ring.
- */
-@Composable
-private fun FeaturedHero(shelf: Shelf, entry: FocusRequester, vm: CinemaViewModel, memory: StageMemory, focused: MutableState<Film?>) {
-    val context = LocalContext.current
-    val count = shelf.films.size
-    var index by remember(shelf.id) { mutableIntStateOf((memory.cards[FeaturedId] ?: 0).coerceIn(0, shelf.films.lastIndex)) }
-    // Keyed on the index, so a manual move restarts the six seconds.
-    LaunchedEffect(shelf.films, index) {
-        memory.cards[FeaturedId] = index
-        focused.value = shelf.films.getOrNull(index)
-        // Fetch the next artwork before it is needed so the swap never waits on the network.
-        shelf.films.getOrNull((index + 1) % count)?.let { upcoming ->
-            val art = vm.withArtwork(upcoming).heroArt()
-            if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
-        }
-        delay(HeroAutoMillis)
-        index = (index + 1) % count
-    }
-    Box(Modifier.fillMaxWidth().height(40.dp).focusRequester(entry)
-        .onPreviewKeyEvent { event ->
-            val left = event.key == Key.DirectionLeft
-            val right = event.key == Key.DirectionRight
-            if (!left && !right) return@onPreviewKeyEvent false
-            // Right is "previous" in the right-to-left layout; from the first title it goes on to the side menu.
-            if (right && index == 0) return@onPreviewKeyEvent false
-            if (event.type == KeyEventType.KeyDown) index = if (left) (index + 1) % count else index - 1
-            true
-        }
-        .clickable(remember { MutableInteractionSource() }, null) { shelf.films.getOrNull(index)?.let { vm.open(it) } },
-        contentAlignment = Alignment.BottomCenter) {
-        Row(Modifier.padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            repeat(count) { dot ->
-                val on = dot == index
-                val width by animateDpAsState(if (on) 22.dp else 7.dp, tween(200), label = "Hero dot")
-                Box(Modifier.size(width, 7.dp).clip(CircleShape).background(if (on) Accent else Color.White.copy(alpha = .35f)))
-            }
-        }
-    }
-}

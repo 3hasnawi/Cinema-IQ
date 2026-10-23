@@ -38,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.graphics.*
@@ -59,19 +60,19 @@ import com.cinemaplus.rebuilt.data.*
 import kotlinx.coroutines.delay
 import androidx.tv.material3.MaterialTheme as TvTheme
 
-val Ink = Color(0xFF1E1722)
-val Panel = Color(0xFF2B2230)
-val PanelHi = Color(0xFF3A2F3F)
+val Ink = Brand.Background
+val Panel = Brand.Surface
+val PanelHi = Brand.Raised
 /** Marquee gold: primary buttons, focus rings, selection, progress and ratings. */
-val Accent = Color(0xFFFF8A2B)
-val AccentLight = Color(0xFFFFB470)
+val Accent = Brand.Accent
+val AccentLight = Brand.Highlight
 /** Text and icons drawn on top of [Accent]. */
-val OnAccent = Color(0xFF1A0E02)
+val OnAccent = Brand.OnAccent
 /** Deep plum that tints the bottom of hero artwork. */
-val AccentDeep = Color(0xFF3A1D2E)
-val InputBorder = Color(0xFF54465A)
-val Signal = Color(0xFFFF453A)
-val Muted = Color(0xFFB5A9BC)
+val AccentDeep = Brand.Background
+val InputBorder = Brand.BorderStrong
+val Signal = Brand.Danger
+val Muted = Brand.TextTertiary
 val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.font.cairo_semibold, FontWeight.SemiBold), Font(R.font.cairo_bold, FontWeight.Bold))
 
 /** App shell: shows the profile picker when several profiles exist, then runs one view model per profile. */
@@ -231,8 +232,11 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                                     else key(vm.page, vm.demo) { BrowseScreen(vm) }
                                 }
                                 // Alpha is read in the layer block, so the dimming animates without recomposing the page.
-                                val scrim = animateFloatAsState(if (tabBar.hasFocus) .72f else 0f, tween(220), label = "Rail scrim")
-                                Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim.value }.background(Ink))
+                                // With the rail open the page dims behind a scrim that is darkest on the rail side.
+                                val scrim = animateFloatAsState(if (tabBar.hasFocus) 1f else 0f, tween(220), label = "Rail scrim")
+                                Box(Modifier.fillMaxSize().graphicsLayer { alpha = scrim.value }.background(Brush.horizontalGradient(
+                                    0f to Color(0x660C0F14), .40f to Color(0x8C0C0F14), .74f to Color(0xE60C0F14), 1f to Color(0xF50C0F14))))
+                                if (tabBar.hasFocus) RailHints(Modifier.align(Alignment.BottomEnd).padding(bottom = 48.mx, end = 58.mx))
                                 SideRail(vm, railFocus, Modifier.align(Alignment.TopStart)) { pendingFocus = true }
                             }
                         }
@@ -265,77 +269,118 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
 // ───────────────────────── Side rail ─────────────────────────
 
 /**
- * Section rail on the right edge: icons only while the page has focus, icons and labels while focus is
- * inside it. It widens over the page rather than pushing it, so content never reflows.
+ * Section rail (02-menu-open.png). Collapsed it is a 112 px column of icons on the right edge with the current
+ * section in an accent square. When focus enters it widens to 460 px over the page (the page never reflows)
+ * with the profile, labelled rows and the remote hints; the focused row is a white pill.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable private fun SideRail(vm: CinemaViewModel, railFocus: FocusRequester, modifier: Modifier = Modifier, onNavigated: () -> Unit) {
     val bar = LocalTabBarState.current
-    val width by animateDpAsState(if (bar.hasFocus) TvMetrics.RailExpanded else TvMetrics.RailCollapsed,
+    val expanded = bar.hasFocus
+    val width by animateDpAsState(if (expanded) TvMetrics.RailExpanded else TvMetrics.RailCollapsed,
         tween(220, easing = CubicBezierEasing(.2f, 0f, 0f, 1f)), label = "Rail width")
-    val labels = width > 130.dp
-    val items = listOf(Page.Home, Page.Search, Page.Explore, Page.Library)
-    // Legacy catalog destinations return remote focus to Explore after their shortcuts are removed.
-    val railPage = if (vm.page in listOf(Page.Movies, Page.Series)) Page.Explore else vm.page
-    val shape = RoundedCornerShape(32.dp)
-    // A floating capsule centred on the edge; it widens over the page and never reflows it.
-    Box(modifier.fillMaxHeight().width(width).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-        Column(Modifier.fillMaxWidth().clip(shape).background(Brush.horizontalGradient(listOf(
-                Color(0xFF252525).copy(alpha = .88f), Color(0xFF545454).copy(alpha = .78f))))
-            .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .22f), Color.White.copy(alpha = .04f))), shape)
+    // Explore (moods) is kept although the mockup leaves it out: the brief forbids dropping existing features.
+    val items = listOf(Page.Search, Page.Home, Page.Movies, Page.Series, Page.Explore, Page.Library)
+    val switchProfile = LocalProfileSwitch.current
+    Box(modifier.fillMaxHeight().width(width)
+        .background(if (expanded) Color.Transparent else Brand.Background.copy(alpha = .72f))
+        .drawBehind {
+            // 1 px hairline on the page side of the collapsed rail.
+            if (!expanded) {
+                val x = if (layoutDirection == LayoutDirection.Rtl) 0f else size.width - 1f
+                drawRect(Color.White.copy(alpha = .08f), Offset(x, 0f), Size(1f, size.height))
+            }
+        }) {
+        Column(Modifier.fillMaxSize()
             .onFocusChanged { bar.hasFocus = it.hasFocus }
             // Entering the rail from the page lands on the current section, not on whichever item the search meets first.
             .focusProperties { enter = { railFocus } }.focusGroup()
-            .padding(horizontal = 7.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val switchProfile = LocalProfileSwitch.current
-            RailProfileItem(vm.profile, labels) { switchProfile() }
-            TicketDivider(Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-            items.forEach { p ->
-                RailItem(p, railPage == p, labels, if (p == railPage) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(p); onNavigated() }
+            .padding(top = 48.mx, bottom = 48.mx, start = if (expanded) 40.mx else 0.dp, end = if (expanded) 32.mx else 0.dp),
+            horizontalAlignment = if (expanded) Alignment.Start else Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(if (expanded) 10.mx else 12.mx)) {
+            RailProfile(vm.profile, expanded) { switchProfile() }
+            items.forEach { page ->
+                RailItem(page, vm.page == page, expanded, if (page == vm.page) Modifier.focusRequester(railFocus) else Modifier) {
+                    vm.navigate(page); onNavigated()
+                }
             }
-            TicketDivider(Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-            RailItem(Page.Settings, vm.page == Page.Settings, labels,
-                if (vm.page == Page.Settings) Modifier.focusRequester(railFocus) else Modifier) { vm.navigate(Page.Settings); onNavigated() }
+            Spacer(Modifier.weight(1f))
+            if (expanded) Box(Modifier.fillMaxWidth().padding(vertical = 8.mx).height(1.dp).background(Brand.Divider))
+            RailItem(Page.Settings, vm.page == Page.Settings, expanded,
+                if (vm.page == Page.Settings) Modifier.focusRequester(railFocus) else Modifier, height = 64.mx) {
+                vm.navigate(Page.Settings); onNavigated()
+            }
         }
     }
 }
 
-@Composable private fun RailProfileItem(profile: Profile, labelled: Boolean, onClick: () -> Unit) {
+@Composable private fun RailProfile(profile: Profile, expanded: Boolean, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().height(46.dp).clip(CircleShape)
-        .background(if(focused) Color.White.copy(alpha = .20f) else Color.Transparent)
+    Row(Modifier.padding(bottom = if (expanded) 36.mx else 28.mx).clip(RoundedCornerShape(16.mx))
+        .background(if (focused) Color.White else Color.Transparent)
         .onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
-        .semantics { contentDescription = "الملف الشخصي: ${profile.name}" }.padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if(labelled) Arrangement.Start else Arrangement.Center) {
-        ProfileAvatar(profile, Modifier.size(30.dp).then(if(focused) Modifier.border(2.dp, Color.White, CircleShape) else Modifier))
-        if(labelled) { Spacer(Modifier.width(10.dp)); Label("الملف الشخصي", 15, Color.White, focused, lines = 1) }
+        .semantics { contentDescription = "الملف الشخصي: ${profile.name}" }
+        .padding(if (expanded) 6.mx else 0.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.mx)) {
+        val size = if (expanded) 64.mx else 56.mx
+        Box(Modifier.size(size).clip(CircleShape).background(Brand.BorderStrong)) { ProfileAvatar(profile, Modifier.fillMaxSize()) }
+        if (expanded) Column {
+            Label(profile.name, 14, if (focused) Brand.Background else Color.White, true, lines = 1)
+            Label("تبديل الملف الشخصي", 10, if (focused) Brand.OnPrimary else Brand.TextTertiary, lines = 1)
+        }
     }
 }
 
-@Composable private fun RailItem(page: Page, selected: Boolean, labelled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+@Composable private fun RailItem(page: Page, selected: Boolean, expanded: Boolean, modifier: Modifier,
+    height: Dp = 72.mx, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    // Glass navigation keeps focused controls bright and the current destination subtly highlighted.
-    val fg = when { focused -> Color.Black; selected -> Color.White; else -> Color.White.copy(alpha = .65f) }
-    Row(modifier.fillMaxWidth().height(46.dp).clip(CircleShape).background(if(focused) Color.White else if(selected) Color.White.copy(alpha = .14f) else Color.Transparent)
-        .onFocusChanged { focused = it.isFocused }
-        .clickable(onClick = onClick)
-        .semantics { contentDescription = page.label }
-        .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (labelled) Arrangement.Start else Arrangement.Center) {
-        RailGlyph(page, fg)
-        if (labelled) {
-            Spacer(Modifier.width(12.dp))
-            Label(page.label, 15, fg, focused || selected, lines = 1)
+    val scale by animateFloatAsState(if (focused && expanded) 1.03f else 1f, tween(140), label = "Rail focus")
+    if (!expanded) {
+        // Collapsed: a 64 px rounded square; accent for the current section, white when focused.
+        val bg = when { focused -> Color.White; selected -> Brand.Accent; else -> Color.Transparent }
+        val fg = when { focused -> Brand.Background; selected -> Brand.OnAccent; else -> Brand.TextTertiary }
+        Box(modifier.size(64.mx).clip(RoundedCornerShape(16.mx)).background(bg)
+            .onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
+            .semantics { contentDescription = page.label }, contentAlignment = Alignment.Center) {
+            RailGlyph(page, fg, 30.mx)
         }
+        return
+    }
+    val fg = when { focused -> Brand.Background; selected -> Color.White; else -> Brand.TextTertiary }
+    Box(modifier.fillMaxWidth()) {
+        // The current section is marked by an accent bar on the outer edge and an accent icon.
+        if (selected && !focused) Box(Modifier.align(Alignment.CenterStart).offset(x = (-12).mx).size(5.mx, 36.mx)
+            .clip(CircleShape).background(Brand.Accent))
+        Row(Modifier.fillMaxWidth().height(height).graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(RoundedCornerShape(16.mx)).background(if (focused) Color.White else Color.Transparent)
+            .onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
+            .semantics { contentDescription = page.label }.padding(horizontal = 20.mx),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.mx)) {
+            RailGlyph(page, if (selected && !focused) Brand.Accent else fg, 30.mx)
+            Label(page.label, if (height < 70.mx) 14 else 15, fg, focused || selected, lines = 1)
+        }
+    }
+}
+
+/** Remote hints shown while the rail is open, at the far side of the screen. */
+@Composable private fun RailHints(modifier: Modifier) {
+    @Composable fun hint(key: String, text: String) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.mx)) {
+            Box(Modifier.border(1.dp, Brand.BorderStrong, RoundedCornerShape(8.mx)).padding(horizontal = 12.mx, vertical = 2.mx)) {
+                Label(key, 12, Color.White, lines = 1)
+            }
+            Label(text, 12, Brand.TextTertiary, lines = 1)
+        }
+    }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(28.mx)) {
+        hint("OK", "اختيار")
+        hint("←", "إغلاق القائمة")
     }
 }
 
 /** Rail icons: the stock set where it fits, drawn glyphs for movies and series. */
-@Composable private fun RailGlyph(page: Page, tint: Color) {
-    val size = Modifier.size(22.dp)
+@Composable private fun RailGlyph(page: Page, tint: Color, iconSize: Dp = 22.dp) {
+    val size = Modifier.size(iconSize)
     when (page) {
         Page.Search -> Icon(Icons.Rounded.Search, null, size, tint = tint)
         Page.Home -> Icon(Icons.Rounded.Home, null, size, tint = tint)
