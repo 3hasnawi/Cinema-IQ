@@ -122,26 +122,38 @@ final class ExternalSourceTests: XCTestCase {
         let (_, seasons) = try await SourceClient().detail(series)
         XCTAssertEqual(seasons.first?.episodes.count, 4)
         let streams = try await SourceClient().streams(try XCTUnwrap(seasons.first?.episodes.first))
-        XCTAssertEqual(streams.first?.url.lastPathComponent, "BigBuckBunny.mp4")
+        XCTAssertEqual(streams.first?.url.pathExtension, "m3u8")
         let hls = try await SourceClient().streams(Media(id: "ext:demo:apple-hls", title: "HLS"))
         XCTAssertEqual(hls.first?.url.pathExtension, "m3u8")
     }
 
-    /// The licensed demo streams are really reachable: the HLS master lists variants and the MP4 answers.
-    /// Skipped when the test machine is offline.
-    func testDemoStreamsAreReachable() async throws {
-        let hls = try await SourceClient().streams(Media(id: "ext:demo:apple-hls", title: "HLS"))
-        let mp4 = try await SourceClient().streams(Media(id: "ext:demo:sintel", title: "Sintel"))
+    /// Every demo stream and picture really answers: HLS manifests list their qualities, videos and images answer
+    /// with the right type. Skipped when the test machine is offline.
+    func testDemoStreamsAndArtworkAreReachable() async throws {
+        var streams: [URL] = []
+        for id in ["big-buck-bunny", "sintel", "tears-of-steel", "elephants-dream", "apple-hls"] {
+            streams += try await SourceClient().streams(Media(id: "ext:demo:" + id, title: id)).map(\.url)
+        }
+        let home = try await SourceClient().home(.external("demo"))
+        let images = Set(home.flatMap(\.items).flatMap { [$0.poster, $0.backdrop] }.filter { !$0.isEmpty }).compactMap(URL.init(string:))
+        XCTAssertEqual(streams.count, 5); XCTAssertGreaterThanOrEqual(images.count, 5)
         do {
-            let (manifest, response) = try await URLSession.shared.data(from: try XCTUnwrap(hls.first?.url))
-            XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
-            let text = String(decoding: manifest, as: UTF8.self)
-            XCTAssertTrue(text.hasPrefix("#EXTM3U")); XCTAssertTrue(text.contains("#EXT-X-STREAM-INF"), "several qualities")
-            var head = URLRequest(url: try XCTUnwrap(mp4.first?.url)); head.httpMethod = "HEAD"
-            let (_, video) = try await URLSession.shared.data(for: head)
-            let http = try XCTUnwrap(video as? HTTPURLResponse)
-            XCTAssertEqual(http.statusCode, 200)
-            XCTAssertTrue((http.value(forHTTPHeaderField: "Content-Type") ?? "").contains("video"))
+            for url in streams + images {
+                var request = URLRequest(url: url)
+                request.setValue("bytes=0-1023", forHTTPHeaderField: "Range")
+                request.setValue("CinemaIQ-tests/1.0", forHTTPHeaderField: "User-Agent")
+                let (data, response) = try await URLSession.shared.data(for: request)
+                let http = try XCTUnwrap(response as? HTTPURLResponse)
+                XCTAssertTrue([200, 206].contains(http.statusCode), "\(url.lastPathComponent): \(http.statusCode)")
+                let type = http.value(forHTTPHeaderField: "Content-Type") ?? ""
+                if url.pathExtension == "m3u8" {
+                    XCTAssertTrue(String(decoding: data, as: UTF8.self).hasPrefix("#EXTM3U"), url.lastPathComponent)
+                } else if images.contains(url) {
+                    XCTAssertTrue(type.hasPrefix("image/"), "\(url.lastPathComponent): \(type)")
+                } else {
+                    XCTAssertTrue(type.hasPrefix("video/"), "\(url.lastPathComponent): \(type)")
+                }
+            }
         } catch let error as URLError {
             throw XCTSkip("offline: \(error.code.rawValue)")
         }

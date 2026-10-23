@@ -320,32 +320,34 @@ public enum ExternalParser {
 // MARK: - Demo
 
 /// The built-in demo provider: openly licensed films served from this catalogue, streamed from public test hosts.
-/// Big Buck Bunny, Sintel, Tears of Steel and Elephants Dream are Blender Foundation films under Creative Commons
-/// Attribution; the HLS stream is Apple's public test stream.
+/// Big Buck Bunny, Sintel (trailer), Tears of Steel and Elephants Dream are Blender Foundation films under Creative
+/// Commons Attribution, streamed from Blender's own server and Mux's public test stream; artwork from Wikimedia Commons.
+/// The second HLS stream is Apple's public test stream.
 struct DemoTransport: ExternalTransport {
-    static let google = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/"
+    static let commons = "https://upload.wikimedia.org/wikipedia/commons/"
+    static let blender = "https://download.blender.org/"
     static let films: [[String: Any]] = [
         ["id": "big-buck-bunny", "title": "Big Buck Bunny", "enTitle": "Big Buck Bunny", "type": "movie", "year": "2008", "duration": "10",
-         "overview": "فيلم رسوم متحركة قصير من مؤسسة Blender، مرخّص بالمشاع الإبداعي (CC BY 3.0).",
-         "poster": google + "images/BigBuckBunny.jpg", "backdrop": google + "images/BigBuckBunny.jpg", "quality": "HD",
-         "stream": google + "BigBuckBunny.mp4"],
-        ["id": "sintel", "title": "Sintel", "enTitle": "Sintel", "type": "movie", "year": "2010", "duration": "15",
-         "overview": "فيلم قصير من مؤسسة Blender عن فتاة تبحث عن تنينها الصغير، مرخّص بالمشاع الإبداعي (CC BY 3.0).",
-         "poster": google + "images/Sintel.jpg", "backdrop": google + "images/Sintel.jpg", "quality": "HD",
-         "stream": google + "Sintel.mp4"],
+         "overview": "فيلم رسوم متحركة قصير من مؤسسة Blender، مرخّص بالمشاع الإبداعي (CC BY 3.0). يُبث بصيغة HLS بعدة جودات.",
+         "poster": commons + "c/c5/Big_buck_bunny_poster_big.jpg", "backdrop": commons + "c/c5/Big_buck_bunny_poster_big.jpg",
+         "quality": "HLS", "stream": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"],
+        ["id": "sintel", "title": "Sintel", "enTitle": "Sintel", "type": "movie", "year": "2010", "duration": "1",
+         "overview": "العرض الدعائي لفيلم Sintel من مؤسسة Blender، مرخّص بالمشاع الإبداعي (CC BY 3.0).",
+         "poster": commons + "8/8f/Sintel_poster.jpg", "backdrop": commons + "8/8f/Sintel_poster.jpg", "quality": "720p",
+         "stream": blender + "durian/trailer/sintel_trailer-720p.mp4"],
         ["id": "tears-of-steel", "title": "Tears of Steel", "enTitle": "Tears of Steel", "type": "movie", "year": "2012", "duration": "12",
          "overview": "فيلم خيال علمي قصير من مؤسسة Blender، مرخّص بالمشاع الإبداعي (CC BY 3.0).",
-         "poster": google + "images/TearsOfSteel.jpg", "backdrop": google + "images/TearsOfSteel.jpg", "quality": "HD",
-         "stream": google + "TearsOfSteel.mp4"],
+         "poster": commons + "7/70/Tos-poster.png", "backdrop": "https://mango.blender.org/wp-content/uploads/2013/05/01_thom_celia_bridge.jpg",
+         "quality": "720p", "stream": blender + "demo/movies/ToS/tears_of_steel_720p.mov"],
         ["id": "elephants-dream", "title": "Elephants Dream", "enTitle": "Elephants Dream", "type": "movie", "year": "2006", "duration": "11",
          "overview": "أول فيلم مفتوح من مؤسسة Blender، مرخّص بالمشاع الإبداعي (CC BY 2.5).",
-         "poster": google + "images/ElephantsDream.jpg", "backdrop": google + "images/ElephantsDream.jpg", "quality": "HD",
-         "stream": google + "ElephantsDream.mp4"],
+         "poster": commons + "0/0c/ElephantsDreamPoster.jpg", "backdrop": "https://orange.blender.org/wp-content/themes/orange/images/media/gallery/s1_proog.jpg",
+         "quality": "720p", "stream": blender + "ED/elephantsdream-720-h264-st-aac.mov"],
     ]
     static let hls = "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_ts/master.m3u8"
     static let series: [String: Any] = ["id": "open-movies", "title": "أفلام Blender المفتوحة", "enTitle": "Blender Open Movies",
         "type": "series", "year": "2006", "overview": "الأفلام المفتوحة من مؤسسة Blender كحلقات، لتجربة صفحة المسلسل وتشغيل الحلقة التالية.",
-        "poster": google + "images/ElephantsDream.jpg", "backdrop": google + "images/TearsOfSteel.jpg"]
+        "poster": commons + "0/0c/ElephantsDreamPoster.jpg", "backdrop": "https://mango.blender.org/wp-content/uploads/2013/05/01_thom_celia_bridge.jpg"]
 
     private static func strip(_ film: [String: Any]) -> [String: Any] { film.filter { $0.key != "stream" } }
     private static func episodes() -> [[String: Any]] {
