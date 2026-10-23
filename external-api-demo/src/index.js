@@ -31,7 +31,7 @@ const json = (body, status = 200, method = "GET") => new Response(method === "HE
 function route(request) {
   if (!["GET", "HEAD"].includes(request.method)) return json({ error: "Method not allowed" }, 405);
   const url = new URL(request.url);
-  const p = url.pathname.replace(/\\/+$/, "").split("/").filter(Boolean);
+  const p = url.pathname.split("/").filter(Boolean);
   // Works at root or behind /cinema-iq/v1/
   const i = p.findIndex(x => ["home", "catalog", "categories", "items", "health"].includes(x));
   const parts = i < 0 ? [] : p.slice(i);
