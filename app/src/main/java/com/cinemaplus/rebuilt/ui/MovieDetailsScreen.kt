@@ -1,88 +1,87 @@
 package com.cinemaplus.rebuilt.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.*
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.*
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.key.*
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import androidx.compose.ui.platform.LocalContext
 import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.Film
 import com.cinemaplus.rebuilt.data.relatedFilms
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
-/** TV details use RTL placement with the information and actions on the right. */
-@OptIn(ExperimentalLayoutApi::class)
+/** Rows keep the focused card in the middle of the screen. */
+private object CenteredDetailsRow : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
+        offset - (containerSize - size) / 2f
+}
+
+/**
+ * TV details of the redesign (03-details.png): the artwork (and, when enabled, the muted trailer) across the
+ * top, the title column on the right with the resume button and round actions, then one tab per season plus
+ * "similar titles" above a row of 16:9 cards. Up from the row goes to the tabs, then to the actions.
+ * Back returns to the previous screen.
+ */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQuality: String? = null) {
     val sourceFilm = vm.selected ?: return
     val film = vm.withArtwork(sourceFilm)
-    val artwork = listOf(film.backdrop, sourceFilm.backdrop).filter { it.isNotBlank() }.distinct()
-        .ifEmpty { listOf(film.poster) }
-    var artworkIndex by remember(film.id) { mutableIntStateOf(0) }
-    val scope = rememberCoroutineScope()
-    var initialFocusAssigned by remember(film.id) { mutableStateOf(false) }
     val playFocus = remember(film.id) { FocusRequester() }
-    val seasonFocus = remember(film.id) { FocusRequester() }
-    val episodeFocus = remember(film.id) { FocusRequester() }
+    val tabFocus = remember(film.id) { FocusRequester() }
+    val rowFocus = remember(film.id) { FocusRequester() }
     val trailerFocus = remember(film.id) { FocusRequester() }
-    val castFocus = remember(film.id) { FocusRequester() }
     val credits = vm.detailsCredits
-    val hasCast = !credits?.cast.isNullOrEmpty()
     LaunchedEffect(film.id) { vm.loadDetailsCredits() }
-    val infoFocus = remember(film.id) { FocusRequester() }
-    val seasonRowState = rememberLazyListState()
-    val episodeRowState = rememberLazyListState()
-    val castRowState = rememberLazyListState()
-    val relatedRowState = rememberLazyListState()
-    var focusedSection by remember(film.id) { mutableStateOf("hero") }
-    val navigationJob = remember(film.id) { arrayOfNulls<kotlinx.coroutines.Job>(1) }
-    val relatedFocus = remember(film.id) { FocusRequester() }
     val season = vm.seasons.getOrNull(vm.seasonIndex)
     val episodes = season?.episodes.orEmpty()
     // A series shows the selected season's year; it falls back to the series year when TMDB gave no season date.
-    val seasonYear = if(film.series) season?.airDate?.take(4)?.takeIf { y -> y.length == 4 && y.all { it.isDigit() } } else null
-    LaunchedEffect(film.id, season?.number) { if(season != null) vm.enrichSelectedSeason() }
+    val seasonYear = if (film.series) season?.airDate?.take(4)?.takeIf { y -> y.length == 4 && y.all { it.isDigit() } } else null
+    LaunchedEffect(film.id, season?.number) { if (season != null) vm.enrichSelectedSeason() }
     val candidates = vm.shelves.map { it.copy(films = it.films.map(vm::withArtwork)) }
     val related = relatedFilms(film, candidates)
     LaunchedEffect(film.id, vm.shelves) {
@@ -90,319 +89,262 @@ fun MovieDetailsScreen(vm: CinemaViewModel, ageRating: String? = null, displayQu
             .distinctBy { it.id }.take(36))
     }
     var showTrailer by remember(film.id) { mutableStateOf(false) }
-    LaunchedEffect(film.id, artwork, focusedSection) {
-        artworkIndex = artworkIndex.coerceIn(0, artwork.lastIndex)
-        if(artwork.size > 1 && focusedSection == "hero") while(true) {
-            delay(8000)
-            artworkIndex = (artworkIndex + 1) % artwork.size
-        }
-    }
     val revision = vm.libraryRevision
     val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
     // The episode Play starts: the one in progress, else the first not yet watched.
     val resume = remember(film.id, vm.seasons, revision) { if (film.series) vm.resumeEpisode(film) else null }
+    val target = if (film.series) resume else film
+    val started = target != null && vm.library.progress(target.id) > 0
     val playLabel = when {
-        !film.series -> if (vm.library.progress(film.id) > 0) "استئناف" else "تشغيل"
-        resume == null -> "تشغيل"
-        vm.library.progress(resume.id) > 0 -> "استئناف الحلقة ${resume.episode}"
-        resume.episode > 1 || resume.season > 1 -> "تشغيل الحلقة ${resume.episode}"
-        else -> "تشغيل"
+        target == null -> "شاهد الآن"
+        target.episode > 0 && started -> "تابع المشاهدة · م${target.season} ح${target.episode}"
+        target.episode > 0 && (target.episode > 1 || target.season > 1) -> "شاهد الحلقة ${target.episode}"
+        started -> "تابع المشاهدة"
+        else -> "شاهد الآن"
     }
-    // One block of the page is visible at a time, like the home stage: the hero information, the seasons and
-    // episodes, the cast and the related titles replace each other on Down/Up while the artwork stays put.
-    val stageKeys = buildList {
-        add("hero")
-        if(film.series && vm.seasons.isNotEmpty()) add("episodes")
-        if(credits != null && (hasCast || credits.directors.isNotEmpty() || credits.creators.isNotEmpty())) add("cast")
-        if(related.isNotEmpty()) add("related")
+    val playProgress = remember(revision, target?.id) { target?.let { vm.library.fraction(it.id) } ?: 0f }
+
+    // Tabs: one per season, then similar titles. The selected tab follows focus.
+    val tabs = buildList {
+        if (film.series) vm.seasons.forEachIndexed { index, value -> add(DetailsTab("season-$index", "الموسم ${value.number}", index)) }
+        if (related.isNotEmpty()) add(DetailsTab("related", "أعمال مشابهة", -1))
     }
-    var stageKey by remember(film.id) { mutableStateOf("hero") }
-    val activeKey = stageKey.takeIf { it in stageKeys } ?: "hero"
-    fun stageOf(section: String) = when {
-        section == "hero" -> "hero"
-        section == "season" || section.startsWith("episodes-") -> "episodes"
-        section == "cast" || section == "credits-info" -> "cast"
-        else -> "related"
-    }
-    // Back leaves a row stage for the hero first; the next Back closes the page.
-    BackHandler(enabled = !showTrailer && activeKey == "hero") { vm.backDetail() }
-    BackHandler(enabled = !showTrailer && activeKey != "hero") {
-        stageKey = "hero"
-        scope.launch { awaitTvFocus { if(!film.series || episodes.isNotEmpty()) playFocus else trailerFocus } }
-    }
+    var tabKey by remember(film.id) { mutableStateOf<String?>(null) }
+    val activeTab = tabs.firstOrNull { it.key == tabKey } ?: tabs.firstOrNull { it.season == vm.seasonIndex } ?: tabs.firstOrNull()
+
+    BackHandler(enabled = !showTrailer) { vm.backDetail() }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
-            Crossfade(artwork[artworkIndex.coerceAtMost(artwork.lastIndex)],
-                animationSpec = tween(900), label = "Details artwork", modifier = Modifier.fillMaxSize()) { image ->
-                AsyncImage(ImageRequest.Builder(LocalContext.current).data(image).crossfade(true).build(),
-                    null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            }
-            Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(
-                Color.Black.copy(alpha = .12f), Color.Black.copy(alpha = .60f), Color.Black.copy(alpha = .92f)))))
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
-                Color.Black.copy(alpha = .12f), Color.Black.copy(alpha = .20f), Color.Black))))
-            val infoWidth = maxWidth * .52f
-            val sections = buildList<Pair<String, FocusRequester>> {
-                add("hero" to if(!film.series || episodes.isNotEmpty()) playFocus else trailerFocus)
-                if(film.series && vm.seasons.isNotEmpty()) {
-                    add("season" to seasonFocus)
-                    if(episodes.isNotEmpty()) add("episodes-${season?.number}" to episodeFocus)
+        Box(Modifier.fillMaxSize().background(Brand.Background)) {
+            DetailsArtwork(film, vm.trailerPreview && !showTrailer, Modifier.fillMaxWidth().height(720.mx))
+            KeyHint("→", "رجوع", Modifier.align(Alignment.TopStart).padding(start = 96.mx, top = 48.mx))
+
+            Column(Modifier.align(Alignment.TopStart).padding(start = 96.mx, top = 140.mx).width(860.mx),
+                verticalArrangement = Arrangement.spacedBy(18.mx)) {
+                Text(mediaTitle(film), color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
+                    fontSize = 64.ms, lineHeight = (64 * 1.15).toInt().ms, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(14.mx), verticalArrangement = Arrangement.spacedBy(6.mx),
+                    itemVerticalAlignment = Alignment.CenterVertically) {
+                    val seasons = if (film.series && vm.seasons.isNotEmpty())
+                        (if (vm.seasons.size == 1) "موسم واحد" else if (vm.seasons.size == 2) "موسمان" else "${vm.seasons.size} مواسم") else ""
+                    val rating = if (film.imdbRating.isNotBlank()) "IMDb ${film.imdbRating}"
+                        else film.rating.takeIf { (it.toFloatOrNull() ?: 0f) > 0f }?.let { "★ $it" }.orEmpty()
+                    val facts = listOf(rating, seasonYear ?: film.year, seasons, formatContentDuration(film.duration)).filter(String::isNotBlank)
+                    facts.forEachIndexed { i, fact ->
+                        if (i > 0) Label("•", 13, Brand.BorderStrong)
+                        Label(fact, 13, if (i == 0 && rating.isNotBlank()) Color(0xFFF5C518) else Brand.TextSecondary, i == 0 && rating.isNotBlank(), lines = 1)
+                    }
+                    MetaChip(ageRating.orEmpty())
+                    listOf(film.contentQuality, displayQuality.orEmpty(), film.edition).filter(String::isNotBlank).distinct()
+                        .forEach { MetaChip(it, glass = true) }
                 }
-                if(hasCast) add("cast" to castFocus)
-                else if(credits != null && (credits.directors.isNotEmpty() || credits.creators.isNotEmpty())) add("credits-info" to infoFocus)
-                if(related.isNotEmpty()) add("related" to relatedFocus)
-            }
-            // Extra scrim once the information is replaced by a row, keeping the artwork readable behind the cards.
-            val rowsScrim by animateFloatAsState(if(activeKey == "hero") 0f else .5f, tween(300), label = "Details scrim")
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = rowsScrim)))
-            Label(mediaTitle(film), 54, Color.White, true, lines = 2,
-                modifier = Modifier.align(Alignment.TopStart).fillMaxWidth(.76f).padding(start = 32.dp, top = 68.dp))
-            WithoutFocusScroll {
-                Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
-                    val down = event.key == Key.DirectionDown
-                    if(!down && event.key != Key.DirectionUp) return@onPreviewKeyEvent false
-                    val current = sections.indexOfFirst { it.first == focusedSection }
-                    val next = adjacentTvSection(current, sections.size, down) ?: return@onPreviewKeyEvent true
-                    if(event.type == KeyEventType.KeyDown && navigationJob[0]?.isActive != true) {
-                        navigationJob[0] = scope.launch {
-                            val (key, target) = sections[next]
-                            val horizontal = when(key) {
-                                "season" -> seasonRowState
-                                "cast" -> castRowState
-                                "related" -> relatedRowState
-                                else -> if(key.startsWith("episodes-")) episodeRowState else null
-                            }
-                            horizontal?.requestScrollToItem(0)
-                            stageKey = stageOf(key)
-                            awaitTvFocus { target }
+                Text(film.description.ifBlank { if (vm.detailBusy) "جارٍ تحميل التفاصيل…" else "لا يتوفر وصف لهذا العمل." },
+                    color = Brand.TextSecondary, fontFamily = Cairo, fontSize = 24.ms, lineHeight = (24 * 1.6).toInt().ms,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 780.mx))
+                val castLine = when {
+                    !credits?.cast.isNullOrEmpty() -> "بطولة: " + credits!!.cast.take(4).joinToString("، ") { it.name }
+                    !credits?.directors.isNullOrEmpty() -> "إخراج: " + credits!!.directors.joinToString("، ")
+                    !credits?.creators.isNullOrEmpty() -> "صنّاع العمل: " + credits!!.creators.joinToString("، ")
+                    else -> ""
+                }
+                if (castLine.isNotBlank()) Label(castLine, 12, Brand.TextTertiary, lines = 1)
+                vm.detailError?.let { Label(it, 12, Brand.Danger, lines = 2) }
+                Row(Modifier.padding(top = 14.mx).focusProperties { if (tabs.isNotEmpty()) down = tabFocus },
+                    horizontalArrangement = Arrangement.spacedBy(20.mx), verticalAlignment = Alignment.CenterVertically) {
+                    ResumeButton(playLabel, playProgress, enabled = target != null, modifier = Modifier.focusRequester(playFocus)) {
+                        when {
+                            vm.detailError != null && target == null -> vm.open(film)
+                            target != null -> vm.play(target)
                         }
                     }
-                    true
-                }) {
-                    AnimatedContent(targetState = activeKey, modifier = Modifier.fillMaxSize(),
-                        transitionSpec = {
-                            val forward = stageKeys.indexOf(targetState) > stageKeys.indexOf(initialState)
-                            (slideInVertically(tween(280)) { if(forward) it / 2 else -it / 4 } + fadeIn(tween(240))) togetherWith
-                                (slideOutVertically(tween(220)) { if(forward) -it / 4 else it / 2 } + fadeOut(tween(160)))
-                        }, label = "Details stage") { key ->
-                        when(key) {
-                            "hero" -> Box(Modifier.fillMaxSize().onFocusChanged { if(it.hasFocus) focusedSection = "hero" }.focusGroup()
-                                .padding(horizontal = 32.dp, vertical = 28.dp)) {
-                        Row(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(bottom = 28.dp),
-                            horizontalArrangement = Arrangement.spacedBy(32.dp), verticalAlignment = Alignment.Bottom) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    DetailsControl(playLabel,
-                                        Modifier.width(210.dp).height(52.dp).focusRequester(playFocus),
-                                        true, enabled = !film.series || resume != null) {
-                                        if(film.series) resume?.let { vm.play(it) } else vm.play(film)
-                                    }
-                                    DetailsControl("عرض التريلر", Modifier.size(52.dp).focusRequester(trailerFocus),
-                                        false, icon = TrailerIcon) { showTrailer = true }
-                                    DetailsControl(if(saved) "إزالة من قائمتي" else "إضافة إلى قائمتي",
-                                        Modifier.size(52.dp), false,
-                                        icon = if(saved) Icons.Rounded.Check else Icons.Rounded.Add) { vm.toggle(film) }
-                                }
-                                if(vm.detailBusy) Label("جارٍ تحميل التفاصيل والحلقات…", 12, Muted)
-                                vm.detailError?.let {
-                                    Label(it, 12, Muted, lines = 2)
-                                    TvActionButton("إعادة المحاولة") { vm.open(film) }
-                                }
-                            }
-                            Column(Modifier.width(infoWidth), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    listOf(seasonYear ?: film.year, if(film.series && vm.seasons.isNotEmpty()) "${vm.seasons.size} مواسم" else "",
-                                        formatContentDuration(film.duration), ageRating.orEmpty(), film.contentQuality,
-                                        film.edition, displayQuality.orEmpty()).filter { it.isNotBlank() }.distinct().forEach {
-                                        Label(it, 14, Color(0xFFAAAAAA), true)
-                                    }
-                                    if(film.imdbRating.isNotBlank()) {
-                                        Label("IMDb ${film.imdbRating}", 14, Color(0xFFF5C518), true)
-                                    } else RatingChip(film.rating, size = 14)
-                                }
-                                Label(film.description.ifBlank {
-                                    if(vm.detailBusy) "جارٍ تحميل التفاصيل…" else "لا يتوفر وصف لهذا العمل."
-                                }, 15, Color.White.copy(alpha = .92f), lines = 3)
-                            }
+                    CircleButton(if (saved) Icons.Rounded.Check else Icons.Rounded.Add,
+                        if (saved) "إزالة من قائمتي" else "أضف إلى قائمتي") { vm.toggle(film) }
+                    CircleButton(TrailerIcon, "البرومو", Modifier.focusRequester(trailerFocus)) { showTrailer = true }
+                }
+            }
+
+            if (tabs.isNotEmpty()) Column(Modifier.align(Alignment.TopStart).padding(top = 760.mx).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(22.mx)) {
+                Row(Modifier.padding(start = 96.mx).focusGroup(), horizontalArrangement = Arrangement.spacedBy(12.mx),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    tabs.forEachIndexed { index, tab ->
+                        if (tab.season < 0 && index > 0) Box(Modifier.padding(horizontal = 8.mx).size(1.dp, 28.mx).background(Color.White.copy(alpha = .15f)))
+                        DetailsTabPill(tab.label, tab == activeTab,
+                            Modifier.then(if (tab == activeTab) Modifier.focusRequester(tabFocus) else Modifier)
+                                .focusProperties { up = playFocus; down = rowFocus }) {
+                            tabKey = tab.key
+                            if (tab.season >= 0 && vm.seasonIndex != tab.season) vm.seasonIndex = tab.season
                         }
-                        if(sections.size > 1) Label("↓ المواسم والحلقات وطاقم العمل", 12, Muted,
-                            modifier = Modifier.align(Alignment.BottomCenter))
-                            }
-                            "episodes" -> Column(Modifier.fillMaxSize().padding(bottom = 28.dp), verticalArrangement = Arrangement.Bottom) {
-                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        DetailsHorizontalRow(state = seasonRowState, modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "season" }.focusGroup(),
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            itemsIndexed(vm.seasons, key = { _, value -> value.number }) { index, value ->
-                                DetailsControl("الموسم ${value.number}",
-                                    Modifier.then(if(index == 0) Modifier.focusRequester(seasonFocus) else Modifier)
-                                        .focusProperties { up = playFocus; if(episodes.isNotEmpty()) down = episodeFocus },
-                                    primary = false, selected = index == vm.seasonIndex) {
-                                    vm.seasonIndex = index
-                                    scope.launch {
-                                        withFrameNanos { }
-                                        if(value.episodes.isNotEmpty()) { episodeRowState.requestScrollToItem(0); awaitTvFocus { episodeFocus } }
-                                    }
-                                }
-                            }
-                        }
-                                    if(!season?.description.isNullOrBlank()) Label(season!!.description, 14, Muted, modifier = Modifier.padding(horizontal = 24.dp).widthIn(max = 650.dp), lines = 2)
-                        DetailsRail(episodes.map { it.copy(seriesId = film.id, season = season?.number ?: it.season) },
-                            episodeFocus, seasonFocus, revision, vm, episodes = true, rowState = episodeRowState,
-                            seriesTitles = setOf(film.title, film.enTitle, film.originalTitle),
-                            modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "episodes-${season?.number}" }) {
-                            vm.play(it.copy(seriesId = film.id, season = season?.number ?: it.season))
-                        }
-                        if(episodes.isEmpty() && !vm.detailBusy) Label("لا توجد حلقات متاحة لهذا الموسم.", 14, Muted,
-                            modifier = Modifier.padding(horizontal = 24.dp))
-                                }
-                            }
-                            "cast" -> Column(Modifier.fillMaxSize().padding(bottom = 28.dp), verticalArrangement = Arrangement.Bottom) {
-                              credits?.let { credits ->
-                        Column(Modifier.padding(horizontal = 24.dp).then(if(!hasCast) Modifier.focusRequester(infoFocus)
-                            .onFocusChanged { if(it.isFocused) focusedSection = "credits-info" }.focusable() else Modifier), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Label("طاقم العمل", 22, Color.White, true)
-                            val directorText = if(credits.directors.isNotEmpty()) "المخرج: " + credits.directors.joinToString("، ")
-                                else if(credits.creators.isNotEmpty()) "صنّاع العمل: " + credits.creators.joinToString("، ") else ""
-                            val year = seasonYear ?: film.year.ifBlank { credits.year }
-                            Label(listOf(directorText, if(year.isNotBlank()) "سنة الإنتاج: $year" else "")
-                                .filter { it.isNotBlank() }.joinToString("   •   "), 14, Muted, lines = 2)
-                        }
-                        DetailsHorizontalRow(state = castRowState, modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "cast" }.focusGroup(),
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                            itemsIndexed(credits.cast, key = { _, actor -> actor.id }) { index, actor ->
-                                var focused by remember { mutableStateOf(false) }
-                                Column(Modifier.width(112.dp).then(if(index == 0) Modifier.focusRequester(castFocus) else Modifier)
-                                    .focusProperties { up = if(episodes.isNotEmpty()) episodeFocus else playFocus
-                                        if(related.isNotEmpty()) down = relatedFocus }
-                                    .onFocusChanged { focused = it.isFocused }.focusable(),
-                                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Box(Modifier.size(84.dp).clip(CircleShape).background(Panel)
-                                        .border(if(focused) 2.dp else 1.dp, if(focused) Color.White else Color.White.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Rounded.Person, null, Modifier.size(32.dp), Muted)
-                                        if(actor.image.isNotBlank()) AsyncImage(actor.image, actor.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                                    }
-                                    Label(actor.name, 13, if(focused) Color.White else Muted, bold = focused, lines = 2)
-                                }
-                            }
-                        }
-                              }
-                            }
-                            else -> Column(Modifier.fillMaxSize().padding(bottom = 28.dp), verticalArrangement = Arrangement.Bottom) {
-                                Label("أعمال مشابهة", 22, Color.White, true, Modifier.padding(horizontal = 24.dp))
-                        DetailsRail(related, relatedFocus, if(hasCast) castFocus else if(episodes.isNotEmpty()) episodeFocus else playFocus, revision, vm,
-                            episodes = false, rowState = relatedRowState, modifier = Modifier.onFocusChanged { if(it.hasFocus) focusedSection = "related" }, onClick = vm::open)
+                    }
+                }
+                val rowState = rememberLazyListState()
+                val showRelated = activeTab?.season == -1
+                val items = if (showRelated) related else episodes.map { it.copy(seriesId = film.id, season = season?.number ?: it.season) }
+                val startIndex = if (!showRelated) items.indexOfFirst { it.id == resume?.id }.coerceAtLeast(0) else 0
+                LaunchedEffect(activeTab?.key, items.size) { if (items.isNotEmpty()) rowState.scrollToItem(startIndex) }
+                CompositionLocalProvider(LocalBringIntoViewSpec provides CenteredDetailsRow) {
+                    LazyRow(state = rowState, contentPadding = PaddingValues(start = 96.mx, end = 58.mx, top = 10.mx, bottom = 10.mx),
+                        horizontalArrangement = Arrangement.spacedBy(28.mx), modifier = Modifier.fillMaxWidth().focusGroup()) {
+                        itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
+                            val cardModifier = Modifier.then(if (index == startIndex) Modifier.focusRequester(rowFocus) else Modifier)
+                                .focusProperties { up = tabFocus }
+                            if (showRelated) {
+                                FilmCard(item, vm.library.fraction(item.id), wide = true, width = 360.mx, modifier = cardModifier,
+                                    titleOnly = true) { vm.open(item) }
+                            } else {
+                                EpisodeCard(item, vm, revision, setOf(film.title, film.enTitle, film.originalTitle), cardModifier) { vm.play(item) }
                             }
                         }
                     }
                 }
+                if (!showRelated && episodes.isEmpty() && !vm.detailBusy)
+                    Label("لا توجد حلقات متاحة لهذا الموسم.", 13, Brand.TextTertiary, modifier = Modifier.padding(start = 96.mx))
             }
         }
-        if(showTrailer) TrailerOverlay(film) {
-            showTrailer = false; scope.launch { delay(32); trailerFocus.requestFocus() }
+        if (showTrailer) TrailerOverlay(film) {
+            showTrailer = false
         }
     }
-    // Background updates must not move focus away from a selected episode or season.
-    LaunchedEffect(film.id, film.series && episodes.isNotEmpty()) {
-        if(!initialFocusAssigned) {
-            delay(32)
-            if(!film.series || episodes.isNotEmpty()) {
-                initialFocusAssigned = runCatching { playFocus.requestFocus() }.getOrDefault(false)
-            } else {
-                initialFocusAssigned = runCatching { trailerFocus.requestFocus() }.getOrDefault(false)
-            }
+    // Initial focus: the resume button (the trailer button while no episode is playable); after the trailer, back to its button.
+    var trailerSeen by remember(film.id) { mutableStateOf(false) }
+    LaunchedEffect(film.id, showTrailer, target != null) {
+        if (showTrailer) { trailerSeen = true; return@LaunchedEffect }
+        awaitTvFocus { if (trailerSeen || target == null) trailerFocus else playFocus }
+    }
+}
+
+private data class DetailsTab(val key: String, val label: String, val season: Int)
+
+/** Arrow keycap with its meaning, as in the mockups. */
+@Composable
+internal fun KeyHint(key: String, text: String, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.mx)) {
+        Box(Modifier.border(1.dp, Brand.BorderStrong, RoundedCornerShape(8.mx)).padding(horizontal = 12.mx, vertical = 2.mx)) {
+            Label(key, 12, Color.White, lines = 1)
+        }
+        Label(text, 12, Brand.TextTertiary, lines = 1)
+    }
+}
+
+/** Artwork with the brief's scrims; when trailer previews are on, the muted trailer replaces it after 3 s. */
+@Composable
+private fun DetailsArtwork(film: Film, trailerAllowed: Boolean, modifier: Modifier) {
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    var ids by remember(film.id) { mutableStateOf<List<String>>(emptyList()) }
+    var index by remember(film.id) { mutableIntStateOf(0) }
+    var playing by remember(film.id) { mutableStateOf(false) }
+    val artAlpha by animateFloatAsState(if (playing) 0f else 1f, tween(700), label = "Details trailer fade")
+    LaunchedEffect(film.id, trailerAllowed) {
+        playing = false
+        if (trailerAllowed) { delay(3_000); ids = TrailerResolver.candidates(film) } else ids = emptyList()
+    }
+    Box(modifier) {
+        val id = ids.getOrNull(index)
+        if (trailerAllowed && id != null) key(id) {
+            TrailerPreview(id, Modifier.fillMaxSize(), onPlaying = { playing = true; TrailerResolver.markWorking(film.id, id) },
+                onFailed = { if (index + 1 < ids.size) index++ else ids = emptyList() })
+        }
+        val image = film.backdrop.ifBlank { film.poster }
+        if (image.isNotBlank()) AsyncImage(ImageRequest.Builder(LocalContext.current).data(image).crossfade(true).build(), null,
+            Modifier.fillMaxSize().graphicsLayer { alpha = artAlpha }, contentScale = ContentScale.Crop)
+        else Box(Modifier.fillMaxSize().background(Brand.Raised))
+        Box(Modifier.fillMaxSize().drawWithCache {
+            val bg = Brand.Background
+            val stops = arrayOf(0f to bg, .30f to bg.copy(alpha = .92f), .62f to bg.copy(alpha = .30f), .82f to Color.Transparent, 1f to Color.Transparent)
+            val side = Brush.horizontalGradient(*(if (rtl) stops.map { (1f - it.first) to it.second }.reversed().toTypedArray() else stops))
+            val bottom = Brush.verticalGradient(0f to Color.Transparent, (420f / 720f) to Color.Transparent, 1f to bg)
+            onDrawBehind { drawRect(side); drawRect(bottom) }
+        })
+        if (playing && LocalTrailerMuted.current) Row(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.mx)) {
+            Label("الصوت مكتوم", 11, Brand.TextTertiary, lines = 1)
         }
     }
 }
 
-/** Horizontal focus scrolling is independent of the explicitly controlled vertical page. */
-@OptIn(ExperimentalFoundationApi::class)
+/** White rounded rectangle with the resume label and a 6 px progress strip along its bottom. */
 @Composable
-private fun DetailsHorizontalRow(
-    state: LazyListState,
-    modifier: Modifier,
-    contentPadding: PaddingValues,
-    horizontalArrangement: Arrangement.Horizontal,
-    content: LazyListScope.() -> Unit
-) {
-    val centered = remember { object : BringIntoViewSpec {
-        override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
-            offset - (containerSize - size) / 2f
-    } }
-    CompositionLocalProvider(LocalBringIntoViewSpec provides centered) {
-        LazyRow(state = state, modifier = modifier, contentPadding = contentPadding,
-            horizontalArrangement = horizontalArrangement, content = content)
-    }
-}
-
-@Composable
-private fun DetailsControl(text: String, modifier: Modifier, primary: Boolean, enabled: Boolean = true, icon: ImageVector? = null, selected: Boolean = false, onClick: () -> Unit) {
+private fun ResumeButton(text: String, progress: Float, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if(focused) 1.05f else 1f,
-        spring(stiffness = Spring.StiffnessLow), label = "Details action focus")
-    val shape = RoundedCornerShape(50)
-    Row(modifier.zIndex(if(focused) 10f else 0f).onFocusChanged { focused = it.isFocused }
-        .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if(enabled) 1f else .5f }
-        .then(if(focused) Modifier.focusGlow(shape) else Modifier)
-        .clip(shape).background(if(primary || focused) Color.White else Color.White.copy(alpha = if(selected) .22f else .08f))
-        .border(if(focused) 3.dp else 1.dp, if(focused) Accent else Color.White.copy(alpha = .12f), shape)
-        .clickable(enabled = enabled, onClick = onClick).padding(horizontal = if(icon == null) 16.dp else 0.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        if(primary) { Icon(Icons.Rounded.PlayArrow, null, Modifier.size(24.dp), Color.Black); Spacer(Modifier.width(8.dp)) }
-        if(icon != null) Icon(icon, text, Modifier.size(24.dp), if(focused) Color.Black else Color.White)
-        else Label(text, if(primary) 16 else 18, if(primary || focused) Color.Black else Color.White, true, lines = 1)
+    val scale by animateFloatAsState(if (focused) 1.04f else 1f, tween(140), label = "Resume focus")
+    val radius = 16.mx
+    Box(modifier.zIndex(if (focused) 1f else 0f).graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else .5f }
+        .focusRingBehind(focused, radius)
+        .height(76.mx).widthIn(min = 340.mx).clip(RoundedCornerShape(radius)).background(Color.White)
+        .onFocusChanged { focused = it.isFocused }
+        .clickable(remember { MutableInteractionSource() }, null, enabled = enabled, onClick = onClick)) {
+        Row(Modifier.align(Alignment.Center).padding(horizontal = 36.mx), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.mx)) {
+            Icon(Icons.Rounded.PlayArrow, null, Modifier.size(26.mx), tint = Brand.OnPrimary)
+            Label(text, 15, Brand.OnPrimary, true, lines = 1)
+        }
+        if (progress > 0f) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(6.mx).drawBehind {
+            drawRect(Brand.TextSecondary)
+            val fill = size.width * progress.coerceIn(0f, 1f)
+            drawRect(Brand.Accent, Offset(if (layoutDirection == LayoutDirection.Rtl) size.width - fill else 0f, 0f), Size(fill, size.height))
+        })
     }
 }
 
+/** Season / "similar" tab: 14% white when selected, white with dark text when focused. Selection follows focus. */
 @Composable
-private fun DetailsRail(items: List<Film>, first: FocusRequester, upper: FocusRequester, revision: Int,
-    vm: CinemaViewModel, episodes: Boolean, rowState: LazyListState, seriesTitles: Set<String> = emptySet(), modifier: Modifier = Modifier, onClick: (Film) -> Unit) {
-    DetailsHorizontalRow(state = rowState, modifier = modifier.focusGroup(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        itemsIndexed(items, key = { _, item -> item.id }) { index, item ->
-            var episodeDetails by remember(item.id) { mutableStateOf(item) }
-            LaunchedEffect(item.id, episodes) {
-                if(episodes) episodeDetails = vm.episodeCardDetails(item)
-            }
-            val card = if(episodes) episodeDetails.copy(
-                episodeTitle = item.episodeTitle.ifBlank { episodeDetails.episodeTitle },
-                description = item.description.ifBlank { episodeDetails.description },
-                backdrop = item.backdrop, duration = item.duration.ifBlank { episodeDetails.duration },
-                tmdbRating = item.tmdbRating, airDate = item.airDate) else item
-            var focused by remember { mutableStateOf(false) }
-            val scale by animateFloatAsState(if(focused) 1.08f else 1f,
-                spring(stiffness = Spring.StiffnessLow), label = "Details card focus")
-            val shape = RoundedCornerShape(12.dp)
-            val complete = remember(revision, item.id) { vm.library.isCompleted(item.id) }
-            Box(Modifier.width(240.dp).aspectRatio(16f / 9f).zIndex(if(focused) 10f else 0f)
-                .then(if(index == 0) Modifier.focusRequester(first) else Modifier)
-                .focusProperties { up = upper }
-                .onFocusChanged { focused = it.isFocused }.graphicsLayer { scaleX = scale; scaleY = scale }
-                .then(if(focused) Modifier.focusGlow(shape) else Modifier)
-                .clip(shape).background(Panel).border(if(focused) 3.dp else 1.dp,
-                    if(focused) Accent else Color.White.copy(alpha = .2f), shape).clickable { onClick(item) }) {
-                AsyncImage(vm.withArtwork(card).let { it.backdrop.ifBlank { it.poster } }, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .5f), Color.Black))))
-                if(complete) Icon(Icons.Rounded.Check, "تمت المشاهدة", Modifier.align(Alignment.TopEnd).padding(12.dp).size(20.dp), Color.White)
-                Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if(episodes) Label("S${item.season}E${item.episode}", 9, Color.White, true)
-                    // Season/episode numbering stays visible even when a genuine title is available.
-                    if(episodes) {
-                        val title = com.cinemaplus.rebuilt.data.EpisodeLabels.title(card.episodeTitle.ifBlank { card.title }, seriesTitles)
-                        if(title.isNotBlank()) Label(title, 15, Color.White, true, lines = 1)
-                    } else Label(mediaTitle(item), 15, Color.White, true, lines = 1)
-                    if(episodes || card.description.isNotBlank()) Label(card.description.ifBlank { "لا يتوفر وصف لهذه الحلقة." }, 10, Color.White.copy(alpha = .8f), lines = 2)
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Label(formatContentDuration(card.duration), 11, Color(0xFFAAAAAA))
-                        if(episodes && card.imdbRating.isNotBlank()) {
-                            Label("IMDb", 10, Color(0xFFF5C518), true)
-                            Label(card.imdbRating, 11, Color.White, true)
-                        } else if(episodes && card.tmdbRating.isNotBlank()) {
-                            Label("TMDB", 10, Color(0xFF90CEA1), true)
-                            Label(card.tmdbRating, 11, Color.White, true)
-                        } else if(!episodes) RatingChip(card.rating, size = 11)
-                    }
+private fun DetailsTabPill(text: String, selected: Boolean, modifier: Modifier, onFocus: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(24.mx)
+    Box(modifier.height(48.mx).clip(shape)
+        .background(when { focused -> Color.White; selected -> Color.White.copy(alpha = .14f); else -> Color.Transparent })
+        .onFocusChanged { focused = it.isFocused; if (it.isFocused) onFocus() }
+        .clickable(remember { MutableInteractionSource() }, null) { onFocus() }
+        .padding(horizontal = 24.mx), contentAlignment = Alignment.Center) {
+        Label(text, 13, when { focused -> Brand.Background; selected -> Color.White; else -> Brand.TextTertiary }, focused || selected, lines = 1)
+    }
+}
+
+/** 360×203 episode card: duration chip in the corner, progress strip, "episode N" and its name below. */
+@Composable
+private fun EpisodeCard(item: Film, vm: CinemaViewModel, revision: Int, seriesTitles: Set<String>, modifier: Modifier, onClick: () -> Unit) {
+    var details by remember(item.id) { mutableStateOf(item) }
+    LaunchedEffect(item.id) { details = vm.episodeCardDetails(item) }
+    val focusAnim = remember(item.id) { Animatable(0f) }
+    var focused by remember(item.id) { mutableStateOf(false) }
+    LaunchedEffect(focused) { focusAnim.animateTo(if (focused) 1f else 0f, tween(140, easing = FastOutSlowInEasing)) }
+    val progress = remember(revision, item.id) { vm.library.fraction(item.id) }
+    val complete = remember(revision, item.id) { vm.library.isCompleted(item.id) }
+    val image = vm.withArtwork(details).let { it.backdrop.ifBlank { it.poster } }.ifBlank { item.backdrop.ifBlank { item.poster } }
+    val name = com.cinemaplus.rebuilt.data.EpisodeLabels.title(item.episodeTitle.ifBlank { details.episodeTitle.ifBlank { details.title } }, seriesTitles)
+    val duration = formatContentDuration(item.duration.ifBlank { details.duration })
+    val radius = TvMetrics.CardRadius
+    Column(Modifier.width(360.mx), verticalArrangement = Arrangement.spacedBy(10.mx)) {
+        Box(modifier.fillMaxWidth().height(203.mx)
+            .graphicsLayer { val s = 1f + .06f * focusAnim.value; scaleX = s; scaleY = s }
+            .drawWithContent {
+                drawContent()
+                val p = focusAnim.value
+                if (p > .01f) {
+                    val stroke = 5.mx.toPx(); val outset = 3.mx.toPx() + stroke / 2
+                    drawRoundRect(Color.White.copy(alpha = p), Offset(-outset, -outset), Size(size.width + outset * 2, size.height + outset * 2),
+                        CornerRadius(radius.toPx() + outset), style = Stroke(stroke))
                 }
             }
+            .onFocusChanged { focused = it.isFocused }
+            .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)) {
+            Box(Modifier.fillMaxSize().clip(RoundedCornerShape(radius)).background(Brand.Raised)) {
+                if (image.isNotBlank()) AsyncImage(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                if (complete) Icon(Icons.Rounded.CheckCircle, "تمت المشاهدة", Modifier.align(Alignment.TopStart).padding(12.mx).size(28.mx), tint = Color.White)
+                if (duration.isNotBlank()) Box(Modifier.align(Alignment.BottomEnd).padding(12.mx)
+                    .background(Color.Black.copy(alpha = .6f), RoundedCornerShape(6.mx)).padding(horizontal = 8.mx)) {
+                    Label(duration, 9, Color.White, lines = 1)
+                }
+                if (progress > 0f && !complete) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(6.mx).drawBehind {
+                    drawRect(Color.White.copy(alpha = .2f))
+                    val fill = size.width * progress.coerceIn(0f, 1f)
+                    drawRect(lerp(Brand.TextSecondary, Brand.Accent, focusAnim.value),
+                        Offset(if (layoutDirection == LayoutDirection.Rtl) size.width - fill else 0f, 0f), Size(fill, size.height))
+                })
+            }
+        }
+        Column(Modifier.graphicsLayer { alpha = .7f + .3f * focusAnim.value }) {
+            Label("الحلقة ${item.episode}", 13, Color.White, true, lines = 1)
+            if (name.isNotBlank()) Label(name, 11, Brand.TextTertiary, lines = 1)
         }
     }
 }
@@ -443,10 +385,3 @@ private fun TrailerOverlay(film: Film, onClose: () -> Unit) {
     }
 }
 
-/** Soft accent halo behind a focused control; the white fill and the accent frame are drawn by the caller. */
-private fun Modifier.focusGlow(shape: RoundedCornerShape): Modifier = this.drawBehind {
-    val outline = shape.createOutline(size, layoutDirection, this)
-    for((spread, alpha) in listOf(8.dp to .05f, 5.dp to .09f, 3.dp to .14f)) {
-        drawOutline(outline, Accent.copy(alpha = alpha), style = androidx.compose.ui.graphics.drawscope.Stroke(width = spread.toPx() * 2))
-    }
-}
