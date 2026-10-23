@@ -119,11 +119,7 @@ struct TVPlayerView: View {
             UIAction(title: option.0, state: abs(option.1 - subtitleBackground) < 0.01 ? .on : .off) { _ in subtitleBackground = option.1 }
         }))
         items.append(UIMenu(title: "الترجمة", image: UIImage(systemName: "captions.bubble"), children: subtitleItems))
-        if controller.audioOptions.count > 1 {
-            items.append(UIMenu(title: "الصوت", image: UIImage(systemName: "waveform"), children: controller.audioOptions.map { option in
-                UIAction(title: option.title, state: option.id == controller.audioID ? .on : .off) { _ in controller.selectAudio(option.id) }
-            }))
-        }
+        // Audio tracks are in the system's own audio menu.
         items.append(UIMenu(title: "السرعة", image: UIImage(systemName: "gauge.with.dots.needle.67percent"),
                             children: [Float(0.75), 1, 1.25, 1.5, 2].map { value in
             UIAction(title: value == 1 ? "عادية" : String(format: "%gx", value), state: controller.rate == value ? .on : .off) { _ in
@@ -204,6 +200,9 @@ struct SystemPlayer: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.view.backgroundColor = .black
+        // One subtitle button: Cinema iQ's menu (source files, embedded tracks, size and background). Allowing no
+        // language hides the system's own subtitle button.
+        controller.allowedSubtitleOptionLanguages = ["zxx"]
         return controller
     }
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
