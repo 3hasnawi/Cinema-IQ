@@ -42,7 +42,8 @@ struct TVPlayerView: View {
             Color.black.ignoresSafeArea()
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
-                         menuKey: menuKey, menus: { menus }, actionKey: offerNext ? (next?.id ?? "") : "", actions: { actions })
+                         menuKey: menuKey, menus: { menus }, actionKey: offerNext ? (next?.id ?? "") : "", actions: { actions },
+                         episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
                 .ignoresSafeArea()
             VStack {
                 Spacer()
@@ -129,6 +130,21 @@ struct TVPlayerView: View {
         return items
     }
 
+    /// The "الحلقات" tab of the info panel (swipe down while playing): the season's episodes, the one playing marked.
+    private var episodesPanel: [UIViewController] {
+        let list = queue
+        guard list.count > 1 else { return [] }
+        let row = PlayerEpisodesRow(episodes: list, currentID: current.id, multiSeason: Set(list.map(\.season)).count > 1,
+                                    progress: { library.fraction($0) }, select: { episode in
+            if episode.id != current.id { active = episode }
+        })
+        let host = UIHostingController(rootView: row)
+        host.title = "الحلقات"
+        host.preferredContentSize = CGSize(width: 1920, height: 380)
+        host.view.backgroundColor = .clear
+        return [host]
+    }
+
     private var actions: [UIAction] {
         guard offerNext, let next else { return [] }
         return [UIAction(title: "الحلقة \(next.episode)", image: UIImage(systemName: "forward.end.fill")) { _ in active = next }]
@@ -188,11 +204,14 @@ struct SystemPlayer: UIViewControllerRepresentable {
     let menus: () -> [UIMenuElement]
     let actionKey: String
     let actions: () -> [UIAction]
+    let episodesKey: String
+    let episodes: () -> [UIViewController]
 
     final class Coordinator {
         var menuKey: String?
         var actionKey: String?
         var titleKey: String?
+        var episodesKey: String?
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -216,6 +235,10 @@ struct SystemPlayer: UIViewControllerRepresentable {
             state.actionKey = actionKey
             controller.contextualActions = actions()
         }
+        if state.episodesKey != episodesKey {
+            state.episodesKey = episodesKey
+            controller.customInfoViewControllers = episodes()
+        }
         guard let item = player.currentItem else { return }
         let titleKey = "\(ObjectIdentifier(item))|\(title)|\(subtitle)"
         guard state.titleKey != titleKey else { return }
@@ -233,5 +256,52 @@ struct SystemPlayer: UIViewControllerRepresentable {
             metadata.append(subtitleItem)
         }
         item.externalMetadata = metadata
+    }
+}
+
+/// Episodes in the player's info panel: a row of stills; the one playing says so; pressing another plays it.
+struct PlayerEpisodesRow: View {
+    let episodes: [Media]
+    let currentID: String
+    let multiSeason: Bool
+    let progress: (Media) -> Double
+    let select: (Media) -> Void
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 40) {
+                    ForEach(episodes) { episode in
+                        Button { select(episode) } label: {
+                            Artwork(url: episode.backdrop.isEmpty ? episode.poster : episode.backdrop)
+                                .frame(width: 380, height: 214)
+                                .overlay(alignment: .bottom) {
+                                    let fraction = progress(episode)
+                                    if fraction > 0 {
+                                        ProgressStrip(fraction: fraction).clipShape(Capsule()).padding(.horizontal, 16).padding(.bottom, 14)
+                                    }
+                                }
+                                .overlay(alignment: .topLeading) {
+                                    if episode.id == currentID {
+                                        Text("يُعرض الآن").font(.caption2.weight(.bold)).foregroundStyle(.black)
+                                            .padding(.horizontal, 12).padding(.vertical, 5)
+                                            .background(Color.white, in: Capsule()).padding(12)
+                                    }
+                                }
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                .hoverEffect(.highlight)
+                            Text(multiSeason ? "م\(episode.season) · الحلقة \(episode.episode)" : "الحلقة \(episode.episode)")
+                                .font(.caption).lineLimit(1).frame(width: 380, alignment: .leading)
+                        }
+                        .buttonStyle(.borderless)
+                        .id(episode.id)
+                    }
+                }
+                .padding(.horizontal, 90).padding(.vertical, 24)
+            }
+            .scrollClipDisabled()
+            .scrollIndicators(.hidden)
+            .onAppear { proxy.scrollTo(currentID, anchor: .center) }
+        }
+        .environment(\.layoutDirection, .rightToLeft)
     }
 }

@@ -18,7 +18,7 @@ permissions:
 jobs:
   screenshots:
     runs-on: macos-15
-    timeout-minutes: 50
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
       - name: Select the newest installed Xcode
@@ -72,6 +72,9 @@ jobs:
                   shutil.copy(os.path.join(src, a["exportedFileName"]), os.path.join(dst, name + ".png"))
           PY
           for f in "$out"/*.png; do sips -Z 1280 "$f" >/dev/null; done
+          # Crash reports of the app, if any.
+          find ~/Library/Logs/DiagnosticReports -name 'CinemaIQTV*' -exec cp {} "$out"/ \; 2>/dev/null || true
+          ls "$out" | grep -v png || echo "no crash reports" 
           cd "$out"
           git init -q -b tvos-screenshots
           git -c user.name=github-actions -c user.email=actions@github.com add .
