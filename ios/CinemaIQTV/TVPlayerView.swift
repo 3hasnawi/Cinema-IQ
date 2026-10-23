@@ -41,7 +41,8 @@ struct TVPlayerView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
-                         subtitle: current.episode > 0 ? current.title : "", menus: menus, actions: actions)
+                         subtitle: current.episode > 0 ? current.title : "",
+                         menuKey: menuKey, menus: { menus }, actionKey: offerNext ? (next?.id ?? "") : "", actions: { actions })
                 .ignoresSafeArea()
             VStack {
                 Spacer()
@@ -71,6 +72,15 @@ struct TVPlayerView: View {
     }
 
     // MARK: Menus in the transport bar
+
+    /// Everything the menus show; they are rebuilt only when this changes, so an open menu is not replaced while
+    /// the video plays (the controller publishes its position several times a second).
+    private var menuKey: String {
+        [streams.map(\.id).joined(separator: ","), quality ?? "", controller.subtitleID ?? "",
+         externalTracks.map(\.id).joined(separator: ","), controller.embeddedSubtitles.map(\.id).joined(separator: ","),
+         "\(subtitleSize)", "\(subtitleBackground)", controller.audioOptions.map(\.id).joined(separator: ","),
+         controller.audioID ?? "", "\(controller.rate)"].joined(separator: "|")
+    }
 
     private var menus: [UIMenuElement] {
         var items: [UIMenuElement] = []
@@ -164,13 +174,23 @@ struct TVPlayerView: View {
     }
 }
 
-/// AVPlayerViewController with the given transport bar menus and contextual actions.
+/// AVPlayerViewController with the given transport bar menus and contextual actions. Menus, actions and the title
+/// are handed to the controller only when they change.
 struct SystemPlayer: UIViewControllerRepresentable {
     let player: AVPlayer
     let title: String
     let subtitle: String
-    let menus: [UIMenuElement]
-    let actions: [UIAction]
+    let menuKey: String
+    let menus: () -> [UIMenuElement]
+    let actionKey: String
+    let actions: () -> [UIAction]
+
+    final class Coordinator {
+        var menuKey: String?
+        var actionKey: String?
+        var titleKey: String?
+    }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -179,23 +199,32 @@ struct SystemPlayer: UIViewControllerRepresentable {
         return controller
     }
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        let state = context.coordinator
         if controller.player !== player { controller.player = player }
-        controller.transportBarCustomMenuItems = menus
-        controller.contextualActions = actions
-        if let item = player.currentItem {
-            let titleItem = AVMutableMetadataItem()
-            titleItem.identifier = .commonIdentifierTitle
-            titleItem.value = title as NSString
-            titleItem.extendedLanguageTag = "und"
-            var metadata: [AVMetadataItem] = [titleItem]
-            if !subtitle.isEmpty {
-                let subtitleItem = AVMutableMetadataItem()
-                subtitleItem.identifier = .iTunesMetadataTrackSubTitle
-                subtitleItem.value = subtitle as NSString
-                subtitleItem.extendedLanguageTag = "und"
-                metadata.append(subtitleItem)
-            }
-            item.externalMetadata = metadata
+        if state.menuKey != menuKey {
+            state.menuKey = menuKey
+            controller.transportBarCustomMenuItems = menus()
         }
+        if state.actionKey != actionKey {
+            state.actionKey = actionKey
+            controller.contextualActions = actions()
+        }
+        guard let item = player.currentItem else { return }
+        let titleKey = "\(ObjectIdentifier(item))|\(title)|\(subtitle)"
+        guard state.titleKey != titleKey else { return }
+        state.titleKey = titleKey
+        let titleItem = AVMutableMetadataItem()
+        titleItem.identifier = .commonIdentifierTitle
+        titleItem.value = title as NSString
+        titleItem.extendedLanguageTag = "und"
+        var metadata: [AVMetadataItem] = [titleItem]
+        if !subtitle.isEmpty {
+            let subtitleItem = AVMutableMetadataItem()
+            subtitleItem.identifier = .iTunesMetadataTrackSubTitle
+            subtitleItem.value = subtitle as NSString
+            subtitleItem.extendedLanguageTag = "und"
+            metadata.append(subtitleItem)
+        }
+        item.externalMetadata = metadata
     }
 }

@@ -1,13 +1,13 @@
 import SwiftUI
 import CinemaCore
 
-/// Cinema iQ colours, the same as the iPhone app.
+/// Apple TV style: near-black pages under the title's own artwork; Cinema iQ's orange only for progress.
 enum TVTheme {
-    static let ink = Color(red: 0x1E / 255, green: 0x17 / 255, blue: 0x22 / 255)
-    static let panel = Color(red: 0x2B / 255, green: 0x22 / 255, blue: 0x30 / 255)
-    static let raised = Color(red: 0x3F / 255, green: 0x32 / 255, blue: 0x45 / 255)
+    static let ink = Color(red: 0.035, green: 0.03, blue: 0.045)
+    static let panel = Color(white: 0.13)
+    static let raised = Color(white: 0.2)
     static let accent = Color(red: 1, green: 0x8A / 255, blue: 0x2B / 255)
-    static let muted = Color(red: 0xB5 / 255, green: 0xA9 / 255, blue: 0xBC / 255)
+    static let muted = Color.white.opacity(0.62)
 }
 
 /// The chosen content source; the same setting key as on the iPhone.
@@ -127,5 +127,177 @@ struct ErrorState: View {
         }
         .frame(maxWidth: .infinity)
         .padding(60)
+    }
+}
+
+/// Per-tab navigation paths and the selected tab, so any page can open a title or return a tab to its root.
+@MainActor final class TVRouter: ObservableObject {
+    @Published var tab = TVTab.home
+    @Published var paths: [TVTab: [Media]] = [:]
+    func path(_ tab: TVTab) -> Binding<[Media]> {
+        Binding(get: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
+    }
+    func open(_ media: Media) { paths[tab, default: []].append(media) }
+}
+
+/// What Play starts for a series: the episode in progress, else the one after the last finished, else the first.
+@MainActor enum PlayTarget {
+    static func pick(_ seasons: [Season], library: LibraryStore) -> Media? {
+        let all = seasons.flatMap(\.episodes)
+        let watched = all.compactMap { episode in library.progress[episode.id].map { (episode, $0) } }
+            .sorted { $0.1.updatedAt > $1.1.updatedAt }
+        if let latest = watched.first {
+            if !latest.1.completed { return latest.0 }
+            if let index = all.firstIndex(where: { $0.id == latest.0.id }), all.indices.contains(index + 1) { return all[index + 1] }
+        }
+        return all.first
+    }
+    static func label(_ target: Media?, library: LibraryStore) -> String {
+        guard let target else { return "تشغيل" }
+        let started = library.progress[target.id].map { !$0.completed && $0.seconds > 0 } ?? false
+        if target.episode > 0 { return started ? "تابع م\(target.season) ح\(target.episode)" : "شاهد م\(target.season) ح\(target.episode)" }
+        return started ? "تابع المشاهدة" : "تشغيل"
+    }
+}
+
+/// Portrait lockup (system borderless style): the poster lifts with highlight and parallax, the title below moves
+/// out of its way. In a shelf it sizes itself to `perRow` posters across the screen; in a grid it fills its column.
+struct PosterLockup: View {
+    let media: Media
+    var perRow: Int? = 6
+    var body: some View {
+        NavigationLink(value: media) {
+            Artwork(url: media.poster.isEmpty ? media.backdrop : media.poster)
+                .aspectRatio(2 / 3, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .hoverEffect(.highlight)
+                .modifier(RowWidth(perRow: perRow))
+            Text(media.title)
+                .font(.caption).lineLimit(1)
+                .modifier(RowWidth(perRow: perRow))
+        }
+        .buttonStyle(.borderless)
+    }
+}
+
+/// Landscape lockup of continue watching: plays straight away; long press removes it.
+struct ContinueLockup: View {
+    let media: Media
+    var perRow = 4
+    @EnvironmentObject private var library: LibraryStore
+    @EnvironmentObject private var player: PlayerPresenter
+    var body: some View {
+        Button { player.play(media) } label: {
+            Artwork(url: media.backdrop.isEmpty ? media.poster : media.backdrop)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .overlay(alignment: .bottom) {
+                    ProgressStrip(fraction: library.fraction(media))
+                        .clipShape(Capsule())
+                        .padding(.horizontal, 18).padding(.bottom, 16)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .hoverEffect(.highlight)
+                .modifier(RowWidth(perRow: perRow))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(media.title).font(.caption).lineLimit(1)
+                Text(media.episode > 0 ? "الموسم \(media.season) · الحلقة \(media.episode)" : remaining)
+                    .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .modifier(RowWidth(perRow: perRow))
+        }
+        .buttonStyle(.borderless)
+        .contextMenu {
+            Button("إزالة من تابع المشاهدة", systemImage: "xmark", role: .destructive) { library.remove(media) }
+        }
+    }
+    private var remaining: String {
+        guard let progress = library.progress[media.id], progress.duration > progress.seconds else { return "" }
+        let minutes = Int((progress.duration - progress.seconds) / 60)
+        return minutes < 1 ? "أقل من دقيقة" : "متبقٍ \(minutes) د"
+    }
+}
+
+/// A lockup's width: `perRow` across the scroll view (aligned to its safe area), or the column's width.
+struct RowWidth: ViewModifier {
+    let perRow: Int?
+    func body(content: Content) -> some View {
+        if let perRow {
+            content.containerRelativeFrame(.horizontal, count: perRow, spacing: 40, alignment: .leading)
+        } else {
+            content
+        }
+    }
+}
+
+/// Titled horizontal shelf of lockups.
+struct TVShelf<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(title).font(.title3.weight(.semibold))
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 40) { content }
+                    .padding(.vertical, 12)
+            }
+            .scrollClipDisabled()
+            .scrollIndicators(.hidden)
+        }
+        .focusSection()
+    }
+}
+
+/// Full-screen artwork behind a page: clear at the top above the fold, blurred all over below it.
+struct ShowcaseBackground: View {
+    let url: String
+    let belowFold: Bool
+    var body: some View {
+        ZStack {
+            TVTheme.ink
+            Artwork(url: url)
+                .id(url)
+                .transition(.opacity)
+            LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.25), .clear], startPoint: .bottom, endPoint: .center)
+            Rectangle()
+                .fill(.regularMaterial)
+                .mask {
+                    LinearGradient(stops: [
+                        .init(color: .black, location: 0.2),
+                        .init(color: .black.opacity(belowFold ? 1 : 0.45), location: 0.38),
+                        .init(color: .black.opacity(belowFold ? 1 : 0), location: 0.55)
+                    ], startPoint: .bottom, endPoint: .top)
+                }
+        }
+        .ignoresSafeArea()
+        .animation(.easeInOut(duration: 0.5), value: belowFold)
+        .animation(.easeInOut(duration: 0.6), value: url)
+    }
+}
+
+/// Scrolling snaps at the fold: either the whole showcase, or the shelves from the top of the screen.
+struct FoldSnapping: ScrollTargetBehavior {
+    var aboveFold: Bool
+    var showcaseHeight: CGFloat
+    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+        if aboveFold && target.rect.minY < showcaseHeight * 0.3 { return }
+        if !aboveFold && target.rect.minY > showcaseHeight { return }
+        let snapToHide = (showcaseHeight * 0.7)...showcaseHeight
+        if aboveFold || snapToHide.contains(target.rect.origin.y) {
+            target.rect.origin.y = showcaseHeight
+        } else {
+            target.rect.origin.y = 0
+        }
+    }
+}
+
+/// Year · rating · length · quality, as on the Apple TV app's product pages.
+struct FactsLine: View {
+    let facts: [String]
+    var body: some View {
+        Text(facts.joined(separator: "  ·  "))
+            .font(.callout.weight(.medium))
+            .foregroundStyle(.white.opacity(0.85))
+            .lineLimit(1)
     }
 }

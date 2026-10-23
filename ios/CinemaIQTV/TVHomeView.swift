@@ -1,62 +1,77 @@
 import SwiftUI
 import CinemaCore
 
-/// Home: the featured title over most of the screen (it changes every 8 s while focus is not on it), continue
-/// watching under it, then the source's shelves.
+/// Home in the Apple TV app's style: the featured title fills the screen above the fold (its artwork is the page's
+/// background), continue watching peeks at the bottom, and scrolling down snaps to the shelves over the blurred art.
 struct TVHomeView: View {
     @EnvironmentObject private var library: LibraryStore
-    @EnvironmentObject private var player: PlayerPresenter
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @State private var shelves: [Shelf] = []
     @State private var loading = false
     @State private var error: String?
     @State private var heroIndex = 0
     @State private var loadedSource: String?
-    @FocusState private var heroFocused: Bool
+    @State private var belowFold = false
+    @FocusState private var heroFocus: HeroButton?
+
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var featured: [Media] {
         var seen = Set<String>()
         let all = shelves.flatMap(\.items).filter { seen.insert($0.id).inserted }
-        return Array(all.filter { !$0.backdrop.isEmpty || !$0.poster.isEmpty }.prefix(8))
+        let wide = all.filter { !$0.backdrop.isEmpty }
+        return Array((wide.count >= 3 ? wide : all.filter { !$0.poster.isEmpty }).prefix(8))
     }
+    private var hero: Media? { featured.indices.contains(heroIndex) ? featured[heroIndex] : featured.first }
     private var recent: [Media] { library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source } }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 56) {
-                if let hero = featured.indices.contains(heroIndex) ? featured[heroIndex] : featured.first {
-                    TVHero(media: hero, count: featured.count, index: heroIndex, focused: $heroFocused)
-                } else if loading {
-                    ProgressView().frame(maxWidth: .infinity, minHeight: 700)
-                }
-                if !recent.isEmpty {
-                    TVShelf(title: "تابع المشاهدة") {
-                        ForEach(recent) { media in ContinueCard(media: media) }
+        GeometryReader { proxy in
+            let showcase = max(400, proxy.size.height * 0.8)
+            ZStack {
+                ShowcaseBackground(url: hero.map { $0.backdrop.isEmpty ? $0.poster : $0.backdrop } ?? "", belowFold: belowFold)
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 56) {
+                        TVHeroHeader(media: hero, count: featured.count, index: heroIndex, loading: loading, error: shelves.isEmpty ? error : nil,
+                                     focus: $heroFocus, next: { advance(1) }, retry: { Task { await load() } })
+                            .frame(height: showcase, alignment: .bottomLeading)
+                            .onScrollVisibilityChange(threshold: 0.5) { visible in
+                                withAnimation { belowFold = !visible }
+                            }
+                        if !recent.isEmpty {
+                            TVShelf(title: "تابع المشاهدة") {
+                                ForEach(recent) { media in ContinueLockup(media: media) }
+                            }
+                        }
+                        ForEach(shelves) { shelf in
+                            TVShelf(title: shelf.title) {
+                                ForEach(shelf.items) { media in PosterLockup(media: media) }
+                            }
+                        }
                     }
+                    .padding(.bottom, 60)
                 }
-                ForEach(shelves) { shelf in
-                    TVShelf(title: shelf.title) {
-                        ForEach(shelf.items) { media in PosterCard(media: media) }
-                    }
-                }
-                if let error, shelves.isEmpty { ErrorState(message: error) { Task { await load() } } }
+                .scrollClipDisabled()
+                .scrollIndicators(.hidden)
+                .scrollTargetBehavior(FoldSnapping(aboveFold: !belowFold, showcaseHeight: showcase + 56))
             }
-            .padding(.bottom, 80)
         }
-        .ignoresSafeArea(edges: .top)
-        .background(TVTheme.ink.ignoresSafeArea())
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
             if loadedSource != sourceName { shelves = []; heroIndex = 0 }
             await load()
         }
-        // Rotation pauses while the viewer is on the featured title.
-        .task(id: "\(heroIndex)-\(heroFocused)-\(featured.count)") {
-            guard featured.count > 1, !heroFocused else { return }
-            try? await Task.sleep(for: .seconds(8))
-            guard !Task.isCancelled, !heroFocused else { return }
-            withAnimation(.easeInOut(duration: 0.6)) { heroIndex = (heroIndex + 1) % featured.count }
+        // The featured title changes every 9 s while the viewer is not on its buttons and is above the fold.
+        .task(id: "\(heroIndex)-\(heroFocus == nil)-\(belowFold)-\(featured.count)") {
+            guard featured.count > 1, heroFocus == nil, !belowFold else { return }
+            try? await Task.sleep(for: .seconds(9))
+            guard !Task.isCancelled else { return }
+            advance(1)
         }
+    }
+
+    private func advance(_ step: Int) {
+        guard featured.count > 1 else { return }
+        withAnimation(.easeInOut(duration: 0.6)) { heroIndex = (heroIndex + step + featured.count) % featured.count }
     }
 
     private func load() async {
@@ -74,122 +89,100 @@ struct TVHomeView: View {
     }
 }
 
-/// The featured title: full-width artwork, title and facts on the right, Play / Details / My List.
-struct TVHero: View {
-    let media: Media
+enum HeroButton: Hashable { case play, info, list }
+
+/// The featured title's text and buttons at the bottom of the showcase. The buttons stay the same views while the
+/// title changes, so focus never drops; Left from the last button shows the next title.
+struct TVHeroHeader: View {
+    let media: Media?
     let count: Int
     let index: Int
-    var focused: FocusState<Bool>.Binding
+    let loading: Bool
+    let error: String?
+    var focus: FocusState<HeroButton?>.Binding
+    let next: () -> Void
+    let retry: () -> Void
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
+    @EnvironmentObject private var router: TVRouter
+    @State private var starting = false
+
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Artwork(url: media.backdrop.isEmpty ? media.poster : media.backdrop)
-                .frame(height: 860)
+        VStack(alignment: .leading, spacing: 20) {
+            Spacer(minLength: 0)
+            if let media {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(media.isSeries ? "مسلسل" : "فيلم")
+                        .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.7))
+                    Text(media.title)
+                        .font(.system(size: 70, weight: .bold))
+                        .lineLimit(2).minimumScaleFactor(0.7)
+                        .frame(maxWidth: 1150, alignment: .leading)
+                    FactsLine(facts: DisplayFormat.facts(media))
+                    Text(media.overview.isEmpty ? " " : media.overview)
+                        .font(.callout).foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(2).frame(maxWidth: 950, alignment: .leading)
+                }
                 .id(media.id)
                 .transition(.opacity)
-            LinearGradient(colors: [TVTheme.ink.opacity(0.92), TVTheme.ink.opacity(0.55), .clear],
-                           startPoint: .leading, endPoint: .trailing)
-            LinearGradient(colors: [.clear, .clear, TVTheme.ink], startPoint: .top, endPoint: .bottom)
-            VStack(alignment: .leading, spacing: 22) {
-                Text(media.isSeries ? "مسلسل" : "فيلم")
-                    .font(.caption.bold()).foregroundStyle(.black)
-                    .padding(.horizontal, 14).padding(.vertical, 4)
-                    .background(TVTheme.accent, in: RoundedRectangle(cornerRadius: 8))
-                Text(media.title).font(.system(size: 76, weight: .heavy)).lineLimit(2)
-                Text(DisplayFormat.facts(media).joined(separator: "  •  ")).font(.headline).foregroundStyle(.white.opacity(0.85))
-                if !media.overview.isEmpty {
-                    Text(media.overview).font(.body).foregroundStyle(.white.opacity(0.85)).lineLimit(2).frame(maxWidth: 900, alignment: .leading)
-                }
-                HStack(spacing: 24) {
-                    if media.isSeries {
-                        NavigationLink(value: media) { Label("الحلقات", systemImage: "play.fill") }
-                            .focused(focused)
-                    } else {
-                        Button { player.play(media) } label: {
-                            Label(library.fraction(media) > 0 ? "استئناف" : "شاهد الآن", systemImage: "play.fill")
-                        }
-                        .focused(focused)
-                        NavigationLink(value: media) { Label("التفاصيل", systemImage: "info.circle") }
+                HStack(spacing: 22) {
+                    Button { play(media) } label: {
+                        Label(starting ? "جارٍ التحضير…" : playTitle(media), systemImage: "play.fill")
+                            .font(.callout.weight(.semibold))
                     }
+                    .focused(focus, equals: .play)
+                    Button { router.open(media) } label: {
+                        Label(media.isSeries ? "الحلقات" : "التفاصيل", systemImage: media.isSeries ? "list.bullet" : "info.circle")
+                            .font(.callout.weight(.semibold))
+                    }
+                    .focused(focus, equals: .info)
                     Button { library.toggle(media) } label: {
-                        Label("قائمتي", systemImage: library.isFavorite(media) ? "checkmark" : "plus")
+                        Image(systemName: library.isFavorite(media) ? "checkmark" : "plus").font(.callout.weight(.semibold))
                     }
+                    .focused(focus, equals: .list)
+                    .onMoveCommand { direction in if direction == .left { next() } }
                 }
-                .padding(.top, 10)
+                .padding(.top, 8)
                 if count > 1 {
                     HStack(spacing: 8) {
                         ForEach(0..<count, id: \.self) { dot in
-                            Capsule().fill(dot == index ? Color.white : Color.white.opacity(0.35))
-                                .frame(width: dot == index ? 34 : 8, height: 8)
+                            Capsule().fill(dot == index ? Color.white : Color.white.opacity(0.3))
+                                .frame(width: dot == index ? 26 : 8, height: 8)
                         }
                     }
-                    .padding(.top, 8)
+                    .animation(.easeInOut, value: index)
+                    .padding(.top, 6)
                 }
+            } else if loading {
+                ProgressView().frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            } else if let error {
+                ErrorState(message: error, retry: retry)
+                Spacer(minLength: 0)
             }
-            .padding(.leading, 90).padding(.bottom, 40)
-            .frame(maxWidth: 1000, alignment: .leading)
         }
-        .frame(height: 860)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
     }
-}
 
-/// Titled horizontal row of cards.
-struct TVShelf<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: Content
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text(title).font(.title3.bold()).padding(.horizontal, 90)
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: 44) { content }
-                    .padding(.horizontal, 90).padding(.vertical, 30)
+    private func playTitle(_ media: Media) -> String {
+        if media.isSeries { return "تشغيل" }
+        return library.fraction(media) > 0 ? "تابع المشاهدة" : "تشغيل"
+    }
+
+    /// A movie plays at once; a series loads its seasons and plays the episode the viewer is on.
+    private func play(_ media: Media) {
+        guard media.isSeries else { player.play(media); return }
+        guard !starting else { return }
+        starting = true
+        Task {
+            defer { starting = false }
+            guard let found = try? await SourceClient().detail(media),
+                  let target = PlayTarget.pick(found.1, library: library) else {
+                router.open(media)
+                return
             }
-            .scrollClipDisabled()
+            player.play(target, queue: found.1.flatMap(\.episodes))
         }
-        .focusSection()
-    }
-}
-
-/// 2:3 poster that opens the title's page; the system card style gives the tvOS lift and parallax.
-struct PosterCard: View {
-    let media: Media
-    var width: CGFloat = 250
-    var body: some View {
-        NavigationLink(value: media) {
-            Artwork(url: media.poster.isEmpty ? media.backdrop : media.poster)
-                .frame(width: width, height: width * 1.5)
-        }
-        .buttonStyle(.card)
-        .overlay(alignment: .bottom) {
-            Text(media.title).font(.caption).lineLimit(1).foregroundStyle(TVTheme.muted)
-                .frame(width: width).offset(y: 44)
-        }
-        .padding(.bottom, 44)
-    }
-}
-
-/// 16:9 card of continue watching: plays straight away; long press removes it.
-struct ContinueCard: View {
-    let media: Media
-    @EnvironmentObject private var library: LibraryStore
-    @EnvironmentObject private var player: PlayerPresenter
-    var body: some View {
-        Button { player.play(media) } label: {
-            Artwork(url: media.backdrop.isEmpty ? media.poster : media.backdrop)
-                .frame(width: 440, height: 248)
-                .overlay(alignment: .bottom) { ProgressStrip(fraction: library.fraction(media)) }
-        }
-        .buttonStyle(.card)
-        .contextMenu {
-            Button("إزالة من تابع المشاهدة", role: .destructive) { library.remove(media) }
-        }
-        .overlay(alignment: .bottom) {
-            Text(media.episode > 0 ? "\(media.title) · ح \(media.episode)" : media.title)
-                .font(.caption).lineLimit(1).foregroundStyle(TVTheme.muted)
-                .frame(width: 440).offset(y: 44)
-        }
-        .padding(.bottom, 44)
     }
 }

@@ -6,7 +6,8 @@ struct TVCatalogView: View {
     let series: Bool
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     var body: some View {
-        TVGrid(source: SourcePreference.source(sourceName), series: series, query: "")
+        TVGrid(source: SourcePreference.source(sourceName), series: series, query: "",
+               title: series ? "مسلسلات" : "أفلام")
             .id(sourceName)
     }
 }
@@ -30,7 +31,7 @@ struct TVSearchView: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 600)
                 .padding(.top, 20)
-                TVGrid(source: SourcePreference.source(sourceName), series: series, query: trimmed)
+                TVGrid(source: SourcePreference.source(sourceName), series: series, query: trimmed, title: nil)
                     .id("\(sourceName)/\(series)/\(trimmed)")
             }
         }
@@ -44,28 +45,37 @@ struct TVGrid: View {
     let source: ContentSource
     let series: Bool
     let query: String
+    let title: String?
     @State private var items: [Media] = []
     @State private var page = 0
     @State private var more = true
     @State private var loading = false
     @State private var message: String?
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 48), count: 6)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 40, alignment: .top), count: 6)
 
     var body: some View {
         ScrollView(.vertical) {
-            LazyVGrid(columns: columns, spacing: 60) {
-                ForEach(items) { media in
-                    PosterCard(media: media, width: 240)
-                        .onAppear { if media.id == items.last?.id { Task { await load() } } }
+            VStack(alignment: .leading, spacing: 30) {
+                if let title {
+                    Text(title).font(.largeTitle.bold())
+                    Text(source.title).font(.callout).foregroundStyle(.secondary).padding(.top, -24)
+                }
+                LazyVGrid(columns: columns, spacing: 50) {
+                    ForEach(items) { media in
+                        PosterLockup(media: media, perRow: nil)
+                            .onAppear { if media.id == items.last?.id { Task { await load() } } }
+                    }
+                }
+                .focusSection()
+                if loading { ProgressView().frame(maxWidth: .infinity).padding(40) }
+                else if let message { ErrorState(message: message) { Task { await load() } } }
+                else if items.isEmpty && !more {
+                    ContentUnavailableView("لا توجد نتائج", systemImage: "magnifyingglass", description: Text("جرّب كلمة أخرى أو مصدراً آخر."))
                 }
             }
-            .padding(.horizontal, 90).padding(.vertical, 40)
-            if loading { ProgressView().padding(40) }
-            else if let message { ErrorState(message: message) { Task { await load() } } }
-            else if items.isEmpty && !more {
-                ContentUnavailableView("لا توجد نتائج", systemImage: "magnifyingglass", description: Text("جرّب كلمة أخرى أو مصدراً آخر."))
-            }
+            .padding(.vertical, 30)
         }
+        .scrollClipDisabled()
         .background(TVTheme.ink.ignoresSafeArea())
         .task {
             guard items.isEmpty else { return }
@@ -103,23 +113,25 @@ struct TVLibraryView: View {
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 50) {
+                Text("مكتبتي").font(.largeTitle.bold())
                 if library.recent.isEmpty && library.favorites.isEmpty && library.watched.isEmpty {
-                    ContentUnavailableView("مكتبتك فارغة", systemImage: "rectangle.stack",
+                    ContentUnavailableView("مكتبتك فارغة", systemImage: "books.vertical",
                                            description: Text("أضف أعمالاً إلى «قائمتي» من صفحة العمل، وتظهر هنا ما تشاهده."))
-                        .padding(.top, 200)
+                        .padding(.top, 120)
                 }
                 if !library.recent.isEmpty {
-                    TVShelf(title: "تابع المشاهدة") { ForEach(library.recent) { ContinueCard(media: $0) } }
+                    TVShelf(title: "تابع المشاهدة") { ForEach(library.recent) { ContinueLockup(media: $0) } }
                 }
                 if !library.favorites.isEmpty {
-                    TVShelf(title: "قائمتي") { ForEach(library.favorites) { PosterCard(media: $0) } }
+                    TVShelf(title: "قائمتي") { ForEach(library.favorites) { PosterLockup(media: $0) } }
                 }
                 if !library.watched.isEmpty {
-                    TVShelf(title: "شوهد") { ForEach(library.watched.prefix(40)) { PosterCard(media: $0) } }
+                    TVShelf(title: "شوهد") { ForEach(library.watched.prefix(40)) { PosterLockup(media: $0) } }
                 }
             }
-            .padding(.vertical, 40)
+            .padding(.vertical, 30)
         }
+        .scrollClipDisabled()
         .background(TVTheme.ink.ignoresSafeArea())
     }
 }
