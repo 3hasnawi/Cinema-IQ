@@ -44,8 +44,12 @@ final class ScreenshotTests: XCTestCase {
     func testDefaultSource() {
         launch(source: nil)
         shot("21-home")
-        press(.right, wait: 2)
+        press(.left, wait: 1)
+        press(.left, wait: 1)
+        press(.left, wait: 3)
         shot("22-home-next-title")
+        press(.right, wait: 1)
+        press(.right, wait: 1)
         press(.down, wait: 3)
         shot("23-shelves")
         press(.select, wait: 10)
