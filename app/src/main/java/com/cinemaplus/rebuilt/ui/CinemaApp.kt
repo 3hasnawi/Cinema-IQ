@@ -379,7 +379,7 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
 }
 
 /** Rail icons: the stock set where it fits, drawn glyphs for movies and series. */
-@Composable private fun RailGlyph(page: Page, tint: Color, iconSize: Dp = 22.dp) {
+@Composable internal fun RailGlyph(page: Page, tint: Color, iconSize: Dp = 22.dp) {
     val size = Modifier.size(iconSize)
     when (page) {
         Page.Search -> Icon(Icons.Rounded.Search, null, size, tint = tint)

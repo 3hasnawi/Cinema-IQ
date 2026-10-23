@@ -56,15 +56,16 @@ import kotlin.math.roundToInt
  */
 
 /** Translucent panel colour shared by the option popups. */
-private val PanelGlass = Color(0xD9170F1C)
+private val PanelGlass = com.cinemaplus.rebuilt.ui.Brand.Surface.copy(alpha = .96f)
 
 /** The panels that open above a control button. */
 enum class MobilePanel { Quality, Tracks, SubtitleStyle }
 
-/** hh:mm:ss like the TV player. */
+/** mm:ss, or h:mm:ss past an hour, like the TV player. */
 fun formatMobileTime(value: Long): String {
     val seconds = value.coerceAtLeast(0L) / 1000
-    return String.format(Locale.US, "%02d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60)
+    return if (seconds >= 3600) String.format(Locale.US, "%d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60)
+    else String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)
 }
 
 /** Position for a touch at [x] on a bar [width] pixels wide. */
@@ -77,7 +78,7 @@ fun MobileRoundControl(
     label: String, symbol: String, modifier: Modifier = Modifier, main: Boolean = false, enabled: Boolean = true,
     active: Boolean = false, onPlaced: (IntRect) -> Unit = {}, onClick: () -> Unit
 ) {
-    val size = if (main) 60.dp else 44.dp
+    val size = if (main) 72.dp else 44.dp
     val container = if (active) Accent else Color.White.copy(alpha = if (enabled) .20f else .08f)
     val tint = when { !enabled -> Color.White.copy(alpha = .35f); active -> OnAccent; else -> Color.White }
     Box(modifier.size(size)
@@ -88,7 +89,7 @@ fun MobileRoundControl(
         .clip(CircleShape).background(container)
         .clickable(enabled = enabled, onClick = onClick)
         .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
-        PlayerTransportIcon(symbol, tint, if (main) 28.dp else 20.dp)
+        PlayerTransportIcon(symbol, tint, if (main) 32.dp else 20.dp)
     }
 }
 
@@ -131,7 +132,7 @@ fun MobileSeekBar(player: Player, onScrubbing: (Boolean) -> Unit, onInteract: ()
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
             val fraction = if (duration > 0) (shown.toFloat() / duration).coerceIn(0f, 1f) else 0f
             val bufferedFraction = if (duration > 0) (buffered.toFloat() / duration).coerceIn(0f, 1f) else 0f
-            val thickness = if (previewing) 7.dp else 4.dp
+            val thickness = if (previewing) 8.dp else 6.dp
             BoxWithConstraints(Modifier.fillMaxWidth().height(28.dp)
                 .pointerInput(duration, seekable) {
                     detectTapGestures { offset ->
@@ -155,10 +156,10 @@ fun MobileSeekBar(player: Player, onScrubbing: (Boolean) -> Unit, onInteract: ()
                         onDragCancel = { preview = null; onScrubbing(false) })
                     } finally { preview = null; onScrubbing(false) }
                 }, contentAlignment = Alignment.CenterStart) {
-                Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = .22f)))
-                Box(Modifier.fillMaxWidth(bufferedFraction).height(thickness).clip(CircleShape).background(Color.White.copy(alpha = .38f)))
+                Box(Modifier.fillMaxWidth().height(thickness).clip(CircleShape).background(Color.White.copy(alpha = .25f)))
+                Box(Modifier.fillMaxWidth(bufferedFraction).height(thickness).clip(CircleShape).background(Color.White.copy(alpha = .40f)))
                 Box(Modifier.fillMaxWidth(fraction).height(thickness).clip(CircleShape).background(Accent))
-                Box(Modifier.offset(x = (maxWidth * fraction) - 6.dp).size(12.dp).background(Color.White, CircleShape))
+                Box(Modifier.offset(x = (maxWidth * fraction) - 8.dp).size(16.dp).background(Color.White, CircleShape))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Label(formatMobileTime(shown), 11, Color.White.copy(alpha = .85f), true)

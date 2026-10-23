@@ -5,9 +5,9 @@ import org.junit.Test
 
 class MobilePlayerControlsTest {
     @Test fun timeIsFormattedLikeTheTvPlayer() {
-        assertEquals("00:00:00", formatMobileTime(-5))
-        assertEquals("00:03:52", formatMobileTime(232_000))
-        assertEquals("02:16:14", formatMobileTime(8_174_000))
+        assertEquals("00:00", formatMobileTime(-5))
+        assertEquals("03:52", formatMobileTime(232_000))
+        assertEquals("2:16:14", formatMobileTime(8_174_000))
     }
 
     @Test fun touchPositionMapsToTheVideoAndStaysInsideIt() {
