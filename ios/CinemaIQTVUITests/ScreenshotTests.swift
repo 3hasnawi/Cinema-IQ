@@ -80,7 +80,9 @@ final class ScreenshotTests: XCTestCase {
 
     private func shot(_ name: String) {
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = name
+        let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        let label = focused.exists ? focused.label.prefix(30).replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: "_", with: "-") : "none"
+        attachment.name = name + " [" + label + "]"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
