@@ -24,7 +24,8 @@ final class ScreenshotTests: XCTestCase {
         press(.down, wait: 2)
         press(.down, wait: 3)
         shot("05-seasons")
-        press(.down, wait: 3)
+        let episode = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Big Buck Bunny")).firstMatch
+        for _ in 0..<4 where !episode.hasFocus { press(.down, wait: 2) }
         shot("06-episodes")
         press(.select, wait: 15)
         shot("07-player")
