@@ -19,6 +19,8 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     public var quality = ""
     public init(id: String, title: String) { self.id = id; self.title = title }
     public var isSupported: Bool { (try? ContentSource.owner(of: id)) != nil }
+    /// From an external provider added in Settings (not synced to the Android apps).
+    public var isExternal: Bool { id.hasPrefix("ext:") }
     public var recentKey: String { "recent/" + (seriesID.isEmpty ? id : seriesID) }
     public var subtitle: String { episode > 0 ? "الموسم \(season) · الحلقة \(episode)" : [year, duration, quality].filter { !$0.isEmpty }.joined(separator: " · ") }
     enum CodingKeys: String, CodingKey {
@@ -71,6 +73,9 @@ public enum CinemaError: LocalizedError, Equatable {
         case .invalidID, .invalidResponse: return "تعذّر قراءة بيانات العمل من المصدر."
         case .notJSON, .redirected:
             return "أعاد المصدر صفحة غير متوقعة بدل البيانات. قد تكون شبكتك تحجبه أو تحوّله لصفحة أخرى."
+        case .http(404): return "لم يجد المصدر هذا المحتوى (HTTP 404)."
+        case .http(429): return "المصدر يطلب التمهّل لكثرة الطلبات (HTTP 429). أعد المحاولة بعد قليل."
+        case .http(401): return "يحتاج المصدر رمز وصول صالحاً (HTTP 401). راجع إعدادات المصدر."
         case .http(let code):
             return code == 403 || code == 503
                 ? "رفض المصدر الطلب من شبكتك الحالية (HTTP \(code)). جرّب الشبكة التي يعمل عليها المصدر."

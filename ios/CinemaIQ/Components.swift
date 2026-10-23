@@ -52,10 +52,14 @@ enum SourcePreference {
 
 struct SourceMenu: View {
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
+    /// Observed so the menu lists providers added or removed in Settings.
+    @EnvironmentObject private var providers: ProviderStore
     var body: some View {
         Menu {
             Picker("مصدر المحتوى", selection: $sourceName) {
-                ForEach(ContentSource.allCases) { source in Text(source.title).tag(source.rawValue) }
+                ForEach(ContentSource.builtIn + ([ExternalProvider.demo] + providers.providers).map { .external($0.id) }) { source in
+                    Text(source.title).tag(source.rawValue)
+                }
             }
         } label: {
             Label(SourcePreference.source(sourceName).title, systemImage: "antenna.radiowaves.left.and.right")

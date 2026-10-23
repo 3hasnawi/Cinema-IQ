@@ -1,0 +1,8 @@
+{"streams":[
+ {"url":"https://cdn.example.com/m1/master.m3u8","quality":"تلقائي"},
+ {"url":"https://cdn.example.com/m1/720.mp4","quality":"720p"},
+ {"url":"http://cdn.example.com/m1/insecure.mp4","quality":"480p"},
+ {"url":"https://user:pass@cdn.example.com/m1/creds.mp4"},
+ {"url":"https://cdn.example.com/m1/page.html"},
+ {"url":"https://cdn.example.com/m1/720.mp4","quality":"مكرر"}],
+ "subtitles":[{"url":"https://cdn.example.com/m1/ar.vtt","language":"ar","title":"العربية"},{"url":"https://cdn.example.com/m1/x.exe"}]}

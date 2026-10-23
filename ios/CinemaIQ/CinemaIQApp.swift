@@ -3,6 +3,8 @@ import SwiftUI
 @main struct CinemaIQApp: App {
     @StateObject private var library = LibraryStore()
     @StateObject private var cloud = CloudSync()
+    // Created first, so Core knows the external providers before any page asks for one.
+    @StateObject private var providers = ProviderStore()
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
@@ -10,6 +12,7 @@ import SwiftUI
             RootView()
                 .environmentObject(library)
                 .environmentObject(cloud)
+                .environmentObject(providers)
                 .environment(\.layoutDirection, .rightToLeft)
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)

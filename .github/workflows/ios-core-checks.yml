@@ -17,4 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Test source parsing and media identity
-        run: swift test --package-path ios/Core
+        shell: bash
+        run: |
+          set +e
+          swift test --package-path ios/Core 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # Compiler and test failures as annotations, readable without the full log.
+            grep -E "error:|failed|XCTAssert" "$RUNNER_TEMP/swift-test.log" | grep -v "Test Suite" | sed 's#.*/ios/Core/##' | cut -c1-300 | head -30 | while read -r line; do echo "::error::$line"; done
+          fi
+          exit $status

@@ -1,0 +1,4 @@
+{"item":{"id":"s1","title":"مسلسل أول","type":"series","overview":"قصة"},
+ "seasons":[{"number":2,"episodes":[{"id":"s1-e21","episode":1,"title":"مسلسل أول","episodeTitle":"البداية"}]},
+            {"number":1,"episodes":[{"id":"s1-e2","episode":2,"title":"مسلسل أول"},{"id":"s1-e1","episode":1,"title":"مسلسل أول"}]},
+            {"number":1,"episodes":[{"id":"dup","episode":9,"title":"مكرر"}]}]}

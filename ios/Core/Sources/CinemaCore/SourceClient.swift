@@ -3,15 +3,48 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public enum ContentSource: String, CaseIterable, Identifiable, Sendable {
+/// Where a work comes from: the three built-in sources, or an external provider added in Settings.
+public enum ContentSource: Hashable, Identifiable, Sendable {
     case cinemana, vodu, dawwirli
+    /// An external provider, by its id (see [ExternalProviders]).
+    case external(String)
+
+    public static let builtIn: [ContentSource] = [.cinemana, .vodu, .dawwirli]
+    /// Built-in sources first, then every registered external provider.
+    public static var allCases: [ContentSource] { builtIn + ExternalProviders.all.map { .external($0.id) } }
+
+    /// Stored in the settings: the built-in names as before, "ext:<id>" for external providers.
+    public var rawValue: String {
+        switch self {
+        case .cinemana: return "cinemana"
+        case .vodu: return "vodu"
+        case .dawwirli: return "dawwirli"
+        case .external(let id): return "ext:" + id
+        }
+    }
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "cinemana": self = .cinemana
+        case "vodu": self = .vodu
+        case "dawwirli": self = .dawwirli
+        default:
+            guard rawValue.hasPrefix("ext:"), let provider = ExternalProviders.provider(String(rawValue.dropFirst(4))) else { return nil }
+            self = .external(provider.id)
+        }
+    }
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .cinemana: return "سينمانا"; case .vodu: return "فودو"; case .dawwirli: return "دورلي" }
+        switch self {
+        case .cinemana: return "سينمانا"
+        case .vodu: return "فودو"
+        case .dawwirli: return "دورلي"
+        case .external(let id): return ExternalProviders.provider(id)?.name ?? "مصدر خارجي"
+        }
     }
     public static func owner(of id: String) throws -> ContentSource {
         if id.hasPrefix("daw:") { _ = try DawKey(id); return .dawwirli }
         if id.hasPrefix("vodu:") { _ = try VoduKey(id); return .vodu }
+        if id.hasPrefix("ext:") { return .external(try ExternalKey(id).provider) }
         if id.range(of: "^[1-9][0-9]*$", options: .regularExpression) != nil { return .cinemana }
         throw CinemaError.invalidID
     }
@@ -36,6 +69,7 @@ public struct SourceClient: Sendable {
             async let movies = VoduClient().catalog(series: false, query: "", page: 1)
             async let series = VoduClient().catalog(series: true, query: "", page: 1)
             return try await [Shelf(id: "movies", title: "أحدث الأفلام", items: movies), Shelf(id: "series", title: "أحدث المسلسلات", items: series)]
+        case .external(let id): return try await ExternalClient(provider: try ExternalProviders.require(id)).home()
         }
     }
     public func catalog(_ source: ContentSource, series: Bool, query: String, page: Int) async throws -> [Media] {
@@ -47,6 +81,8 @@ public struct SourceClient: Sendable {
             guard page == 1 else { return [] }
             if !query.isEmpty { return try await DawwirliClient().search(query).filter { $0.isSeries == series } }
             return try await DawwirliClient().home().flatMap(\.items).filter { $0.isSeries == series }.uniqueMedia()
+        case .external(let id):
+            return try await ExternalClient(provider: try ExternalProviders.require(id)).catalog(series: series, query: query, page: page).items
         }
     }
     public func detail(_ media: Media) async throws -> (Media, [Season]) {
@@ -54,6 +90,7 @@ public struct SourceClient: Sendable {
         case .dawwirli: return try await DawwirliClient().detail(media)
         case .cinemana: return try await CinemanaClient().detail(media)
         case .vodu: return try await VoduClient().detail(media)
+        case .external(let id): return try await ExternalClient(provider: try ExternalProviders.require(id)).detail(media)
         }
     }
     public func streams(_ media: Media) async throws -> [StreamChoice] {
@@ -64,6 +101,7 @@ public struct SourceClient: Sendable {
             streams = [StreamChoice(url.absoluteString, quality: "تلقائي")].compactMap { $0 }
         case .cinemana: streams = try await CinemanaClient().streams(media.id)
         case .vodu: streams = try await VoduClient().streams(media.id)
+        case .external(let id): streams = try await ExternalClient(provider: try ExternalProviders.require(id)).playback(media).streams
         }
         guard !streams.isEmpty else { throw CinemaError.noStreams }
         return streams
@@ -97,16 +135,17 @@ enum SourceNetwork {
 }
 struct SourceHTTP {
     /// Idempotent read with one retry for a brief hiccup or a 5xx answer, as on Android.
-    static func read(_ url: URL, root: String) async throws -> Data {
-        do { return try await once(url, root: root) }
+    static func read(_ url: URL, root: String, headers: [String: String] = [:]) async throws -> Data {
+        do { return try await once(url, root: root, headers: headers) }
         catch where SourceNetwork.retryable(error) {
             try await Task.sleep(nanoseconds: 700_000_000)
-            return try await once(url, root: root)
+            return try await once(url, root: root, headers: headers)
         }
     }
-    private static func once(_ url: URL, root: String) async throws -> Data {
+    private static func once(_ url: URL, root: String, headers: [String: String]) async throws -> Data {
         var request = URLRequest(url: url)
         request.setValue(SourceNetwork.userAgent, forHTTPHeaderField: "User-Agent")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
         let data: Data, response: URLResponse
         do { (data, response) = try await SourceNetwork.session.data(for: request) }
         catch let error as URLError {
