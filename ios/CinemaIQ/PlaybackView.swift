@@ -249,6 +249,8 @@ struct PlaybackView: View {
     @State private var resolutionError: String?
     @State private var controlsVisible = true
     @State private var scrubbing: Double?
+    /// The options panel: nil closed, otherwise the page shown in it.
+    @State private var optionsPage: OptionsPage?
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
@@ -307,8 +309,9 @@ struct PlaybackView: View {
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(.hidden)
         // Controls fade after four seconds of playback; any change of state starts the wait again.
-        .task(id: "\(controlsVisible)-\(controller.playing)-\(scrubbing == nil)") {
-            guard controlsVisible, controller.playing, scrubbing == nil else { return }
+        .task(id: "\(controlsVisible)-\(controller.playing)-\(scrubbing == nil)-\(optionsPage == nil)") {
+            // The controls must not fade while the options are open: that removed the panel under the finger.
+            guard controlsVisible, controller.playing, scrubbing == nil, optionsPage == nil else { return }
             try? await Task.sleep(for: .seconds(4))
             if !Task.isCancelled { withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false } }
         }
@@ -341,7 +344,11 @@ struct PlaybackView: View {
             LinearGradient(colors: [.black.opacity(0.55), .clear, .clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
-                .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible = false } }
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        if optionsPage != nil { optionsPage = nil } else { controlsVisible = false }
+                    }
+                }
             VStack(spacing: 14) {
                 topBar
                 Spacer()
@@ -363,6 +370,18 @@ struct PlaybackView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            if let page = optionsPage {
+                VStack {
+                    HStack {
+                        Spacer()
+                        optionsPanel(page)
+                    }
+                    Spacer()
+                }
+                .padding(.top, 62)
+                .padding(.horizontal, 16)
+                .transition(.scale(scale: 0.85, anchor: .topTrailing).combined(with: .opacity))
+            }
         }
     }
 
@@ -390,41 +409,139 @@ struct PlaybackView: View {
         }
     }
 
-    /// One menu for everything the player can change.
+    /// Opens the player's own options panel. A system menu was dismissed whenever the controls faded under it,
+    /// so taps on its items were sometimes lost.
     private var optionsMenu: some View {
-        Menu {
-            if streams.count > 1 {
-                Menu { qualityItems } label: { Label("الجودة", systemImage: "slider.horizontal.3") }
-            }
-            Picker(selection: subtitleBinding) {
-                Text("بدون ترجمة").tag(String?.none)
-                ForEach(externalTracks) { track in Text(track.title).tag(Optional("ext:" + track.id)) }
-                ForEach(controller.embeddedSubtitles) { option in Text("\(option.title) (مدمجة)").tag(Optional(option.id)) }
-            } label: {
-                Label("الترجمة", systemImage: "captions.bubble")
-            }
-            .pickerStyle(.menu)
-            if controller.audioOptions.count > 1 {
-                Picker(selection: audioBinding) {
-                    ForEach(controller.audioOptions) { option in Text(option.title).tag(option.id) }
-                } label: {
-                    Label("الصوت", systemImage: "waveform")
-                }
-                .pickerStyle(.menu)
-            }
-            Picker(selection: rateBinding) {
-                ForEach([Float(0.75), 1, 1.25, 1.5, 2], id: \.self) { value in Text(rateLabel(value)).tag(value) }
-            } label: {
-                Label("السرعة", systemImage: "gauge.with.dots.needle.67percent")
-            }
-            .pickerStyle(.menu)
+        Button {
+            withAnimation(.spring(duration: 0.3)) { optionsPage = optionsPage == nil ? .root : nil }
         } label: {
             Image(systemName: "ellipsis").font(.headline).frame(width: 24, height: 24)
         }
-        .menuStyle(.button)
         .secondaryAction()
         .buttonBorderShape(.circle)
         .accessibilityLabel("خيارات التشغيل")
+    }
+
+    enum OptionsPage { case root, quality, subtitles, audio, speed }
+
+    private var subtitleTitle: String {
+        guard let id = controller.subtitleID else { return "بدون" }
+        if id.hasPrefix("ext:") { return externalTracks.first { "ext:" + $0.id == id }?.title ?? "مفعّلة" }
+        return controller.embeddedSubtitles.first { $0.id == id }?.title ?? "مفعّلة"
+    }
+
+    @ViewBuilder private func optionsPanel(_ page: OptionsPage) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            switch page {
+            case .root:
+                if streams.count > 1 {
+                    optionRow("الجودة", icon: "slider.horizontal.3", value: streams.first { $0.id == qualityBinding.wrappedValue }?.quality) { optionsPage = .quality }
+                }
+                optionRow("الترجمة", icon: "captions.bubble", value: subtitleTitle) { optionsPage = .subtitles }
+                if controller.audioOptions.count > 1 {
+                    optionRow("الصوت", icon: "waveform", value: controller.audioOptions.first { $0.id == audioBinding.wrappedValue }?.title) { optionsPage = .audio }
+                }
+                optionRow("السرعة", icon: "gauge.with.dots.needle.67percent", value: rateLabel(controller.rate)) { optionsPage = .speed }
+            case .quality:
+                panelHeader("الجودة")
+                ForEach(streams) { stream in
+                    choiceRow(stream.quality, selected: stream.id == qualityBinding.wrappedValue) { qualityBinding.wrappedValue = stream.id; optionsPage = nil }
+                }
+            case .audio:
+                panelHeader("الصوت")
+                ForEach(controller.audioOptions) { option in
+                    choiceRow(option.title, selected: option.id == audioBinding.wrappedValue) { audioBinding.wrappedValue = option.id; optionsPage = nil }
+                }
+            case .speed:
+                panelHeader("السرعة")
+                ForEach([Float(0.75), 1, 1.25, 1.5, 2], id: \.self) { value in
+                    choiceRow(rateLabel(value), selected: controller.rate == value) { rateBinding.wrappedValue = value; optionsPage = nil }
+                }
+            case .subtitles:
+                panelHeader("الترجمة")
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        choiceRow("بدون ترجمة", selected: controller.subtitleID == nil) { subtitleBinding.wrappedValue = nil }
+                        ForEach(externalTracks) { track in
+                            choiceRow(track.title, selected: controller.subtitleID == "ext:" + track.id) { subtitleBinding.wrappedValue = "ext:" + track.id }
+                        }
+                        ForEach(controller.embeddedSubtitles) { option in
+                            choiceRow("\(option.title) (مدمجة)", selected: controller.subtitleID == option.id) { subtitleBinding.wrappedValue = option.id }
+                        }
+                        // Size and background of the subtitles, saved like in Settings and applied at once.
+                        Text("الحجم").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 14).padding(.top, 10)
+                        chips(SubtitlePreference.sizes, selected: subtitleSize) { subtitleSize = $0 }
+                        Text("الخلفية").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 14).padding(.top, 6)
+                        chips(SubtitlePreference.backgrounds, selected: subtitleBackground) { subtitleBackground = $0 }
+                    }
+                }
+                .frame(maxHeight: 230)
+            }
+        }
+        .padding(8)
+        .frame(width: 300)
+        .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .animation(.easeInOut(duration: 0.2), value: page)
+    }
+
+    private func optionRow(_ title: String, icon: String, value: String?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon).foregroundStyle(Theme.accent).frame(width: 24)
+                Text(title).font(.body.weight(.medium))
+                Spacer(minLength: 8)
+                if let value { Text(value).font(.footnote).foregroundStyle(.white.opacity(0.65)).lineLimit(1) }
+                Image(systemName: "chevron.forward").font(.footnote.weight(.semibold)).foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(.horizontal, 14).frame(height: 46)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func panelHeader(_ title: String) -> some View {
+        Button { optionsPage = .root } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.backward").font(.footnote.weight(.semibold))
+                Text(title).font(.subheadline.bold())
+                Spacer()
+            }
+            .padding(.horizontal, 14).frame(height: 40)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func choiceRow(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).font(.body).lineLimit(1)
+                Spacer(minLength: 8)
+                if selected { Image(systemName: "checkmark").font(.footnote.weight(.bold)).foregroundStyle(Theme.accent) }
+            }
+            .padding(.horizontal, 14).frame(height: 42)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func chips(_ options: [(String, Double)], selected: Double, pick: @escaping (Double) -> Void) -> some View {
+        HStack(spacing: 6) {
+            ForEach(options, id: \.1) { option in
+                let on = abs(option.1 - selected) < 0.01
+                Button { pick(option.1) } label: {
+                    Text(option.0).font(.caption.weight(on ? .bold : .regular))
+                        .foregroundStyle(on ? Color.black : .white)
+                        .padding(.horizontal, 10).frame(height: 30)
+                        .background(on ? Color.white : Color.white.opacity(0.12), in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10).padding(.bottom, 6)
     }
 
     @ViewBuilder private var qualityItems: some View {
