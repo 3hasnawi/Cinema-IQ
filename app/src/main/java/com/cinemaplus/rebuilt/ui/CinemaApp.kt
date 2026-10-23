@@ -192,7 +192,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
                             dismissButton = { TextButton(onClick = { if (armed) vm.dismissRecentOptions() }) { Label("إلغاء", 15) } })
                     }
 
-                    if (vm.playing != null) PlayerScreen(vm)
+                    if (vm.playing != null) TvScaled { PlayerScreen(vm) }
                     else if (vm.selected != null) TvScaled { MovieDetailsScreen(vm) }
                     else browseState.SaveableStateProvider("browse") { TvScaled {
                         val contentFocus = remember(vm.page, vm.demo) { FocusRequester() }
