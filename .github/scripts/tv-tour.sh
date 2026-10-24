@@ -18,6 +18,13 @@ adb shell run-as com.cinemaplus.rebuilt sh -c "'mkdir -p shared_prefs && cp /dat
 adb shell am start -n com.cinemaplus.rebuilt/.MainActivity
 sleep 45
 shot home 1
+# Play the featured movie and scrub: the time bubble over the bar, then a faster step.
+key KEYCODE_DPAD_CENTER 20; shot player 1
+key KEYCODE_DPAD_RIGHT 0.4; shot scrub-1 0.3
+key KEYCODE_DPAD_RIGHT 0.3; key KEYCODE_DPAD_RIGHT 0.3; shot scrub-faster 0.2
+key KEYCODE_DPAD_LEFT 0.3; key KEYCODE_DPAD_LEFT 0.3; shot scrub-back 0.2
+sleep 3; shot after-scrub 1
+key KEYCODE_BACK 2; key KEYCODE_BACK 4; shot home-after-player 1
 key KEYCODE_DPAD_DOWN; shot home-down
 key KEYCODE_DPAD_UP 2
 # The rail is on the right (Arabic layout).
