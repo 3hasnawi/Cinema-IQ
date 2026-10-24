@@ -40,6 +40,14 @@ jobs:
           TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: ./gradlew --no-daemon --console=plain :app:assembleDebug
+      - name: Probe Dawwirli catalog answers
+        run: |
+          mkdir -p "$RUNNER_TEMP/tv-shots"
+          for q in "cat?id=newest&kind=series&page=1" "cat?id=newest&kind=movies&page=1" "section?id=series" "ar/home"; do
+            name=$(echo "$q" | tr '?&=/' '____')
+            curl -s -m 20 "https://premium.dawwirli.watch/api/$q" | head -c 6000 > "$RUNNER_TEMP/tv-shots/probe-$name.json" || true
+          done
+          ls -la "$RUNNER_TEMP/tv-shots"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
