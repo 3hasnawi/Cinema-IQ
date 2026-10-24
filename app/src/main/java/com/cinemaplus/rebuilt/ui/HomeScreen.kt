@@ -122,12 +122,12 @@ fun HomeScreen(vm: CinemaViewModel) {
                             Modifier.onFocusChanged { if (it.hasFocus && !restoring) { returnKey = null; scope.launch { scroll.animateScrollTo(0) } } })
                     } else {
                         Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                            if (vm.busy) HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeInset).width(820.mx))
+                            if (vm.busy) HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeStart).width(820.mx))
                         }
                     }
                     if (recent.isNotEmpty()) HomeShelf(Modifier.onSizeChanged { firstRowHeight = it.height }) {
                         TvShelfRow(Shelf("recent", "متابعة المشاهدة", recent), vm, wide = true, width = TvMetrics.ContinueWidth,
-                            preview = false, inset = TvMetrics.HomeInset,
+                            preview = false, inset = TvMetrics.HomeStart,
                             firstRequester = returnFocus.takeIf { returnKey?.substringBefore('/') == "recent" },
                             firstRequesterIndex = recent.indexOfFirst { "recent/${it.id}" == returnKey }.coerceAtLeast(0),
                             onCardLongClick = { film -> vm.showRecentOptions(film) },
@@ -135,7 +135,7 @@ fun HomeScreen(vm: CinemaViewModel) {
                     }
                     shelves.forEachIndexed { index, shelf ->
                         HomeShelf(if (index == 0 && recent.isEmpty()) Modifier.onSizeChanged { firstRowHeight = it.height } else Modifier) {
-                            TvShelfRow(shelf, vm, preview = false, titleOnly = true, inset = TvMetrics.HomeInset,
+                            TvShelfRow(shelf, vm, preview = false, titleOnly = true, inset = TvMetrics.HomeStart,
                                 firstRequester = returnFocus.takeIf { returnKey?.substringBeforeLast('/') == shelf.id },
                                 firstRequesterIndex = shelf.films.indexOfFirst { "${shelf.id}/${it.id}" == returnKey }.coerceAtLeast(0),
                                 onCardClick = { returnKey = "${shelf.id}/${it.id}"; vm.open(it) })
@@ -143,7 +143,7 @@ fun HomeScreen(vm: CinemaViewModel) {
                     }
                     if (vm.busy && shelves.isEmpty()) ShelfSkeleton()
                     vm.error?.let { error ->
-                        Column(Modifier.padding(horizontal = TvMetrics.HomeInset, vertical = 24.mx), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.padding(horizontal = TvMetrics.HomeStart, vertical = 24.mx), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Label(error, 14, Brand.TextTertiary, lines = 2)
                             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Action("إعادة المحاولة", true) { vm.reload() }
@@ -152,7 +152,7 @@ fun HomeScreen(vm: CinemaViewModel) {
                         }
                     }
                     if (!vm.busy && vm.error == null && featured.isEmpty() && shelves.isEmpty() && recent.isEmpty())
-                        Label("لا يوجد محتوى متاح حاليًا", 17, Brand.TextTertiary, modifier = Modifier.padding(TvMetrics.HomeInset))
+                        Label("لا يوجد محتوى متاح حاليًا", 17, Brand.TextTertiary, modifier = Modifier.padding(TvMetrics.HomeStart))
                     Spacer(Modifier.height(48.mx))
                 }
                 Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
@@ -176,11 +176,13 @@ private fun HomeShelf(modifier: Modifier = Modifier, content: @Composable () -> 
 /** "Cinema iQ" at the top of the page, on the side away from the rail. */
 @Composable
 private fun Wordmark(modifier: Modifier) {
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Row(modifier) {
+    // The padding belongs to the page's (right-to-left) layout; only the letters inside run left to right.
+    Box(modifier) { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Row {
             Text("Cinema ", color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 26.ms)
             Text("iQ", color = Brand.Accent, fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 26.ms)
         }
+    }
     }
 }
 
@@ -226,7 +228,7 @@ private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, re
     // The screen less the first row under it; it grows rather than cut the text when the text needs more room.
     Box(modifier.fillMaxWidth().heightIn(min = height)) {
         // Anchored low, so the artwork shows clearly above the text.
-        Column(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeInset, bottom = 64.mx).width(820.mx),
+        Column(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeStart, bottom = 64.mx).width(820.mx),
             verticalArrangement = Arrangement.spacedBy(20.mx)) {
             AccentChip(if (film.series) "مسلسل" else "فيلم")
             Text(mediaTitle(film), color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
@@ -256,7 +258,7 @@ private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, re
                 PillButton("التفاصيل", Icons.Rounded.Info, primary = false) { vm.open(film) }
             }
         }
-        if (count > 1) Row(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeInset, bottom = 30.mx),
+        if (count > 1) Row(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeStart, bottom = 30.mx),
             horizontalArrangement = Arrangement.spacedBy(8.mx)) {
             repeat(count) { dot ->
                 val on = dot == index

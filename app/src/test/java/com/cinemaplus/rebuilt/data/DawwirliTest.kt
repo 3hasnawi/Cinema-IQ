@@ -65,4 +65,12 @@ class DawwirliTest {
         val film=DawwirliMapper.item(JSONObject("""{"id":"123","name":"Film","poster":"/api/localcover?id=123"}"""))!!
         assertEquals("https://premium.dawwirli.watch/api/localcover?id=123",film.poster)
     }
+    @Test fun itemKindWinsOverTheListHint() {
+        val movie=DawwirliMapper.item(JSONObject("""{"id":"1499504","name":"EAR - By Any Means - 2026","kind":"movie"}"""),seriesHint=true)!!
+        assertFalse(movie.series)
+        val series=DawwirliMapper.item(JSONObject("""{"id":"77","name":"A Show","kind":"series"}"""))!!
+        assertTrue(series.series)
+        val unknown=DawwirliMapper.item(JSONObject("""{"id":"78","name":"Another Show"}"""),seriesHint=true)!!
+        assertTrue(unknown.series)
+    }
 }

@@ -43,7 +43,9 @@ object DawwirliMapper {
     fun item(o: JSONObject, seriesHint: Boolean = false): Film? {
         val raw = JsonMapper.text(o,"id","stream_id","series_id")
         if(raw.isBlank()) return null
-        val series = JsonMapper.text(o,"kind","_kind") == "series" || seriesHint
+        // The item's own kind wins: Dawwirli's "newest" list answers with movies even when series are asked for.
+        val kind = JsonMapper.text(o,"kind","_kind")
+        val series = if(kind == "series" || kind == "movie") kind == "series" else seriesHint
         val k = Key(if(series) "series" else "movie",raw,ext=JsonMapper.text(o,"ext","container_extension").ifBlank { "mp4" })
         if(runCatching { key(k.id) }.isFailure) return null
         val title = cleanTitle(JsonMapper.text(o,"name","title"))
