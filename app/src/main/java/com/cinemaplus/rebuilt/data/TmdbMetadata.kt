@@ -294,14 +294,15 @@ class TmdbMetadata(private val apiKey: String, private val cacheFile: File? = nu
         /** Enrich only episodes available on the source; never create playable TMDB-only entries. */
         fun mergeSeason(source: Season, metadata: Season): Season {
             if(source.number != metadata.number) return source
+            // TMDB fills in what it has; a date it lacks keeps the source's own (Dawwirli gives each episode's date).
             return source.copy(title = metadata.title, description = metadata.description, poster = metadata.poster,
-                airDate = metadata.airDate, episodes = source.episodes.map { original ->
+                airDate = metadata.airDate.ifBlank { source.airDate }, episodes = source.episodes.map { original ->
                     val match = metadata.episodes.singleOrNull { it.episode == original.episode } ?: return@map original
                     original.copy(episodeTitle = match.title.ifBlank { original.episodeTitle },
                         description = match.description.ifBlank { original.description },
                         backdrop = match.backdrop.ifBlank { original.backdrop },
                         duration = original.duration.ifBlank { match.duration },
-                        airDate = match.airDate, tmdbRating = match.tmdbRating)
+                        airDate = match.airDate.ifBlank { original.airDate }, tmdbRating = match.tmdbRating)
                 })
         }
 

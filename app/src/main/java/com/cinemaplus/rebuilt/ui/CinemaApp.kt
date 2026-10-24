@@ -237,7 +237,8 @@ internal const val ExitWindowMillis = 2_500L
                                 false
                             }) {
                                 // The page leaves room for the collapsed rail on the right; the rail widens over it.
-                                Box(Modifier.fillMaxSize().padding(start = TvMetrics.RailCollapsed)
+                                // Home runs under the rail (its artwork reaches the screen edge behind the icons).
+                                Box(Modifier.fillMaxSize().padding(start = if (vm.page == Page.Home) 0.dp else TvMetrics.RailCollapsed)
                                     .focusRequester(contentFocus)
                                     .focusProperties { enter = { pageEntry[0] ?: FocusRequester.Default } }.focusGroup()) {
                                     if (vm.page == Page.Settings) SettingsScreen(vm)
@@ -281,8 +282,8 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
 // ───────────────────────── Side rail ─────────────────────────
 
 /**
- * Section rail (02-menu-open.png). Collapsed it is a 112 px column of icons on the right edge with the current
- * section in an accent square. When focus enters it widens to 460 px over the page (the page never reflows)
+ * Section rail (02-menu-open.png). Collapsed it is a 112 px column of icons on the right edge, with no panel behind
+ * them, and the current section in an accent square. When focus enters it widens to 460 px over the page (the page never reflows)
  * with the profile, labelled rows and the remote hints; the focused row is a white pill.
  */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
@@ -294,15 +295,8 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
     // Explore (moods) is kept although the mockup leaves it out: the brief forbids dropping existing features.
     val items = listOf(Page.Search, Page.Home, Page.Movies, Page.Series, Page.Explore, Page.Library)
     val switchProfile = LocalProfileSwitch.current
-    Box(modifier.fillMaxHeight().width(width)
-        .background(if (expanded) Color.Transparent else Brand.Background.copy(alpha = .72f))
-        .drawBehind {
-            // 1 px hairline on the page side of the collapsed rail.
-            if (!expanded) {
-                val x = if (layoutDirection == LayoutDirection.Rtl) 0f else size.width - 1f
-                drawRect(Color.White.copy(alpha = .08f), Offset(x, 0f), Size(1f, size.height))
-            }
-        }) {
+    // Collapsed, the rail is only its icons over the page (no panel, no edge line); open, the page's scrim is behind it.
+    Box(modifier.fillMaxHeight().width(width)) {
         Column(Modifier.fillMaxSize()
             .onFocusChanged { bar.hasFocus = it.hasFocus }
             // Entering the rail from the page lands on the current section, not on whichever item the search meets first.

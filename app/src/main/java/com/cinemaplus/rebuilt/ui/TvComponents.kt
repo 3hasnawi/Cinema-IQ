@@ -87,6 +87,8 @@ object TvMetrics {
     val RailExpanded = 460.mx
     /** Home content starts 168 px from the right edge of the screen, 56 px inside the rail. */
     val HomeInset = 56.mx
+    /** Home runs under the transparent collapsed rail, so its content starts after the rail plus the inset. */
+    val HomeStart = RailCollapsed + HomeInset
     const val UiScale = 0.74f
     /** Text shrinks less than layout so it stays readable from the couch. */
     const val TextScale = 0.86f
