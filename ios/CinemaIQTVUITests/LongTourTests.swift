@@ -39,10 +39,24 @@ final class LongTourTests: XCTestCase {
             press(.select, wait: 10)
             shot("series-page")
             // Down through the page until an episode has focus (or a few presses fail to get there).
-            for _ in 0..<6 {
+            var pickedSeason = false
+            for _ in 0..<8 {
                 press(.down, wait: 2)
                 shot("series-down")
-                if focusedLabel().contains("الحلقة") { break }
+                let label = focusedLabel()
+                if label.contains("الحلقة") && !label.contains("الموسم") { break }
+                // The season button: open the glass list, take the next season, then go on down.
+                if label.contains("الموسم") && !pickedSeason {
+                    pickedSeason = true
+                    press(.select, wait: 2)
+                    shot("season-list")
+                    press(.down, wait: 1)
+                    shot("season-list-down")
+                    press(.select, wait: 3)
+                    shot("season-chosen")
+                    press(.up, wait: 1.5)
+                    shot("season-up-to-buttons")
+                }
             }
             press(.left, wait: 2)
             shot("episode-next")

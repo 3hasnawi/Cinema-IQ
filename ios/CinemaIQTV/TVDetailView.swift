@@ -2,12 +2,14 @@ import SwiftUI
 import CinemaCore
 
 /// A title's product page in the Apple TV app's style: its artwork fills the screen, the title, facts and buttons
-/// sit at the bottom with the story and credits beside them; below the fold (blurred art) come the seasons with
-/// their episodes and the cast.
+/// sit at the bottom with the story and credits beside them; below them (blurred art) come the season picker with
+/// the season's episodes, then the cast. Plain vertical scrolling: focus moves row by row and the page follows it.
 struct TVDetailView: View {
     let initial: Media
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
+    @EnvironmentObject private var router: TVRouter
+    @State private var pickingSeason = false
     @State private var media: Media?
     @State private var seasons: [Season] = []
     @State private var seasonID = 0
@@ -20,14 +22,7 @@ struct TVDetailView: View {
     @State private var showStory = false
     @FocusState private var focus: DetailFocus?
 
-    /// Where Down goes is also set by hand (header → chosen season → its first episode), so the page never depends
-    /// on the focus engine finding a row that is still below the screen.
-    enum DetailFocus: Hashable { case play, list, story, season(Int), episode(String) }
-
-    private func downToSeasons(_ direction: MoveCommandDirection) {
-        guard direction == .down, !seasons.isEmpty else { return }
-        focus = .season(seasonID)
-    }
+    enum DetailFocus: Hashable { case play, list, story, seasons }
 
     private var current: Media { media ?? initial }
     private var episodes: [Media] { seasons.first { $0.id == seasonID }?.episodes ?? [] }
@@ -50,34 +45,36 @@ struct TVDetailView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let showcase = max(400, proxy.size.height * 0.88)
             ZStack {
                 ShowcaseBackground(url: artwork, belowFold: belowFold)
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 60) {
+                    VStack(alignment: .leading, spacing: 50) {
                         header
-                            .frame(height: showcase, alignment: .bottomLeading)
-                            .opacity(belowFold ? 0 : 1)
-                            .onScrollVisibilityChange(threshold: 0.5) { visible in
-                                withAnimation { belowFold = !visible }
+                            .frame(height: max(400, proxy.size.height * 0.86), alignment: .bottomLeading)
+                            .onScrollVisibilityChange(threshold: 0.6) { visible in
+                                if belowFold == visible { belowFold = !visible }
                             }
-                        // At least a screen tall, so the page can always scroll to the fold.
-                        VStack(alignment: .leading, spacing: 60) {
-                            if !seasons.isEmpty { episodesSection }
-                            if !actors.isEmpty { castSection }
-                        }
-                        .frame(maxWidth: .infinity, minHeight: proxy.size.height - 60, alignment: .topLeading)
+                        if !seasons.isEmpty { episodesSection }
+                        if !actors.isEmpty { castSection }
                     }
-                    .padding(.bottom, 60)
+                    .padding(.bottom, 80)
                 }
                 .scrollClipDisabled()
                 .scrollIndicators(.hidden)
-                .scrollTargetBehavior(FoldSnapping(aboveFold: !belowFold, showcaseHeight: showcase + 60))
             }
         }
         .defaultFocus($focus, .play)
         .fullScreenCover(isPresented: $showStory) { storyPage }
         .task { await load() }
+        // Back on the season button once the season list closes.
+        .onChange(of: router.popup == nil) { _, closed in
+            guard closed, pickingSeason else { return }
+            pickingSeason = false
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(80))
+                focus = .seasons
+            }
+        }
     }
 
     // MARK: Above the fold
@@ -107,7 +104,6 @@ struct TVDetailView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .focused($focus, equals: .list)
-                    .onMoveCommand(perform: downToSeasons)
                 }
                 .frame(width: 440)
                 VStack(alignment: .leading, spacing: 14) {
@@ -122,7 +118,6 @@ struct TVDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .focused($focus, equals: .story)
-                        .onMoveCommand(perform: downToSeasons)
                     }
                 }
                 .frame(maxWidth: 820, alignment: .leading)
@@ -162,31 +157,30 @@ struct TVDetailView: View {
     // MARK: Below the fold
 
     private var episodesSection: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            // A season is chosen by pressing it, so moving up from the episodes never changes the season by itself.
-            ScrollView(.horizontal) {
-                HStack(spacing: 12) {
-                    ForEach(seasons) { season in
-                        Button { seasonID = season.id } label: { Text(seasonTitle(season)) }
-                            .buttonStyle(SeasonTabStyle(selected: season.id == seasonID))
-                            .focused($focus, equals: .season(season.id))
-                            .onMoveCommand { direction in
-                                guard direction == .down, let first = episodes.first else { return }
-                                // Only episodes already on screen can take focus in the lazy row.
-                                let inProgress = episodes.prefix(4).first { library.progress[$0.id]?.completed == false }
-                                focus = .episode((inProgress ?? first).id)
-                            }
+        VStack(alignment: .leading, spacing: 22) {
+            // The season is chosen from a glass list; the episodes row below always belongs to it.
+            HStack(spacing: 28) {
+                Button(action: openSeasons) {
+                    HStack(spacing: 14) {
+                        Text(seasonTitle(seasons.first { $0.id == seasonID } ?? seasons[0]))
+                            .font(.callout.weight(.semibold))
+                        if seasons.count > 1 {
+                            Image(systemName: "chevron.down").font(.caption.weight(.bold))
+                        }
                     }
+                    .padding(.horizontal, 8)
                 }
-                .padding(.vertical, 8)
+                .tvGlassButton()
+                .focused($focus, equals: .seasons)
+                Text(episodes.count == 1 ? "حلقة واحدة" : "\(episodes.count) حلقات")
+                    .font(.caption).foregroundStyle(.white.opacity(0.6))
+                Spacer(minLength: 0)
             }
-            .scrollClipDisabled()
-            .scrollIndicators(.hidden)
             .focusSection()
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(episodes) { episode in
-                        EpisodeLockup(episode: episode, focus: $focus, seriesTitle: current.title, rating: omdbSeasons[seasonID]?.ratings[episode.episode],
+                        EpisodeLockup(episode: episode, seriesTitle: current.title, rating: omdbSeasons[seasonID]?.ratings[episode.episode],
                                       aired: episode.airDate.isEmpty ? (omdbSeasons[seasonID]?.released[episode.episode] ?? "") : episode.airDate) {
                             player.play(episode, queue: queue)
                         }
@@ -203,6 +197,18 @@ struct TVDetailView: View {
             guard seasonID > 0, omdbSeasons[seasonID] == nil, let client = OMDb.shared else { return }
             let found = await client.seasonDetails(for: current, season: seasonID)
             if !found.ratings.isEmpty || !found.released.isEmpty { omdbSeasons[seasonID] = found }
+        }
+    }
+
+    /// The seasons in the glass popup: each with its year and number of episodes; the chosen one has a checkmark.
+    private func openSeasons() {
+        guard seasons.count > 1 else { return }
+        pickingSeason = true
+        router.popup = TVPopup(title: current.title, options: seasons.map { season in
+            let count = season.episodes.count
+            return (id: String(season.id), title: seasonTitle(season) + "  —  " + (count == 1 ? "حلقة واحدة" : "\(count) حلقات"))
+        }, selected: String(seasonID)) { chosen in
+            if let id = Int(chosen) { seasonID = id }
         }
     }
 
@@ -255,32 +261,9 @@ struct TVDetailView: View {
     }
 }
 
-/// Season tab: plain text, a soft pill when chosen, white with dark text when focused.
-struct SeasonTabStyle: ButtonStyle {
-    let selected: Bool
-    func makeBody(configuration: Configuration) -> some View {
-        SeasonTab(configuration: configuration, selected: selected)
-    }
-    private struct SeasonTab: View {
-        let configuration: ButtonStyleConfiguration
-        let selected: Bool
-        @Environment(\.isFocused) private var focused
-        var body: some View {
-            configuration.label
-                .font(.callout.weight(selected ? .bold : .medium))
-                .foregroundStyle(focused ? Color.black : (selected ? Color.white : Color.white.opacity(0.6)))
-                .padding(.horizontal, 28).padding(.vertical, 12)
-                .background(Capsule().fill(focused ? Color.white : (selected ? Color.white.opacity(0.18) : .clear)))
-                .scaleEffect(focused ? 1.08 : 1)
-                .animation(.easeOut(duration: 0.15), value: focused)
-        }
-    }
-}
-
 /// Episode lockup: 16:9 still with progress, then "episode N", its name and length with the IMDb rating.
 struct EpisodeLockup: View {
     let episode: Media
-    var focus: FocusState<TVDetailView.DetailFocus?>.Binding
     let seriesTitle: String
     let rating: String?
     /// First shown, as the source or OMDb gives it.
@@ -323,6 +306,5 @@ struct EpisodeLockup: View {
             .containerRelativeFrame(.horizontal, count: 4, spacing: 40, alignment: .leading)
         }
         .buttonStyle(.borderless)
-        .focused(focus, equals: .episode(episode.id))
     }
 }
