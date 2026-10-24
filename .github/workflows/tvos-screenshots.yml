@@ -57,6 +57,15 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/shots.xcresult" \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 1500 -maximum-test-execution-time-allowance 1500 \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" 2>&1 | grep -E "error:|Test Case|TEST (SUCCEEDED|FAILED)" || true
+      - name: Check TMDB in the build
+        if: always()
+        run: |
+          echo "secret length: ${#TMDB_API_KEY}"
+          plist=$(find ~/Library/Developer/Xcode/DerivedData -path '*Debug-appletvsimulator/CinemaIQTV.app/Info.plist' | head -1)
+          value=$(/usr/libexec/PlistBuddy -c 'Print :TMDBAPIKey' "$plist" 2>/dev/null || echo MISSING)
+          echo "::warning::TMDB secret length ${#TMDB_API_KEY}; key in app: ${#value} chars, starts with '${value:0:2}'"
+          code=$(curl -s -o /tmp/tmdb.json -w '%{http_code}' "https://api.themoviedb.org/3/search/tv?api_key=$TMDB_API_KEY&query=A%20Shop%20for%20Killers&language=en-US")
+          echo "::warning::TMDB search HTTP $code: $(head -c 300 /tmp/tmdb.json | tr -d '\n\"')"
       - name: Export screenshots
         if: always()
         run: |
