@@ -177,8 +177,11 @@ public actor TMDBClient {
             if !cleaned.isEmpty && !titles.contains(cleaned) { titles.append(cleaned) }
         }
         for title in titles {
+            // Search in the title's own script: results carry names in the search language, and a Latin title
+            // must be compared with the English name (the Arabic one, or a Korean original, would never match).
+            let latin = OMDbParser.searchTitle(Media(id: "", title: title)) != nil
             for useYear in [true, false] where !useYear || year != nil {
-                var query = ["query": title, "language": "ar", "include_adult": "false"]
+                var query = ["query": title, "language": latin ? "en-US" : "ar", "include_adult": "false"]
                 if useYear, let year { query[series ? "first_air_date_year" : "year"] = String(year) }
                 let results = try await get(series ? "3/search/tv" : "3/search/movie", query)["results"] as? [[String: Any]] ?? []
                 guard let match = TMDBParser.pick(results, title: title, year: useYear ? year : nil), let id = match["id"] as? Int else { continue }
