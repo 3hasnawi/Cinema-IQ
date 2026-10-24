@@ -44,21 +44,24 @@ shot home 1
 swipe_up; shot home-scrolled
 swipe_up; shot home-scrolled-more
 swipe_down; swipe_down; swipe_down
-tap "مسلسلات" && shot series-tab
-adb shell input tap 900 700; shot series-page 8
+# The floating tab bar at the bottom (right to left): Home, Movies, Series, Search, My List.
+bar() { adb shell input tap "$1" 2080; sleep "${2:-6}"; }
+bar 456; shot series-tab
+adb shell input tap 900 600; shot series-page 10
 swipe_up; shot series-episodes
-tap "الموسم" && shot season-picker
-adb shell input keyevent KEYCODE_BACK; sleep 2
 swipe_up; shot series-more
 adb shell input keyevent KEYCODE_BACK; shot back-to-series 3
-tap "أفلام" && shot movies-tab
-adb shell input tap 900 700; shot movie-page 8
-tap "شاهد" && shot player 15
+adb shell input tap 540 600; shot second-series 10
+swipe_up; shot second-series-episodes
+adb shell input keyevent KEYCODE_BACK; sleep 3
+bar 616; shot movies-tab
+adb shell input tap 900 600; shot movie-page 10
+adb shell input tap 540 1112; shot player 15
 adb shell input tap 540 1000; shot player-controls 1
 adb shell input keyevent KEYCODE_BACK; sleep 2; adb shell input keyevent KEYCODE_BACK; sleep 3
-tap "بحث" && shot search
-tap "مكتبتي" && shot library
-tap "الإعدادات" && shot settings
+bar 288; shot search
+bar 144; shot my-list
+bar 848; shot home-again
+adb shell input tap 80 228; shot profile-or-settings 4
 swipe_up; shot settings-more
-tap "الرئيسية" && shot home-again
 adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; adb pull /sdcard/ui.xml "$out/last-screen.xml" >/dev/null 2>&1 || true
