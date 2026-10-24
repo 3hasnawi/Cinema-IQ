@@ -357,6 +357,13 @@ struct TVOptionsPopup: View {
             .defaultFocus($focused, popup.selected)
             .onExitCommand(perform: close)
         }
+        // The app behind is disabled only as the popup appears, so focus is moved in by hand.
+        .task {
+            for _ in 0..<5 where focused == nil {
+                try? await Task.sleep(for: .milliseconds(120))
+                focused = popup.options.contains { $0.id == popup.selected } ? popup.selected : popup.options.first?.id
+            }
+        }
         .transition(.opacity.combined(with: .scale(scale: 0.94)))
     }
 }

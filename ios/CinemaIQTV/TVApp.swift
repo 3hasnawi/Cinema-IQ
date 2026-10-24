@@ -68,6 +68,8 @@ struct TVRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.25), value: router.popup?.id)
+        // Menu with a popup open closes it (and never leaves the app).
+        .onExitCommand(perform: router.popup == nil ? nil : { withAnimation(.easeOut(duration: 0.2)) { router.popup = nil } })
     }
 
     private func stack<Content: View>(_ tab: TVTab, @ViewBuilder _ content: () -> Content) -> some View {
