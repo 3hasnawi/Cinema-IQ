@@ -42,25 +42,6 @@ final class ScreenshotTests: XCTestCase {
         shot("11-movies")
     }
 
-    /// Settings: each option opens the glass popup; Menu closes it and focus returns to the row.
-    func testSettingsPopup() {
-        launch(source: "ext:demo")
-        press(.menu, wait: 2)
-        for _ in 0..<6 { press(.down, wait: 0.8) }
-        press(.select, wait: 5)
-        shot("31-settings")
-        press(.select, wait: 2)
-        shot("32-settings-popup")
-        press(.down, wait: 1)
-        shot("33-settings-popup-down")
-        press(.menu, wait: 2)
-        shot("34-settings-closed")
-        for _ in 0..<4 { press(.down, wait: 1) }
-        press(.select, wait: 2)
-        shot("35-subtitle-popup")
-        press(.menu, wait: 2)
-    }
-
     /// The default source as viewers see it, when the runner can reach it.
     func testDefaultSource() {
         launch(source: nil)

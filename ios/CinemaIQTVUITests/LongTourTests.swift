@@ -17,6 +17,21 @@ final class LongTourTests: XCTestCase {
         launch()
         shot("home tvOS " + ProcessInfo.processInfo.operatingSystemVersionString.replacingOccurrences(of: "/", with: "-"))
 
+        // Settings first, on a fresh start: each option opens the glass popup.
+        openTab("الإعدادات")
+        shot("settings-first")
+        press(.select, wait: 2)
+        shot("settings-source-popup")
+        press(.down, wait: 1)
+        shot("settings-source-popup-down")
+        press(.menu, wait: 2)
+        shot("settings-popup-closed")
+        for _ in 0..<5 { press(.down, wait: 1) }
+        shot("settings-subtitles-row")
+        press(.select, wait: 2)
+        shot("settings-subtitles-popup")
+        press(.menu, wait: 2)
+
         for pick in 0..<3 {
             openTab("مسلسلات")
             shot("series-grid")
@@ -46,8 +61,6 @@ final class LongTourTests: XCTestCase {
             // Up again to the seasons and the buttons.
             for _ in 0..<4 { press(.up, wait: 1.5) }
             shot("series-back-up")
-            press(.menu, wait: 3)
-            shot("series-left-page")
         }
 
         for pick in 0..<2 {
