@@ -34,11 +34,24 @@ class DawwirliApi {
             if(page != 1) return emptyList()
             return DawwirliMapper.items(get("api/search","q" to query,"kind" to if(series) "series" else "movie").optJSONArray("items"),series)
         }
-        return category("newest",series,page)
+        if(!series) return category("newest",false,page).filter { !it.series }
+        // Series come from the home page's series row ("see all"), as "newest" holds only movies.
+        val (id,kind)=seriesCategory()
+        val found=category(id,true,page,kind).filter { it.series }
+        if(found.isNotEmpty() || page != 1) return found
+        return home().flatMap { it.films }.filter { it.series }.distinctBy { it.id }
     }
-    private suspend fun category(id: String,series: Boolean,page: Int) = get("api/cat","id" to id,"kind" to if(series) "series" else "movies","page" to page.toString()).let {
-        if(page > it.optInt("pages",Int.MAX_VALUE)) emptyList() else DawwirliMapper.items(it.optJSONArray("items"),series)
+    private var seriesAll: Pair<String,String>? = null
+    private suspend fun seriesCategory(): Pair<String,String> = seriesAll ?: run {
+        val rows=get("api/ar/home").optJSONArray("rows")
+        val row=(0 until (rows?.length() ?: 0)).mapNotNull { rows?.optJSONObject(it) }
+            .firstOrNull { it.optString("kind") == "series" && it.optString("all").isNotBlank() && it.optString("all") != "null" }
+        (row?.let { it.optString("all") to it.optString("allKind").ifBlank { "series" } } ?: ("sr-foreign" to "series")).also { seriesAll = it }
     }
+    private suspend fun category(id: String,series: Boolean,page: Int,kind: String = if(series) "series" else "movies") =
+        get("api/cat","id" to id,"kind" to kind,"page" to page.toString()).let {
+            if(page > it.optInt("pages",Int.MAX_VALUE)) emptyList() else DawwirliMapper.items(it.optJSONArray("items"),series)
+        }
     suspend fun sections(series: Boolean): List<Shelf> = coroutineScope {
         val groups=get("api/section","id" to if(series) "series" else "movies").optJSONArray("groups")
         val cards=(0 until (groups?.length() ?: 0)).flatMap { n ->
