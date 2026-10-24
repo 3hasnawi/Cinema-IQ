@@ -44,6 +44,7 @@ import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -481,7 +482,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                     PlayerSeekBar(position = previewPosition ?: position, duration = duration,
                         previewing = previewPosition != null, bufferedPosition = bufferedPosition,
                         speedLabel = if(previewPosition != null && scrubLevel > 0)
-                            "${if(scrubDir < 0) "◀◀" else "▶▶"} ×${ScrubSpeeds[scrubLevel]}" else "",
+                            "${if(scrubDir < 0) "ترجيع" else "تقديم"} ×${ScrubSpeeds[scrubLevel]}" else "",
                         modifier = Modifier.focusRequester(seekFocus).focusProperties { down = playFocus; up = if(promptShown) nextEpisodeFocus else backFocus },
                         onFocusChange = { seekFocused = it },
                         onSelect = { if(previewPosition != null) commitScrub() else { interact(); togglePlayback() } })
@@ -836,10 +837,24 @@ private fun PlayerSeekBar(
                 Box(Modifier.offset(x = maxWidth * fraction - thumb / 2).size(thumb).drawBehind {
                     if(halo > 0f) drawCircle(Color.White.copy(alpha = .25f * halo), radius = size.minDimension / 2 + 6.mx.toPx() * halo)
                 }.background(Color.White, CircleShape))
-                if(previewing) Box(Modifier.offset(x = maxWidth * fraction - 110.mx, y = (-52).mx).width(220.mx), contentAlignment = Alignment.Center) {
-                    Box(Modifier.background(Brand.Raised, RoundedCornerShape(12.mx)).border(3.mx, Color.White, RoundedCornerShape(12.mx))
-                        .padding(horizontal = 18.mx, vertical = 4.mx)) {
-                        Label(if(speedLabel.isBlank()) formatPlayerTime(position) else "${formatPlayerTime(position)}   $speedLabel", 12, Color.White, true, lines = 1)
+                // While scrubbing: the target time over the thumb, and under it the speed in words. The bubble is as
+                // wide as its text and stays inside the bar at both ends, so nothing is cut off.
+                if(previewing) {
+                    val thumbX = maxWidth * fraction
+                    val gap = 18.mx
+                    Box(Modifier.layout { measurable, constraints ->
+                        val bubble = measurable.measure(constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity, minHeight = 0))
+                        val x = (thumbX.roundToPx() - bubble.width / 2).coerceIn(0, (constraints.maxWidth - bubble.width).coerceAtLeast(0))
+                        layout(constraints.maxWidth, 0) { bubble.place(x, -(bubble.height + gap.roundToPx())) }
+                    }) {
+                        Column(Modifier.background(Brand.Raised.copy(alpha = .96f), RoundedCornerShape(14.mx))
+                            .border(2.mx, Color.White.copy(alpha = .9f), RoundedCornerShape(14.mx))
+                            .padding(horizontal = 20.mx, vertical = 8.mx), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Label(formatPlayerTime(position), 15, Color.White, true, lines = 1)
+                            if(speedLabel.isNotBlank()) CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                                Label(speedLabel, 11, Brand.Accent, true, lines = 1)
+                            }
+                        }
                     }
                 }
             }
