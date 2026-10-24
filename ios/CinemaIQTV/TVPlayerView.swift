@@ -18,6 +18,10 @@ struct TVPlayerView: View {
     @State private var externalTracks: [SubtitleTrack] = []
     @State private var loading = false
     @State private var resolutionError: String?
+    /// IntroDB timings of what is playing: the opening (skip button) and the start of the end credits.
+    @State private var skips = SkipSegments()
+    /// The series of an episode opened without one (from continue watching).
+    @State private var fetchedSeries: Media?
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
@@ -33,9 +37,12 @@ struct TVPlayerView: View {
     private var offerNext: Bool {
         guard next != nil else { return false }
         if controller.ended { return true }
+        // From the start of the end credits when IntroDB knows it, else in the last 20 seconds.
+        if let credits = skips.creditsStart, controller.duration > 0, credits < controller.duration, controller.position >= credits { return true }
         guard let left = controller.remaining else { return false }
         return left <= 20
     }
+    private var inIntro: Bool { skips.inIntro(controller.position) }
 
     var body: some View {
         ZStack {
@@ -44,7 +51,7 @@ struct TVPlayerView: View {
             if failure == nil {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
-                         menuKey: menuKey, menus: { menus }, actionKey: offerNext ? (next?.id ?? "") : "", actions: { actions },
+                         menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
                          episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
                 .ignoresSafeArea()
             }
@@ -80,6 +87,7 @@ struct TVPlayerView: View {
             }
         }
         .task(id: current.id) { await start(current) }
+        .task(id: "skips-\(current.id)") { await loadSkips(current) }
         .onDisappear { controller.close() }
     }
 
@@ -164,6 +172,9 @@ struct TVPlayerView: View {
     }
 
     private var actions: [UIAction] {
+        if inIntro, let end = skips.introEnd {
+            return [UIAction(title: "تخطي المقدمة", image: UIImage(systemName: "forward.fill")) { _ in controller.seek(to: end) }]
+        }
         guard offerNext, let next else { return [] }
         return [UIAction(title: "الحلقة \(next.episode)", image: UIImage(systemName: "forward.end.fill")) { _ in active = next }]
     }
@@ -179,6 +190,15 @@ struct TVPlayerView: View {
         controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
+    }
+
+    /// IntroDB timings for what plays (optional: a miss changes nothing).
+    private func loadSkips(_ media: Media) async {
+        skips = SkipSegments()
+        let found = await SkipTimings.load(media, series: selection.series ?? fetchedSeries, omdb: OMDb.shared)
+        guard !Task.isCancelled else { return }
+        skips = found.segments
+        if fetchedSeries == nil { fetchedSeries = found.series }
     }
 
     private func start(_ media: Media) async {

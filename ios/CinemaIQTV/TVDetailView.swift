@@ -16,6 +16,9 @@ struct TVDetailView: View {
     @State private var error: String?
     @State private var loading = true
     @State private var omdb: OMDbInfo?
+    /// TMDB: cast portraits, directors, IMDb ID, Arabic story and season dates.
+    @State private var tmdb: TMDBWork?
+    @State private var tmdbSeasons: [Int: TMDBSeason] = [:]
     /// OMDb's ratings and first-shown dates, by season.
     @State private var omdbSeasons: [Int: OMDbSeason] = [:]
     @State private var belowFold = false
@@ -37,11 +40,28 @@ struct TVDetailView: View {
         if let rated = omdb?.rated, !rated.isEmpty, rated != "N/A" { values.append(rated) }
         return values
     }
-    private var story: String { current.overview.isEmpty ? (omdb?.plot ?? "") : current.overview }
-    private var actors: [String] {
-        (omdb?.actors ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && $0 != "N/A" }
+    private var story: String {
+        if !current.overview.isEmpty { return current.overview }
+        if let overview = tmdb?.overview, !overview.isEmpty { return overview }
+        return omdb?.plot ?? ""
     }
-    private var artwork: String { current.backdrop.isEmpty ? (omdb?.largePoster ?? current.poster) : current.backdrop }
+    /// The cast: TMDB's, with portraits; OMDb's names when TMDB has none.
+    private var people: [TMDBPerson] {
+        if let cast = tmdb?.cast, !cast.isEmpty { return cast }
+        return (omdb?.actors ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty && $0 != "N/A" }.enumerated().map { TMDBPerson(id: -1 - $0.offset, name: $0.element, photo: "") }
+    }
+    private var makers: (String, String) {
+        if let directors = tmdb?.directors, !directors.isEmpty { return ("إخراج", directors.prefix(2).joined(separator: "، ")) }
+        if let creators = tmdb?.creators, !creators.isEmpty { return ("صناعة", creators.prefix(2).joined(separator: "، ")) }
+        return ("إخراج", omdb?.director ?? "")
+    }
+    private var artwork: String {
+        if !current.backdrop.isEmpty { return current.backdrop }
+        if let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
+        return omdb?.largePoster ?? current.poster
+    }
+    private var seriesContext: Media? { current.isSeries || current.episode > 0 ? current : nil }
 
     var body: some View {
         GeometryReader { proxy in
@@ -55,7 +75,7 @@ struct TVDetailView: View {
                                 if belowFold == visible { belowFold = !visible }
                             }
                         if !seasons.isEmpty { episodesSection }
-                        if !actors.isEmpty { castSection }
+                        if !people.isEmpty { castSection }
                     }
                     .padding(.bottom, 80)
                 }
@@ -89,7 +109,7 @@ struct TVDetailView: View {
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
             HStack(alignment: .top, spacing: 56) {
                 VStack(spacing: 14) {
-                    Button { if let target { player.play(target, queue: target.episode > 0 ? queue : []) } } label: {
+                    Button { if let target { player.play(target, queue: target.episode > 0 ? queue : [], series: seriesContext) } } label: {
                         Label(loading && current.isSeries && seasons.isEmpty ? "جارٍ التحميل…" : PlayTarget.label(target, library: library),
                               systemImage: "play.fill")
                             .font(.callout.weight(.semibold))
@@ -122,8 +142,8 @@ struct TVDetailView: View {
                 }
                 .frame(maxWidth: 820, alignment: .leading)
                 VStack(alignment: .leading, spacing: 12) {
-                    credit("بطولة", actors.prefix(3).joined(separator: "، "))
-                    credit("إخراج", omdb?.director ?? "")
+                    credit("بطولة", people.prefix(3).map(\.name).joined(separator: "، "))
+                    credit(makers.0, makers.1)
                     credit("النوع", omdb?.genre ?? "")
                 }
                 .frame(maxWidth: 380, alignment: .leading)
@@ -181,8 +201,8 @@ struct TVDetailView: View {
                 LazyHStack(alignment: .top, spacing: 40) {
                     ForEach(episodes) { episode in
                         EpisodeLockup(episode: episode, seriesTitle: current.title, rating: omdbSeasons[seasonID]?.ratings[episode.episode],
-                                      aired: episode.airDate.isEmpty ? (omdbSeasons[seasonID]?.released[episode.episode] ?? "") : episode.airDate) {
-                            player.play(episode, queue: queue)
+                                      aired: aired(episode)) {
+                            player.play(episode, queue: queue, series: seriesContext)
                         }
                     }
                 }
@@ -198,6 +218,11 @@ struct TVDetailView: View {
             let found = await client.seasonDetails(for: current, season: seasonID)
             if !found.ratings.isEmpty || !found.released.isEmpty { omdbSeasons[seasonID] = found }
         }
+        // TMDB's dates for the chosen season, once the series is matched.
+        .task(id: "\(seasonID)-\(tmdb?.id ?? 0)") {
+            guard seasonID > 0, tmdbSeasons[seasonID] == nil, let work = tmdb, let client = TMDB.shared else { return }
+            if let found = await client.season(seasonID, of: work) { tmdbSeasons[seasonID] = found }
+        }
     }
 
     /// The seasons in the glass popup: each with its year and number of episodes; the chosen one has a checkmark.
@@ -212,25 +237,41 @@ struct TVDetailView: View {
         }
     }
 
-    /// "الموسم 2 · 2019": the year of its earliest episode, from the source or OMDb.
+    /// An episode's first-shown date: the source's, else TMDB's, else OMDb's.
+    private func aired(_ episode: Media) -> String {
+        if !episode.airDate.isEmpty { return episode.airDate }
+        if let date = tmdbSeasons[seasonID]?.episodes[episode.episode]?.airDate, !date.isEmpty { return date }
+        return omdbSeasons[seasonID]?.released[episode.episode] ?? ""
+    }
+
+    /// "الموسم 2 · 2019": the year of its earliest episode, from the source, TMDB or OMDb.
     private func seasonTitle(_ season: Season) -> String {
+        let tmdbYear = tmdbSeasons[season.id].flatMap { AirDate.year($0.airDate) ?? $0.episodes.values.compactMap { AirDate.year($0.airDate) }.min() }
         let omdbYear = omdbSeasons[season.id]?.released.values.compactMap { AirDate.year($0) }.min()
-        guard let year = AirDate.year(of: season) ?? omdbYear else { return "الموسم \(season.id)" }
+        guard let year = AirDate.year(of: season) ?? tmdbYear ?? omdbYear else { return "الموسم \(season.id)" }
         return "الموسم \(season.id) · \(year)"
     }
 
     private var castSection: some View {
         TVShelf(title: "طاقم العمل") {
-            ForEach(actors, id: \.self) { name in
+            ForEach(people) { person in
                 Button {} label: {
                     Circle()
                         .fill(TVTheme.raised)
                         .overlay {
-                            Text(initials(name)).font(.system(size: 44, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
+                            Text(initials(person.name)).font(.system(size: 44, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
                         }
+                        .overlay {
+                            if let url = URL(string: person.photo), !person.photo.isEmpty {
+                                AsyncImage(url: url) { phase in
+                                    if let image = phase.image { image.resizable().scaledToFill() }
+                                }
+                            }
+                        }
+                        .clipShape(Circle())
                         .frame(width: 180, height: 180)
                         .hoverEffect(.highlight)
-                    Text(name).font(.caption).lineLimit(1).frame(width: 220)
+                    Text(person.name).font(.caption).lineLimit(1).frame(width: 220)
                 }
                 .buttonStyle(.borderless)
                 .buttonBorderShape(.circle)
@@ -253,7 +294,12 @@ struct TVDetailView: View {
                 let opened: Int? = initial.episode > 0 && found.contains(where: { $0.id == initial.season }) ? initial.season : nil
                 seasonID = opened ?? target?.season ?? found.first?.id ?? 0
             }
-            if omdb == nil { omdb = await OMDb.shared?.info(for: detail) }
+            // OMDb and TMDB at the same time.
+            async let omdbInfo: OMDbInfo? = OMDb.shared?.info(for: detail)
+            async let tmdbWork: TMDBWork? = TMDB.shared?.work(for: detail)
+            let (foundOMDb, foundTMDB) = await (omdbInfo, tmdbWork)
+            if omdb == nil { omdb = foundOMDb }
+            if tmdb == nil { tmdb = foundTMDB }
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription

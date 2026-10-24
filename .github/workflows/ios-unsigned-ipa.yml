@@ -14,6 +14,8 @@ concurrency:
 jobs:
   iphone-ipa:
     runs-on: macos-15
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +51,7 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$DERIVED_DATA" \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \
             build
@@ -75,7 +77,7 @@ jobs:
             -sdk appletvos \
             -destination 'generic/platform=tvOS' \
             -derivedDataPath "$DERIVED_DATA" \
-            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY= \
             build

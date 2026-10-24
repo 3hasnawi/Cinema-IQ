@@ -6,13 +6,17 @@ import CinemaCore
 struct PlaybackSelection: Identifiable {
     let media: Media
     let queue: [Media]
+    /// The series an episode belongs to, when the page that started it knows it (for skip timings).
+    var series: Media? = nil
     var id: String { media.id }
 }
 
 /// Opens the full-screen player from any tab.
 @MainActor final class PlayerPresenter: ObservableObject {
     @Published var selection: PlaybackSelection?
-    func play(_ media: Media, queue: [Media] = []) { selection = PlaybackSelection(media: media, queue: queue) }
+    func play(_ media: Media, queue: [Media] = [], series: Media? = nil) {
+        selection = PlaybackSelection(media: media, queue: queue, series: series)
+    }
 }
 
 struct MediaOption: Identifiable, Hashable {

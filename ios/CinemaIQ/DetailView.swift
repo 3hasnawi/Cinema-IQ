@@ -16,6 +16,11 @@ struct DetailView: View {
     @State private var omdb: OMDbInfo?
     /// IMDb ratings of the episodes by season (season → episode → rating), from OMDb.
     @State private var episodeRatings: [Int: [Int: String]] = [:]
+    /// TMDB: cast portraits, directors, IMDb ID, Arabic story and season dates.
+    @State private var tmdb: TMDBWork?
+    @State private var tmdbSeasons: [Int: TMDBSeason] = [:]
+    /// OMDb's first-shown dates by season, the last fallback for episode dates.
+    @State private var omdbSeasons: [Int: OMDbSeason] = [:]
 
     private var current: Media { media ?? initial }
     private var episodes: [Media] { seasons.first { $0.id == seasonID }?.episodes ?? [] }
@@ -47,8 +52,9 @@ struct DetailView: View {
                 header
                 VStack(alignment: .leading, spacing: 18) {
                     actions
-                    if let omdb { OMDbSummary(info: omdb) }
+                    if let omdb { OMDbSummary(info: omdb, showActors: tmdb?.cast.isEmpty ?? true) }
                     if !storyText.isEmpty { overview }
+                    if let tmdb, !tmdb.cast.isEmpty { castRow(tmdb) }
                     if loading && seasons.isEmpty { ProgressView().frame(maxWidth: .infinity) }
                     if let error { ErrorState(message: error) { Task { await load() } } }
                     if !seasons.isEmpty { episodeSection }
@@ -107,10 +113,16 @@ struct DetailView: View {
     /// OMDb's large poster when the work was found there, the source's artwork otherwise.
     private var headerImage: String {
         if let poster = omdb?.largePoster, !poster.isEmpty { return poster }
+        if current.backdrop.isEmpty, let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
         return current.backdrop.isEmpty ? current.poster : current.backdrop
     }
     /// The source's Arabic story first; OMDb's (English) plot when the source has none.
-    private var storyText: String { current.overview.isEmpty ? (omdb?.plot ?? "") : current.overview }
+    private var storyText: String {
+        if !current.overview.isEmpty { return current.overview }
+        if let overview = tmdb?.overview, !overview.isEmpty { return overview }
+        return omdb?.plot ?? ""
+    }
+    private var seriesContext: Media? { current.isSeries || current.episode > 0 ? current : nil }
 
     private var chips: [String] {
         var values = [current.isSeries ? "مسلسل" : "فيلم"]
@@ -165,21 +177,22 @@ struct DetailView: View {
                 if seasons.count > 1 {
                     Menu {
                         Picker("الموسم", selection: $seasonID) {
-                            ForEach(seasons) { season in Text("الموسم \(season.id)").tag(season.id) }
+                            ForEach(seasons) { season in Text(seasonTitle(season)).tag(season.id) }
                         }
                     } label: {
-                        Label("الموسم \(seasonID)", systemImage: "chevron.down").font(.subheadline.weight(.semibold))
+                        Label(seasons.first { $0.id == seasonID }.map(seasonTitle) ?? "الموسم \(seasonID)", systemImage: "chevron.down")
+                            .font(.subheadline.weight(.semibold))
                     }
                     .menuStyle(.button)
                     .secondaryAction()
                 } else {
-                    Text("الموسم \(seasonID)").font(.subheadline).foregroundStyle(Theme.muted)
+                    Text(seasons.first.map(seasonTitle) ?? "الموسم \(seasonID)").font(.subheadline).foregroundStyle(Theme.muted)
                 }
             }
             LazyVStack(spacing: 14) {
                 ForEach(episodes) { episode in
                     EpisodeRow(episode: episode, seriesTitle: current.title,
-                               rating: episodeRatings[seasonID]?[episode.episode],
+                               rating: episodeRatings[seasonID]?[episode.episode], aired: aired(episode),
                                fraction: library.fraction(episode),
                                completed: library.progress[episode.id]?.completed == true) { play(episode) }
                 }
@@ -187,14 +200,71 @@ struct DetailView: View {
             // One OMDb request per season, only once the season is shown.
             .task(id: seasonID) {
                 guard seasonID > 0, episodeRatings[seasonID] == nil, let client = OMDb.shared else { return }
-                let found = await client.episodeRatings(for: current, season: seasonID)
-                if !found.isEmpty { episodeRatings[seasonID] = found }
+                let found = await client.seasonDetails(for: current, season: seasonID)
+                if !found.ratings.isEmpty { episodeRatings[seasonID] = found.ratings }
+                if !found.released.isEmpty { omdbSeasons[seasonID] = found }
+            }
+            // TMDB's dates for the chosen season, once the series is matched.
+            .task(id: "\(seasonID)-\(tmdb?.id ?? 0)") {
+                guard seasonID > 0, tmdbSeasons[seasonID] == nil, let work = tmdb, let client = TMDB.shared else { return }
+                if let found = await client.season(seasonID, of: work) { tmdbSeasons[seasonID] = found }
             }
         }
     }
 
     private func play(_ media: Media) {
-        player.play(media, queue: media.episode > 0 ? queue : [])
+        player.play(media, queue: media.episode > 0 ? queue : [], series: seriesContext)
+    }
+
+    /// "الموسم 2 · 2019": the year of its earliest episode, from the source, TMDB or OMDb.
+    private func seasonTitle(_ season: Season) -> String {
+        let tmdbYear = tmdbSeasons[season.id].flatMap { AirDate.year($0.airDate) ?? $0.episodes.values.compactMap { AirDate.year($0.airDate) }.min() }
+        let omdbYear = omdbSeasons[season.id]?.released.values.compactMap { AirDate.year($0) }.min()
+        guard let year = AirDate.year(of: season) ?? tmdbYear ?? omdbYear else { return "الموسم \(season.id)" }
+        return "الموسم \(season.id) · \(year)"
+    }
+
+    /// An episode's first-shown date: the source's, else TMDB's, else OMDb's.
+    private func aired(_ episode: Media) -> String {
+        if !episode.airDate.isEmpty { return episode.airDate }
+        if let date = tmdbSeasons[seasonID]?.episodes[episode.episode]?.airDate, !date.isEmpty { return date }
+        return omdbSeasons[seasonID]?.released[episode.episode] ?? ""
+    }
+
+    /// TMDB's cast in round portraits, and the directors or creators.
+    private func castRow(_ work: TMDBWork) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("طاقم العمل").font(.title3.bold())
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(work.cast) { person in
+                        VStack(spacing: 6) {
+                            Circle().fill(Theme.panel)
+                                .overlay {
+                                    Text(person.name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined())
+                                        .font(.headline).foregroundStyle(Theme.muted)
+                                }
+                                .overlay {
+                                    if let url = URL(string: person.photo), !person.photo.isEmpty {
+                                        AsyncImage(url: url) { phase in
+                                            if let image = phase.image { image.resizable().scaledToFill() }
+                                        }
+                                    }
+                                }
+                                .clipShape(Circle())
+                                .frame(width: 72, height: 72)
+                            Text(person.name).font(.caption2).lineLimit(2).multilineTextAlignment(.center).frame(width: 80)
+                        }
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            let makers = work.directors.isEmpty ? work.creators : work.directors
+            if !makers.isEmpty {
+                Text((work.directors.isEmpty ? "صناعة: " : "إخراج: ") + makers.prefix(2).joined(separator: "، "))
+                    .font(.footnote).foregroundStyle(Theme.muted)
+            }
+        }
     }
 
     private func load() async {
@@ -204,7 +274,12 @@ struct DetailView: View {
             let (detail, found) = try await SourceClient().detail(initial)
             media = detail
             seasons = found
-            if omdb == nil { omdb = await OMDb.shared?.info(for: detail) }
+            // OMDb and TMDB at the same time.
+            async let omdbInfo: OMDbInfo? = OMDb.shared?.info(for: detail)
+            async let tmdbWork: TMDBWork? = TMDB.shared?.work(for: detail)
+            let (foundOMDb, foundTMDB) = await (omdbInfo, tmdbWork)
+            if omdb == nil { omdb = foundOMDb }
+            if tmdb == nil { tmdb = foundTMDB }
             if !found.contains(where: { $0.id == seasonID }) {
                 let opened: Int? = initial.episode > 0 && found.contains(where: { $0.id == initial.season }) ? initial.season : nil
                 seasonID = opened ?? found.first?.id ?? 0
@@ -220,6 +295,7 @@ private struct EpisodeRow: View {
     let episode: Media
     let seriesTitle: String
     let rating: String?
+    var aired = ""
     let fraction: Double
     let completed: Bool
     let action: () -> Void
@@ -251,6 +327,8 @@ private struct EpisodeRow: View {
                     Text("الحلقة \(episode.episode)").font(.subheadline.bold())
                     if !name.isEmpty { Text(name).font(.footnote).lineLimit(1) }
                     if !status.isEmpty { Text(status).font(.caption).foregroundStyle(Theme.muted) }
+                    let date = AirDate.display(aired)
+                    if !date.isEmpty { Label(date, systemImage: "calendar").font(.caption2).foregroundStyle(Theme.muted) }
                     if !episode.overview.isEmpty {
                         Text(episode.overview).font(.caption).foregroundStyle(Theme.muted).lineLimit(2)
                     }
@@ -266,6 +344,8 @@ private struct EpisodeRow: View {
 /// Ratings and credits from OMDb.
 private struct OMDbSummary: View {
     let info: OMDbInfo
+    /// Off when TMDB's cast (with portraits) is shown below.
+    var showActors = true
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
@@ -276,7 +356,7 @@ private struct OMDbSummary: View {
             VStack(alignment: .leading, spacing: 6) {
                 credit("النوع", info.genre)
                 credit("الإخراج", info.director)
-                credit("البطولة", info.actors)
+                if showActors { credit("البطولة", info.actors) }
             }
         }
     }
