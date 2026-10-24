@@ -176,11 +176,13 @@ private fun HomeShelf(modifier: Modifier = Modifier, content: @Composable () -> 
 /** "Cinema iQ" at the top of the page, on the side away from the rail. */
 @Composable
 private fun Wordmark(modifier: Modifier) {
-    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Row(modifier) {
+    // The padding belongs to the page's (right-to-left) layout; only the letters inside run left to right.
+    Box(modifier) { CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Row {
             Text("Cinema ", color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 26.ms)
             Text("iQ", color = Brand.Accent, fontFamily = Cairo, fontWeight = FontWeight.Bold, fontSize = 26.ms)
         }
+    }
     }
 }
 

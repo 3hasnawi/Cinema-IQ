@@ -7,6 +7,14 @@ shot() { sleep "${2:-2}"; n=$((n + 1)); adb exec-out screencap -p > "$out/$(prin
 key() { adb shell input keyevent "$1"; sleep "${2:-1.5}"; }
 
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+# Dawwirli as the source: the other sources answer only on Iraqi networks, not from the runner.
+adb shell am start -n com.cinemaplus.rebuilt/.MainActivity
+sleep 15
+adb shell am force-stop com.cinemaplus.rebuilt
+printf '%s' "<?xml version='1.0' encoding='utf-8' standalone='yes' ?><map><string name=\"content_source\">DAWWIRLI</string></map>" > /tmp/cinema_library.xml
+adb push /tmp/cinema_library.xml /data/local/tmp/cinema_library.xml
+adb shell chmod 644 /data/local/tmp/cinema_library.xml
+adb shell run-as com.cinemaplus.rebuilt sh -c "'mkdir -p shared_prefs && cp /data/local/tmp/cinema_library.xml shared_prefs/cinema_library.xml && cat shared_prefs/cinema_library.xml'"
 adb shell am start -n com.cinemaplus.rebuilt/.MainActivity
 sleep 45
 shot home 1
