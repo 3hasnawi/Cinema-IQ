@@ -65,6 +65,39 @@ jobs:
           ditto "$device_app" "$IPA_STAGING/Payload/CinemaIQ.app"
           ditto -c -k --keepParent "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
           unzip -t "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
+      - name: Compile Release for Apple TV without signing
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/CinemaIQ.xcodeproj \
+            -scheme CinemaIQTV \
+            -configuration Release \
+            -sdk appletvos \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            build
+      - name: Package unsigned Apple TV app
+        run: |
+          set -euo pipefail
+          tv_app="$DERIVED_DATA/Build/Products/Release-appletvos/CinemaIQTV.app"
+          test -d "$tv_app"
+          test -x "$tv_app/CinemaIQTV"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$tv_app/Info.plist"
+          xcrun lipo "$tv_app/CinemaIQTV" -verify_arch arm64
+          mkdir -p "$RUNNER_TEMP/TVIPA/Payload" "$RUNNER_TEMP/tv-output"
+          ditto "$tv_app" "$RUNNER_TEMP/TVIPA/Payload/CinemaIQTV.app"
+          ditto -c -k --keepParent "$RUNNER_TEMP/TVIPA/Payload" "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-unsigned.ipa"
+          unzip -t "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-unsigned.ipa"
+      - name: Upload Apple TV IPA for atvloadly
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinema-iQ-AppleTV-unsigned-${{ github.run_number }}
+          path: ${{ runner.temp }}/tv-output/Cinema-iQ-AppleTV-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload IPA for Windows sideloading
         uses: actions/upload-artifact@v4
         with:

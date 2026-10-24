@@ -59,6 +59,19 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
+      - name: Compile the Apple TV app without signing
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/CinemaIQ.xcodeproj \
+            -scheme CinemaIQTV \
+            -configuration Release \
+            -sdk appletvos \
+            -destination 'generic/platform=tvOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            build 2>&1 | tee -a "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
+          test "$(grep -c "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log")" -ge 2
       - name: Report compile errors
         if: failure()
         run: grep -E "error:" "$RUNNER_TEMP/build.log" | head -40 | while read -r line; do echo "::error::$line"; done

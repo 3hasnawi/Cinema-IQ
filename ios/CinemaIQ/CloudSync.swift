@@ -40,7 +40,9 @@ import CinemaCore
         guard let url = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist"),
               let plist = NSDictionary(contentsOf: url),
               let key = plist["API_KEY"] as? String, let project = plist["PROJECT_ID"] as? String else { return nil }
-        return CloudConfig(apiKey: key, projectID: project, bundleID: Bundle.main.bundleIdentifier ?? (plist["BUNDLE_ID"] as? String ?? ""))
+        // The bundle id registered with Firebase: the iPhone app's, also from the Apple TV app and from a sideloaded
+        // copy whose bundle id was changed by the signing tool.
+        return CloudConfig(apiKey: key, projectID: project, bundleID: (plist["BUNDLE_ID"] as? String) ?? Bundle.main.bundleIdentifier ?? "")
     }
 
     func start(library: LibraryStore) {
