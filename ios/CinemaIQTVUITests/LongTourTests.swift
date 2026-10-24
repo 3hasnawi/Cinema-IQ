@@ -118,7 +118,8 @@ final class LongTourTests: XCTestCase {
     /// Opens the sidebar with Menu and moves to the named tab.
     private func openTab(_ name: String) {
         for _ in 0..<3 {
-            press(.menu, wait: 2)
+            // Menu only until the sidebar has focus: Menu on the sidebar leaves the app.
+            if !order.contains(where: { focusedLabel().contains($0) }) { press(.menu, wait: 2) }
             for _ in 0..<8 {
                 if focusedLabel().contains(name) { press(.select, wait: 8); return }
                 press(focusedIsAbove(name) ? .down : .up, wait: 0.8)
