@@ -80,7 +80,10 @@ jobs:
               for a in test.get("attachments", []):
                   name = re.sub(r"(_\d+)?(_[0-9A-Fa-f-]{36})?\.(png|jpe?g)$", "", a.get("suggestedHumanReadableName", a["exportedFileName"]))
                   name = re.sub(r"[^\w\u0600-\u06FF .,\[\]·()-]", "-", name)[:120]
-                  ext = os.path.splitext(a["exportedFileName"])[1] or ".png"
+                  ext = os.path.splitext(a["exportedFileName"])[1].lower()
+                  # Screenshots only: Xcode also attaches screen recordings, far too big for git.
+                  if ext not in (".png", ".jpg", ".jpeg"):
+                      continue
                   try:
                       shutil.copy(os.path.join(src, a["exportedFileName"]), os.path.join(dst, name + ext))
                   except OSError as error:
