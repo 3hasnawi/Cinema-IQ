@@ -18,6 +18,8 @@ permissions:
 jobs:
   screenshots:
     runs-on: macos-15
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +56,7 @@ jobs:
             -destination "id=$TV_DEVICE" \
             -resultBundlePath "$RUNNER_TEMP/shots.xcresult" \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 1500 -maximum-test-execution-time-allowance 1500 \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | grep -E "error:|Test Case|TEST (SUCCEEDED|FAILED)" || true
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" 2>&1 | grep -E "error:|Test Case|TEST (SUCCEEDED|FAILED)" || true
       - name: Export screenshots
         if: always()
         run: |

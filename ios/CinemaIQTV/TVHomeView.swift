@@ -189,7 +189,7 @@ struct TVHeroHeader: View {
                 router.open(media)
                 return
             }
-            player.play(target, queue: found.1.flatMap(\.episodes))
+            player.play(target, queue: found.1.flatMap(\.episodes), series: found.0)
         }
     }
 }

@@ -102,6 +102,8 @@ targets:
         CFBundleDisplayName: Cinema iQ
         CFBundleDevelopmentRegion: ar
         OMDbAPIKey: "5b9c7295"
+        # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
+        TMDBAPIKey: "$(TMDB_API_KEY)"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark

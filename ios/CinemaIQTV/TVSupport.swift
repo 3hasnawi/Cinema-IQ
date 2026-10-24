@@ -69,6 +69,22 @@ enum OMDb {
     }()
 }
 
+/// TMDB client, set up from the key the build puts in Info.plist; nil when the build has none.
+enum TMDB {
+    static let shared: TMDBClient? = {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "TMDBAPIKey") as? String,
+              !key.isEmpty, !key.hasPrefix("$(") else { return nil }
+        let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("tmdb-cache.json")
+        return TMDBClient(key: key, cacheURL: cache)
+    }()
+}
+
+/// IntroDB skip timings (no key needed).
+enum IntroDB {
+    static let shared = IntroDBClient(cacheURL: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("introdb-cache.json"))
+}
+
 /// Remote artwork filling its frame, with a quiet placeholder while it loads or when there is none.
 struct Artwork: View {
     let url: String
