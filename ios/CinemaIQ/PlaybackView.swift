@@ -37,6 +37,9 @@ struct PlaybackView: View {
     @State private var active: Media?
     /// The season list when playback started without one (from continue watching).
     @State private var fetchedQueue: [Media] = []
+    /// IntroDB timings of what plays: the opening (skip button) and the start of the end credits.
+    @State private var skips = SkipSegments()
+    @State private var fetchedSeries: Media?
     @StateObject private var controller = PlaybackController()
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
@@ -62,11 +65,13 @@ struct PlaybackView: View {
         guard let index = list.firstIndex(where: { $0.id == media.id }), list.indices.contains(index + 1) else { return nil }
         return list[index + 1]
     }
-    /// Without credits times from the source, the next episode is offered for the last 15 seconds (as on Android).
+    /// From the start of the end credits when IntroDB knows it, else for the last 15 seconds (as on Android).
     private var offerNext: Bool {
         guard next != nil, !controller.ended, let left = controller.remaining else { return false }
+        if let credits = skips.creditsStart, controller.duration > 0, credits < controller.duration, controller.position >= credits { return true }
         return left <= 15
     }
+    private var inIntro: Bool { skips.inIntro(controller.position) }
 
     var body: some View {
         ZStack {
@@ -76,6 +81,22 @@ struct PlaybackView: View {
                 .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() } }
             subtitleLayer
             if controlsVisible { controls.transition(.opacity) }
+            // Skip the opening: shown during it whether or not the controls are, above the timeline.
+            if inIntro, let end = skips.introEnd, resolutionError == nil, controller.error == nil {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button { controller.seek(to: end) } label: {
+                            Label("تخطي المقدمة", systemImage: "forward.fill").font(.headline)
+                        }
+                        .primaryAction()
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, controlsVisible ? 96 : 30)
+                .transition(.opacity)
+            }
             if (loading || controller.buffering) && resolutionError == nil && controller.error == nil {
                 ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false)
             }
@@ -116,6 +137,13 @@ struct PlaybackView: View {
             if !Task.isCancelled { withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false } }
         }
         .task(id: current.id) { await start(current) }
+        .task(id: "skips-\(current.id)") {
+            skips = SkipSegments()
+            let found = await SkipTimings.load(current, series: selection.series ?? fetchedSeries, omdb: OMDb.shared)
+            guard !Task.isCancelled else { return }
+            skips = found.segments
+            if fetchedSeries == nil { fetchedSeries = found.series }
+        }
         .onAppear { previousIdleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true }
         .onChange(of: phase) { _, value in
             if value != .active { controller.persist(); controller.player.pause(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }

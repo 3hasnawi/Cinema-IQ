@@ -39,6 +39,8 @@ targets:
         CFBundleDevelopmentRegion: ar
         # OMDb key for film information, posters and ratings (free tier: about 1000 requests a day).
         OMDbAPIKey: "5b9c7295"
+        # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
+        TMDBAPIKey: "$(TMDB_API_KEY)"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIApplicationSceneManifest:
@@ -81,6 +83,7 @@ targets:
       - path: CinemaIQ/CloudSync.swift
       - path: CinemaIQ/PlaybackController.swift
       - path: CinemaIQ/ProviderStore.swift
+      - path: CinemaIQ/MetadataServices.swift
       - path: CinemaIQ/Resources/GoogleService-Info.plist
         buildPhase: resources
     dependencies:

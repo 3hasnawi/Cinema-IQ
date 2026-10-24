@@ -192,23 +192,13 @@ struct TVPlayerView: View {
         }
     }
 
-    /// IntroDB by the work's IMDb ID (from TMDB, else OMDb). Optional: a miss changes nothing.
+    /// IntroDB timings for what plays (optional: a miss changes nothing).
     private func loadSkips(_ media: Media) async {
         skips = SkipSegments()
-        let isEpisode = media.episode > 0
-        var work: Media = media
-        if isEpisode {
-            if let series = selection.series ?? fetchedSeries { work = series }
-            else if !media.seriesID.isEmpty {
-                var probe = Media(id: media.seriesID, title: media.title); probe.isSeries = true
-                if let found = try? await SourceClient().detail(probe) { work = found.0; fetchedSeries = found.0 }
-            }
-        }
-        var imdb = await TMDB.shared?.work(for: work)?.imdbID ?? ""
-        if imdb.isEmpty { imdb = await OMDb.shared?.info(for: work)?.imdbID ?? "" }
-        guard !imdb.isEmpty, !Task.isCancelled else { return }
-        let found = await IntroDB.shared.segments(imdbID: imdb, season: media.season, episode: media.episode, movie: !isEpisode)
-        if !Task.isCancelled { skips = found }
+        let found = await SkipTimings.load(media, series: selection.series ?? fetchedSeries, omdb: OMDb.shared)
+        guard !Task.isCancelled else { return }
+        skips = found.segments
+        if fetchedSeries == nil { fetchedSeries = found.series }
     }
 
     private func start(_ media: Media) async {
