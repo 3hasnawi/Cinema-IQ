@@ -378,9 +378,18 @@ extension View {
             self.background(.regularMaterial, in: shape)
         }
     }
+    /// A glass button (tvOS 26); the standard bordered capsule before it.
+    @ViewBuilder func tvGlassButton() -> some View {
+        if #available(tvOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonBorderShape(.capsule)
+        }
+    }
 }
 #else
 extension View {
     func tvGlass<S: Shape>(in shape: S) -> some View { background(.regularMaterial, in: shape) }
+    func tvGlassButton() -> some View { buttonBorderShape(.capsule) }
 }
 #endif
