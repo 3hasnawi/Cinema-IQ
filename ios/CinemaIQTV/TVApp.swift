@@ -9,6 +9,25 @@ import CinemaCore
     @StateObject private var player = PlayerPresenter()
     @StateObject private var router = TVRouter()
     @Environment(\.scenePhase) private var phase
+    init() {
+        #if DEBUG
+        // Dedicated test flags seed mutable defaults. Using -ios.contentSource.v1 would place the value in
+        // NSArgumentDomain, shadowing later picker changes and making a settings regression test misleading.
+        let arguments = ProcessInfo.processInfo.arguments
+        let preferences = ["-tv.testSource": SourcePreference.key,
+                           "-tv.testSubtitleLanguage": SubtitlePreference.languageKey,
+                           "-tv.testSubtitleSize": SubtitlePreference.sizeKey]
+        for (flag, key) in preferences {
+            guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else { continue }
+            let value = arguments[index + 1]
+            if key == SubtitlePreference.sizeKey, let size = Double(value) {
+                UserDefaults.standard.set(size, forKey: key)
+            } else {
+                UserDefaults.standard.set(value, forKey: key)
+            }
+        }
+        #endif
+    }
     var body: some Scene {
         WindowGroup {
             TVRootView()

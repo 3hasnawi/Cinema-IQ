@@ -113,7 +113,7 @@ final class TVNavigationTests: XCTestCase {
 
     private func launch(_ tab: String) {
         app = XCUIApplication()
-        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "-tv.initialTab", tab]
+        app.launchArguments = ["-tv.testSource", "ext:demo", "-tv.initialTab", tab]
         app.launch()
     }
 

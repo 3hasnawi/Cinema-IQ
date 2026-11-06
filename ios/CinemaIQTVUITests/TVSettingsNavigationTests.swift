@@ -7,8 +7,8 @@ final class TVSettingsNavigationTests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = false
-        app.launchArguments = ["-tv.initialTab", "settings", "-ios.contentSource.v1", "ext:demo",
-                               "-ios.subtitle.language.v1", "ar", "-ios.subtitle.size.v1", "20"]
+        app.launchArguments = ["-tv.initialTab", "settings", "-tv.testSource", "ext:demo",
+                               "-tv.testSubtitleLanguage", "ar", "-tv.testSubtitleSize", "20"]
         app.launch()
         XCTAssertTrue(button("tv.settings.source").waitForExistence(timeout: 15))
     }
