@@ -35,6 +35,8 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
     var error by remember { mutableStateOf<String?>(null) }
     var loadedID by remember { mutableStateOf<String?>(null) }
     var completed by remember(film.id) { mutableStateOf(false) }
+    val alive = remember(film.id) { java.util.concurrent.atomic.AtomicBoolean(true) }
+    var lastSave by remember(film.id) { mutableLongStateOf(0L) }
     var pending by remember { mutableStateOf(false) }
     val tracks = remember(film.subtitles) { film.subtitles.filter { CastPolicy.subtitle(it.url, it.mimeType) } }
     val latestPause by rememberUpdatedState(pauseLocal)
@@ -59,12 +61,14 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
         remote.load(MediaLoadRequestData.Builder().setMediaInfo(info).setCurrentTime(at.coerceAtLeast(0))
             .setAutoplay(autoplay).setActiveTrackIds(if (subtitle > 0) longArrayOf(subtitle) else longArrayOf()).build())
             .setResultCallback { result ->
+                if (!alive.get()) return@setResultCallback
                 pending = false
                 if (result.status.isSuccess) { selected = index; loadedID = film.id; completed = false; latestCasting(true); latestPause() }
                 else error = "تعذّر التشغيل على جهاز الكاست. تحقق من شبكة المصدر أو جرّب جودة أخرى."
             }
     }
     DisposableEffect(cast, film.id) {
+        alive.set(true)
         val listener = object : SessionManagerListener<CastSession> {
             override fun onSessionStarted(s: CastSession, id: String) { session = s; expanded = true }
             override fun onSessionResumed(s: CastSession, suspended: Boolean) { session = s; expanded = true }
@@ -81,8 +85,10 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
         }
         cast.sessionManager.addSessionManagerListener(listener, CastSession::class.java)
         onDispose {
+            alive.set(false)
             cast.sessionManager.removeSessionManagerListener(listener, CastSession::class.java)
             if (loadedID == film.id) {
+                if (!completed && duration > 0) latestSave(remotePosition, duration)
                 session?.remoteMediaClient?.stop()
                 latestCasting(false)
             }
@@ -107,7 +113,9 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
                     if (!completed) { completed = true; latestComplete() }
                 } else if (status.idleReason == MediaStatus.IDLE_REASON_ERROR) {
                     error = "رفض جهاز الكاست رابط الفيديو. تأكد أن الجهاز على الشبكة الداعمة للمصدر."
-                } else if (duration > 0) latestSave(remotePosition, duration)
+                } else if (!pending && duration > 0 && android.os.SystemClock.elapsedRealtime() - lastSave >= 5000) {
+                    latestSave(remotePosition, duration); lastSave = android.os.SystemClock.elapsedRealtime()
+                }
             }
             delay(1000)
         }

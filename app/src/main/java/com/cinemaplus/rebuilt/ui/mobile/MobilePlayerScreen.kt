@@ -124,7 +124,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         var resume = false
         val observer = LifecycleEventObserver { _, event -> when (event) {
             Lifecycle.Event.ON_PAUSE -> { resume = player.playWhenReady; saveProgress(); player.pause() }
-            Lifecycle.Event.ON_RESUME -> if (resume) { resume = false; player.play() }
+            Lifecycle.Event.ON_RESUME -> if (resume && !casting) { resume = false; player.play() }
             Lifecycle.Event.ON_STOP -> saveProgress()
             else -> Unit
         } }
@@ -157,7 +157,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         playerError = null
         player.setMediaItem(MediaItem.Builder().setMediaId(film.id).setUri(stream.url).setSubtitleConfigurations(subtitles).build(), resume)
         player.prepare()
-        player.playWhenReady = shouldPlay && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        player.playWhenReady = !casting && shouldPlay && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
     }
     val ranges by produceState<List<LongRange>>(emptyList(), film.id, film.subtitles, vm.sceneFilter) {
         value = if (!vm.sceneFilter) emptyList() else try { SceneFilter.ranges(context, film) }
@@ -236,13 +236,6 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                     if (drag < -40.dp.toPx()) { episodesOpen = true; drag = 0f }
                 })
             })
-                Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 20.dp)) {
-                    com.cinemaplus.rebuilt.cast.MobileCastButton(film, vm.streams, qualityIndex,
-                        position = { player.currentPosition }, pauseLocal = { player.pause() },
-                        resumeLocal = { player.seekTo(it); player.play() },
-                        save = { at, length -> vm.recordProgress(film, at, length) },
-                        complete = { vm.completePlayback(film) }, onCasting = { casting = it })
-                }
         AnimatedVisibility(controlsVisible && !casting, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .70f), .26f to Color.Transparent,
@@ -296,8 +289,15 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                 }
             }
         }
+        Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 20.dp)) {
+            com.cinemaplus.rebuilt.cast.MobileCastButton(film, vm.streams, qualityIndex,
+                position = { player.currentPosition }, pauseLocal = { player.pause() },
+                resumeLocal = { player.seekTo(it); player.play() },
+                save = { at, length -> vm.recordProgress(film, at, length) },
+                complete = { vm.completePlayback(film) }, onCasting = { casting = it })
+        }
         // Skip intro / next episode above the scrubber on the left, in the TV design; it stays while controls fade.
-        if ((introTarget != null || (offerNext && next != null)) && panel == null && !episodesOpen) {
+        if (!casting && (introTarget != null || (offerNext && next != null)) && panel == null && !episodesOpen) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 val place = Modifier.align(Alignment.BottomStart).displayCutoutPadding().navigationBarsPadding()
                     .padding(start = 20.dp, bottom = 132.dp)

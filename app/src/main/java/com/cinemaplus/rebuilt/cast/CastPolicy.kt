@@ -13,7 +13,7 @@ object CastPolicy {
         val uri = URI(raw)
         val ext = uri.path.substringAfterLast('.', "").lowercase()
         val queryExt = uri.rawQuery.orEmpty().split('&').firstOrNull { it.startsWith("ext=") }?.substringAfter('=')
-        return when (queryExt ?: ext) {
+        return when ((queryExt ?: ext).lowercase()) {
             "m3u8" -> "application/x-mpegURL"
             "mpd" -> "application/dash+xml"
             "mkv", "avi", "mov" -> null

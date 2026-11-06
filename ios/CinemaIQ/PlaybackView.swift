@@ -80,7 +80,7 @@ struct PlaybackView: View {
             VideoSurface(player: controller.player)
                 .ignoresSafeArea()
                 .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() } }
-            subtitleLayer
+            if !cast.active { subtitleLayer }
             if controlsVisible && !cast.active { controls.transition(.opacity) }
             if cast.active {
                 VStack(spacing: 20) {
@@ -90,7 +90,7 @@ struct PlaybackView: View {
                 }
             }
             // Skip the opening: shown during it whether or not the controls are, above the timeline.
-            if inIntro, let end = skips.introEnd, resolutionError == nil, controller.error == nil {
+            if !cast.active, inIntro, let end = skips.introEnd, resolutionError == nil, controller.error == nil {
                 VStack {
                     Spacer()
                     HStack {
@@ -105,10 +105,10 @@ struct PlaybackView: View {
                 .padding(.bottom, controlsVisible ? 96 : 30)
                 .transition(.opacity)
             }
-            if (loading || controller.buffering) && resolutionError == nil && controller.error == nil {
+            if !cast.active && (loading || controller.buffering) && resolutionError == nil && controller.error == nil {
                 ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false)
             }
-            if let error = resolutionError ?? controller.error {
+            if let error = resolutionError ?? controller.error, !cast.active {
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle.fill").font(.largeTitle).foregroundStyle(Theme.accent)
                     Text(error).multilineTextAlignment(.center)
@@ -122,7 +122,7 @@ struct PlaybackView: View {
                 .padding(24)
                 .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .padding(32)
-            } else if controller.ended {
+            } else if controller.ended && !cast.active {
                 VStack(spacing: 16) {
                     Text("انتهت المشاهدة").font(.title3.bold())
                     if let next {
@@ -443,7 +443,7 @@ struct PlaybackView: View {
     private var qualityBinding: Binding<String> {
         Binding(get: { quality ?? streams.first?.id ?? "" }, set: { id in
             guard id != quality, let stream = streams.first(where: { $0.id == id }) else { return }
-            quality = id
+            quality = id; cast.quality = id
             controller.error = nil
             open(current, stream: stream, resume: controller.position)
         })

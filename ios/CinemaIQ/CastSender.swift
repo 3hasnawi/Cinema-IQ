@@ -22,6 +22,7 @@ import CinemaCore
     var didLoad: () -> Void = {}
     var didDisconnect: (Double, Bool) -> Void = { _, _ in }
     var save: (Double, Double, Bool) -> Void = { _, _, _ in }
+    private var lastSave = Date.distantPast
     private var timer: Timer?
     private var loadRequest: GCKRequest?
     private var pendingQuality: String?
@@ -108,7 +109,9 @@ import CinemaCore
             if !finished { finished = true; save(duration, duration, true) }
         } else if status.playerState == .idle && status.idleReason == .error {
             error = "تعذّر تشغيل الرابط على الكاست. يجب أن يكون الجهاز على الشبكة الداعمة للمصدر."
-        } else if active && duration > 0 { save(position, duration, false) }
+        } else if active && !pending && duration > 0 && Date().timeIntervalSince(lastSave) >= 5 {
+            save(position, duration, false); lastSave = Date()
+        }
     }
     func seek(_ seconds: Double) {
         let options = GCKMediaSeekOptions()
@@ -124,7 +127,11 @@ import CinemaCore
     func disconnect() { manager.endSessionAndStopCasting(true) }
     func close() {
         manager.remove(self); timer?.invalidate(); timer = nil
-        if active { poll(); client?.stop() }
+        if active {
+            poll()
+            if !finished && duration > 0 { save(position, duration, false) }
+            client?.stop()
+        }
         loadRequest?.delegate = nil; subtitleRequest?.delegate = nil
         active = false; loadRequest = nil; subtitleRequest = nil
         didLoad = {}; didDisconnect = { _, _ in }; save = { _, _, _ in }
