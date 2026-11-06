@@ -143,6 +143,7 @@ import CinemaCore
             if !finished && duration > 0 { save(position, duration, false) }
             client?.stop()
         }
+        if pending { manager.endSessionAndStopCasting(true) }
         loadRequest?.delegate = nil; subtitleRequest?.delegate = nil
         active = false; loadRequest = nil; subtitleRequest = nil
         didLoad = {}; didDisconnect = { _, _ in }; save = { _, _, _ in }

@@ -89,10 +89,11 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
             alive.set(false)
             cast.sessionManager.removeSessionManagerListener(listener, CastSession::class.java)
             if (loadedID == film.id && session?.remoteMediaClient?.mediaStatus?.mediaInfo?.customData?.optString("cinemaID") == film.id) {
-                if (!completed && duration > 0) latestSave(remotePosition, duration)
+                if (!completed && duration > 0) save(remotePosition, duration)
                 session?.remoteMediaClient?.stop()
-                latestCasting(false)
             }
+            if (pending) cast.sessionManager.endCurrentSession(true)
+            latestCasting(false)
         }
     }
     LaunchedEffect(session, film.id, streams) {
@@ -153,11 +154,13 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
             } }
             Text("الترجمة (WebVTT)")
             TextButton(enabled = ownsMedia && !pending, onClick = { client?.setActiveMediaTracks(longArrayOf())?.setResultCallback {
-                if (alive.get() && it.status.isSuccess) subtitle = 0 else error = "تعذّر تغيير الترجمة."
+                if (!alive.get()) return@setResultCallback
+                if (it.status.isSuccess) subtitle = 0 else error = "تعذّر تغيير الترجمة."
             } }) { Text("بدون ترجمة") }
             tracks.forEachIndexed { index, track -> TextButton(enabled = ownsMedia && !pending, onClick = {
                 client?.setActiveMediaTracks(longArrayOf(index + 1L))?.setResultCallback {
-                    if (alive.get() && it.status.isSuccess) subtitle = index + 1L else error = "تعذّر إرسال الترجمة إلى الكاست."
+                    if (!alive.get()) return@setResultCallback
+                    if (it.status.isSuccess) subtitle = index + 1L else error = "تعذّر إرسال الترجمة إلى الكاست."
                 }
             }) { Text((if (subtitle == index + 1L) "✓ " else "") + track.title) } }
             if (tracks.size < film.subtitles.size) Text("بعض ملفات الترجمة تحتاج تحويلًا إلى WebVTT على خادم مصرح به قبل إرسالها.")
