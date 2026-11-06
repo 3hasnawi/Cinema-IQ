@@ -54,11 +54,11 @@ struct TVRootView: View {
     @EnvironmentObject private var player: PlayerPresenter
     @EnvironmentObject private var router: TVRouter
     @FocusState private var navigationFocus: TVTab?
-    @State private var visibleRoots: Set<TVTab> = []
+    @State private var hiddenRoots: Set<TVTab> = []
     @State private var visitedTabs: Set<TVTab> = [.home]
     @State private var initialTabApplied = false
     private var primaryTab: TVTab { router.tab == .movies || router.tab == .series ? .home : router.tab }
-    private var atRoot: Bool { visibleRoots.contains(router.tab) && router.paths[router.tab, default: []].isEmpty }
+    private var atRoot: Bool { !hiddenRoots.contains(router.tab) && router.paths[router.tab, default: []].isEmpty }
 
     var body: some View {
         ZStack {
@@ -77,9 +77,26 @@ struct TVRootView: View {
             .fullScreenCover(item: $player.selection) { selection in
                 TVPlayerView(selection: selection)
             }
+            VStack {
+                TVFloatingNavigation(selection: primaryTab, focus: $navigationFocus) { destination in
+                    visitedTabs.insert(destination)
+                    router.tab = destination
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 72)
+                .focusSection()
+                .padding(.top, 6)
+                Spacer()
+            }
+            .opacity(atRoot ? 1 : 0)
+            .disabled(!atRoot || router.popup != nil)
+            .allowsHitTesting(atRoot && router.popup == nil)
+            .accessibilityElement(children: atRoot && router.popup == nil ? .contain : .ignore)
+            .accessibilityHidden(!atRoot || router.popup != nil)
+            .zIndex(1)
             if let popup = router.popup {
                 TVOptionsPopup(popup: popup) { withAnimation(.easeOut(duration: 0.2)) { router.popup = nil } }
-                    .zIndex(1)
+                    .zIndex(2)
             }
         }
         .animation(.easeOut(duration: 0.25), value: router.popup?.id)
@@ -93,21 +110,13 @@ struct TVRootView: View {
     private func tabStack(_ tab: TVTab) -> some View {
         NavigationStack(path: router.path(tab)) {
             page(tab)
-                .onAppear { visibleRoots.insert(tab) }
-                .onDisappear { visibleRoots.remove(tab) }
+                .onAppear { hiddenRoots.remove(tab) }
+                .onDisappear { hiddenRoots.insert(tab) }
                 .safeAreaInset(edge: .top, spacing: 22) {
-                    Group {
-                        if router.tab == tab {
-                            TVFloatingNavigation(selection: primaryTab, focus: $navigationFocus) { destination in
-                                visitedTabs.insert(destination)
-                                router.tab = destination
-                            }
-                        } else {
-                            Color.clear
-                        }
-                    }
-                    .frame(height: 72)
-                    .padding(.top, 6)
+                    // A single persistent bar above all stacks keeps Siri Remote focus during tab changes.
+                    Color.clear
+                        .frame(height: 72)
+                        .padding(.top, 6)
                 }
                 .navigationDestination(for: Media.self) { media in TVDetailView(initial: media) }
         }

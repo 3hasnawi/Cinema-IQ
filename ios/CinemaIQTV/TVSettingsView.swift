@@ -81,6 +81,8 @@ struct TVSettingsView: View {
             .padding(.horizontal, 76)
             .padding(.top, 24)
             .padding(.bottom, 40)
+            // Include the logo's empty focus area, so Down from the leftmost navigation pill reaches the rows.
+            .focusSection()
         }
         .background { TVSettingsBackground() }
         // A structured task is cancelled if the tab or destination disappears while the popup closes.
@@ -179,34 +181,44 @@ private struct TVSubtitleSettingsView: View {
     private enum SettingsRow: Hashable { case language, size, background }
 
     var body: some View {
-        List {
-            Section("خيارات الترجمة") {
-                optionRow(.language, "الترجمة المفضلة", value: title(SubtitlePreference.languages, subtitleLanguage),
-                          options: SubtitlePreference.languages.map { ($0.1, $0.0) }, selected: subtitleLanguage) { subtitleLanguage = $0 }
-                    .accessibilityIdentifier("tv.settings.subtitle.language")
-                optionRow(.size, "حجم الخط", value: title(SubtitlePreference.sizes, subtitleSize),
-                          options: SubtitlePreference.sizes.map { (String($0.1), $0.0) }, selected: String(subtitleSize)) {
-                    subtitleSize = Double($0) ?? subtitleSize
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("خيارات الترجمة").font(.title3.weight(.semibold)).foregroundStyle(TVTheme.muted)
+                VStack(spacing: 18) {
+                    optionRow(.language, "الترجمة المفضلة", value: title(SubtitlePreference.languages, subtitleLanguage),
+                              options: SubtitlePreference.languages.map { ($0.1, $0.0) }, selected: subtitleLanguage) { subtitleLanguage = $0 }
+                        .accessibilityIdentifier("tv.settings.subtitle.language")
+                    optionRow(.size, "حجم الخط", value: title(SubtitlePreference.sizes, subtitleSize),
+                              options: SubtitlePreference.sizes.map { (String($0.1), $0.0) }, selected: String(subtitleSize)) {
+                        subtitleSize = Double($0) ?? subtitleSize
+                    }
+                    .accessibilityIdentifier("tv.settings.subtitle.size")
+                    optionRow(.background, "خلفية الترجمة", value: title(SubtitlePreference.backgrounds, subtitleBackground),
+                              options: SubtitlePreference.backgrounds.map { (String($0.1), $0.0) }, selected: String(subtitleBackground)) {
+                        subtitleBackground = Double($0) ?? subtitleBackground
+                    }
+                    .accessibilityIdentifier("tv.settings.subtitle.background")
                 }
-                .accessibilityIdentifier("tv.settings.subtitle.size")
-                optionRow(.background, "خلفية الترجمة", value: title(SubtitlePreference.backgrounds, subtitleBackground),
-                          options: SubtitlePreference.backgrounds.map { (String($0.1), $0.0) }, selected: String(subtitleBackground)) {
-                    subtitleBackground = Double($0) ?? subtitleBackground
-                }
-                .accessibilityIdentifier("tv.settings.subtitle.background")
-            }
-            Section("معاينة") {
+                .buttonStyle(TVSettingsRowStyle())
+                Text("معاينة").font(.title3.weight(.semibold)).foregroundStyle(TVTheme.muted)
+                    .padding(.top, 18)
                 SubtitleText(text: "هكذا ستظهر الترجمة", size: subtitleSize, background: subtitleBackground)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 28)
                     .focusable(false)
             }
+            .padding(.horizontal, 92)
+            .padding(.vertical, 40)
         }
+        .scrollClipDisabled()
+        .focusSection()
         .navigationTitle("الترجمة")
         .background { TVSettingsBackground() }
         .task(id: router.popup?.id) {
             guard router.popup == nil, let lastRow else { return }
-            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+            // Wait until the popup's removal transition completes before moving focus back into the page.
+            do { try await Task.sleep(for: .milliseconds(300)) } catch { return }
+            guard router.popup == nil else { return }
             row = lastRow
         }
     }
@@ -215,14 +227,18 @@ private struct TVSubtitleSettingsView: View {
                            choose: @escaping (String) -> Void) -> some View {
         Button {
             lastRow = id
+            row = nil
             router.popup = TVPopup(title: title, options: options.map { (id: $0.0, title: $0.1) }, selected: selected, choose: choose)
         } label: {
             HStack {
                 Text(title)
                 Spacer()
-                Text(value).foregroundStyle(.secondary)
-                Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(.secondary)
+                Text(value).opacity(0.72)
+                Image(systemName: "chevron.up.chevron.down").font(.caption).opacity(0.72)
             }
+            .font(.system(size: 31, weight: .medium))
+            .padding(.horizontal, 30)
+            .frame(minHeight: 76)
         }
         .focused($row, equals: id)
     }

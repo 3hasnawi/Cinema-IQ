@@ -212,6 +212,7 @@ struct TVHeroHeader: View {
                 if count > 1 {
                     TVHeroPagination(count: count, index: index, select: select, focusChanged: paginationFocusChanged)
                         .frame(maxWidth: .infinity, alignment: .center)
+                        .focusSection()
                 }
             } else if loading {
                 ProgressView("جارٍ تحميل الأعمال…").frame(maxWidth: .infinity)

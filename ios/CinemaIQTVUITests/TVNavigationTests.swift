@@ -9,6 +9,17 @@ final class TVNavigationTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    override func tearDown() {
+        if let testRun, !testRun.hasSucceeded {
+            let hierarchy = XCTAttachment(string: app.debugDescription)
+            hierarchy.name = "navigation-failure-hierarchy"
+            hierarchy.lifetime = .keepAlways
+            add(hierarchy)
+            capture("navigation-failure-screen")
+        }
+        super.tearDown()
+    }
+
     func testHomeCompositionCarouselAndDetailBack() {
         launch("home")
         let hero = app.buttons["tv.hero.details"]
@@ -99,7 +110,8 @@ final class TVNavigationTests: XCTestCase {
         remote.press(.playPause)
         let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: title)
         XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 20), .completed, "The card must hide with native controls during playback")
-        remote.press(.down)
+        // Native tvOS uses Up to reveal transport controls; Down opens content information.
+        remote.press(.up)
         XCTAssertTrue(title.waitForExistence(timeout: 10), "Showing native controls reveals the same card")
         capture("player-native-controls-info-overlay")
         for _ in 0..<3 where !hero.isHittable { remote.press(.menu); wait(1) }
