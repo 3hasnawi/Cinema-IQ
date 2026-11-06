@@ -28,6 +28,8 @@ struct MediaOption: Identifiable, Hashable {
 /// screen has one set of controls instead of the system ones plus an overlay.
 @MainActor final class PlaybackController: ObservableObject {
     let player = AVPlayer()
+    /// Remote playback has its own progress clock; never overwrite it with the paused local item.
+    var externalPlayback = false
     @Published var error: String?
     @Published var notice: String?
     @Published var ended = false
@@ -113,7 +115,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     func persist(completed: Bool = false) {
-        guard let item = player.currentItem else { return }
+        guard !externalPlayback, let item = player.currentItem else { return }
         let now = player.currentTime().seconds, length = item.duration.seconds
         guard now.isFinite, length.isFinite, length > 0 else { return }
         save?(now, length, completed || ended)

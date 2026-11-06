@@ -1,5 +1,6 @@
 name: CinemaIQ
 options:
+  preGenCommand: bash scripts/prepare-cast.sh
   bundleIdPrefix: com.cinemaplus.rebuilt
   deploymentTarget:
     iOS: "18.0"
@@ -21,6 +22,8 @@ targets:
       - path: CinemaIQ
     dependencies:
       - package: CinemaCore
+      - framework: .build/cast/GoogleCastSDK-ios-4.8.6_dynamic_xcframework/GoogleCast.xcframework
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.ios
@@ -41,6 +44,10 @@ targets:
         OMDbAPIKey: "5b9c7295"
         # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
         TMDBAPIKey: "$(TMDB_API_KEY)"
+        NSLocalNetworkUsageDescription: للعثور على أجهزة Chromecast وتشغيل الفيديو عليها.
+        NSBonjourServices:
+          - _googlecast._tcp
+          - _CC1AD845._googlecast._tcp
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIApplicationSceneManifest:
