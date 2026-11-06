@@ -68,6 +68,7 @@ struct TVRootView: View {
                         .opacity(router.tab == tab ? 1 : 0)
                         .allowsHitTesting(router.tab == tab)
                         .disabled(router.tab != tab || router.popup != nil)
+                        .accessibilityElement(children: router.tab == tab ? .contain : .ignore)
                         .accessibilityHidden(router.tab != tab)
                         .zIndex(router.tab == tab ? 1 : 0)
                 }

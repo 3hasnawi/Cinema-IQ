@@ -28,7 +28,7 @@ struct TVFloatingNavigation: View {
                         }
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TVQuietButtonStyle())
                 .focused(focus, equals: item.tab)
                 .scaleEffect(focus.wrappedValue == item.tab ? 1.04 : 1)
                 .accessibilityIdentifier("tv.navigation.\(item.id)")
@@ -42,7 +42,6 @@ struct TVFloatingNavigation: View {
         .fixedSize()
         .focusSection()
         .animation(.easeOut(duration: 0.18), value: focus.wrappedValue)
-        .accessibilityIdentifier("tv.navigation")
     }
 }
 
@@ -52,6 +51,7 @@ struct TVHomeBackdrop: View {
     let url: String
     let belowFold: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var direction
 
     var body: some View {
         ZStack {
@@ -63,7 +63,8 @@ struct TVHomeBackdrop: View {
                 .init(color: .black.opacity(0.66), location: 0),
                 .init(color: .black.opacity(0.28), location: 0.38),
                 .init(color: .clear, location: 0.72)
-            ], startPoint: .leading, endPoint: .trailing)
+            ], startPoint: direction == .rightToLeft ? .trailing : .leading,
+               endPoint: direction == .rightToLeft ? .leading : .trailing)
             LinearGradient(stops: [
                 .init(color: TVTheme.ink, location: 0),
                 .init(color: TVTheme.ink.opacity(0.7), location: 0.12),
@@ -123,7 +124,7 @@ struct TVHeroPagination: View {
                         .padding(.horizontal, 6).frame(height: 40)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(TVQuietButtonStyle())
                 .focused($focused, equals: dot)
                 .scaleEffect(focused == dot ? 1.25 : 1)
                 .accessibilityLabel("العمل \(dot + 1) من \(count)")
@@ -178,5 +179,12 @@ struct TVHomeShelf<Content: View>: View {
             .scrollIndicators(.hidden)
         }
         .focusSection()
+    }
+}
+
+/// The focus appearance is supplied by each compact control, without tvOS adding a second oversized plate.
+private struct TVQuietButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.8 : 1)
     }
 }

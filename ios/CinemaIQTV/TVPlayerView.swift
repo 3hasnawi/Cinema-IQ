@@ -321,6 +321,8 @@ struct SystemPlayer: UIViewControllerRepresentable {
                                                          transportVisible: transportVisible, active: active)
             guard displayedDetails != details || displayedVisibility != visible else { return }
             displayedDetails = details; displayedVisibility = visible
+            // Opacity alone can leave hosted SwiftUI labels in tvOS's accessibility snapshot after auto-hide.
+            overlayHost.view.accessibilityElementsHidden = !visible
             overlayHost.rootView = TVPlaybackInfoOverlay(details: details, visible: visible)
         }
 
@@ -342,6 +344,7 @@ struct SystemPlayer: UIViewControllerRepresentable {
             let host = UIHostingController(rootView: TVPlaybackInfoOverlay(details: overlayDetails, visible: false))
             host.view.backgroundColor = .clear
             host.view.isUserInteractionEnabled = false
+            host.view.accessibilityElementsHidden = true
             host.view.translatesAutoresizingMaskIntoConstraints = false
             controller.addChild(host)
             content.addSubview(host.view)

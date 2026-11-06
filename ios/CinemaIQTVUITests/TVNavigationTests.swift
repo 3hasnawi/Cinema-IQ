@@ -52,19 +52,14 @@ final class TVNavigationTests: XCTestCase {
 
     func testSearchQuerySurvivesTabRoundTrip() {
         launch("search")
-        let field = app.searchFields.firstMatch
+        let field = app.textFields["tv.search.query"]
         XCTAssertTrue(field.waitForExistence(timeout: 20))
-        if !app.keyboards.firstMatch.exists {
-            for _ in 0..<12 where !field.hasFocus {
-                let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
-                remote.press(focused.exists && focused.frame.midY > field.frame.midY ? .up : .down)
-                wait(0.4)
-            }
-            if field.hasFocus { remote.press(.select); wait(0.5) }
-        }
-        field.typeText("Bunny")
+        focusVertically(field, direction: .down)
+        remote.press(.select)
+        wait(1)
+        // Type into the active native editor, which tvOS may host separately from the original field.
+        app.typeText("Bunny\n")
         wait(2)
-        // Dismiss the keyboard, if it opened, without leaving the search screen.
         if app.keyboards.firstMatch.exists { remote.press(.menu); wait(1) }
         XCTAssertTrue((field.value as? String ?? "").contains("Bunny"))
         selectTab("library")
@@ -79,6 +74,7 @@ final class TVNavigationTests: XCTestCase {
         wait(2)
         remote.press(.menu)
         XCTAssertTrue(app.buttons["tv.hero.details"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["tv.hero.details"].isHittable)
         XCTAssertEqual(app.state, .runningForeground)
         capture("catalog-menu-returns-home")
     }

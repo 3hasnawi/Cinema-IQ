@@ -112,7 +112,7 @@ final class LongTourTests: XCTestCase {
 
         openTab("البحث")
         shot("search")
-        let field = app.searchFields.firstMatch
+        let field = app.textFields["tv.search.query"]
         if field.waitForExistence(timeout: 5) {
             field.typeText("حب")
             Thread.sleep(forTimeInterval: 8)

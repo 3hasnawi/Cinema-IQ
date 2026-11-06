@@ -17,9 +17,17 @@ struct TVSearchView: View {
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @State private var query = ""
     @State private var series = false
+    @FocusState private var queryFocused: Bool
     private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 22) {
+            TextField("اسم الفيلم أو المسلسل", text: $query)
+                .font(.title3)
+                .padding(.horizontal, 28).padding(.vertical, 18)
+                .background(TVTheme.panel, in: Capsule())
+                .focused($queryFocused)
+                .accessibilityIdentifier("tv.search.query")
+                .padding(.top, 12)
             if trimmed.isEmpty {
                 ContentUnavailableView("ابحث في \(SourcePreference.source(sourceName).title)", systemImage: "magnifyingglass",
                                        description: Text("اكتب اسم الفيلم أو المسلسل."))
@@ -35,7 +43,7 @@ struct TVSearchView: View {
                     .id("\(sourceName)/\(series)/\(trimmed)")
             }
         }
-        .searchable(text: $query, prompt: "اسم الفيلم أو المسلسل")
+        .defaultFocus($queryFocused, true)
         .background(TVTheme.ink.ignoresSafeArea())
     }
 }

@@ -83,7 +83,6 @@ struct TVSettingsView: View {
             .padding(.bottom, 40)
         }
         .background { TVSettingsBackground() }
-        .accessibilityIdentifier("tv.settings.screen")
         // A structured task is cancelled if the tab or destination disappears while the popup closes.
         .task(id: router.popup?.id) {
             guard router.popup == nil, restoreSourceFocus, router.tab == .settings else { return }

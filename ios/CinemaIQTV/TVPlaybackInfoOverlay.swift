@@ -8,6 +8,13 @@ struct TVPlaybackInfoOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        Group {
+            if visible { card.transition(.opacity) }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: visible)
+    }
+
+    private var card: some View {
         HStack(spacing: 22) {
             Artwork(url: details.poster)
                 .frame(width: 96, height: 144)
@@ -63,8 +70,5 @@ struct TVPlaybackInfoOverlay: View {
         .allowsHitTesting(false)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("player.infoOverlay")
-        .accessibilityHidden(!visible)
-        .opacity(visible ? 1 : 0)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: visible)
     }
 }

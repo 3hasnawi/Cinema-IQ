@@ -124,7 +124,7 @@ final class TVSettingsNavigationTests: XCTestCase {
 
     private func focus(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertTrue(element.waitForExistence(timeout: 5), file: file, line: line)
-        for _ in 0..<12 where !element.hasFocus {
+        for _ in 0..<12 where !hasRemoteFocus(element) {
             let current = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
             let goUp = current.exists && current.frame.midY > element.frame.midY
             remote.press(goUp ? .up : .down)
@@ -133,8 +133,19 @@ final class TVSettingsNavigationTests: XCTestCase {
         assertFocus(element, file: file, line: line)
     }
 
+    /// Native tvOS Lists focus the containing Cell, while custom capsule buttons own their focus directly.
+    /// Match only the cell containing this exact identifier, so focus on a different row still fails.
+    private func hasRemoteFocus(_ element: XCUIElement) -> Bool {
+        guard element.exists else { return false }
+        if element.hasFocus { return true }
+        guard !element.identifier.isEmpty else { return false }
+        let cell = app.cells.containing(.any, identifier: element.identifier).firstMatch
+        return cell.exists && cell.hasFocus
+    }
+
     private func assertFocus(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: element)
+        let focused = NSPredicate { _, _ in self.hasRemoteFocus(element) }
+        let expectation = XCTNSPredicateExpectation(predicate: focused, object: element)
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 5), .completed, file: file, line: line)
     }
 
