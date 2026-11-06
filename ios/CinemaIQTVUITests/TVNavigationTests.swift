@@ -54,6 +54,14 @@ final class TVNavigationTests: XCTestCase {
         launch("search")
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20))
+        if !app.keyboards.firstMatch.exists {
+            for _ in 0..<12 where !field.hasFocus {
+                let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+                remote.press(focused.exists && focused.frame.midY > field.frame.midY ? .up : .down)
+                wait(0.4)
+            }
+            if field.hasFocus { remote.press(.select); wait(0.5) }
+        }
         field.typeText("Bunny")
         wait(2)
         // Dismiss the keyboard, if it opened, without leaving the search screen.
@@ -73,6 +81,34 @@ final class TVNavigationTests: XCTestCase {
         XCTAssertTrue(app.buttons["tv.hero.details"].waitForExistence(timeout: 20))
         XCTAssertEqual(app.state, .runningForeground)
         capture("catalog-menu-returns-home")
+    }
+
+    func testPlaybackInfoOverlayWithNativeControls() {
+        launch("home")
+        let hero = app.buttons["tv.hero.details"]
+        XCTAssertTrue(hero.waitForExistence(timeout: 30))
+        focusVertically(hero, direction: .down)
+        remote.press(.playPause)
+        let title = app.staticTexts["player.infoTitle"]
+        wait(8)
+        remote.press(.playPause)
+        XCTAssertTrue(title.waitForExistence(timeout: 40), "Pausing the demo player reveals its title without replacing native controls")
+        XCTAssertTrue(title.label.contains("Big Buck Bunny"))
+        let year = app.staticTexts["player.infoYear"]
+        XCTAssertTrue(year.exists)
+        XCTAssertTrue(year.label.contains("2008"))
+        XCTAssertGreaterThan(title.frame.midX, app.frame.midX)
+        XCTAssertLessThan(title.frame.maxY, app.frame.midY, "The title must leave the lower transport bar clear")
+        capture("player-paused-info-overlay")
+        remote.press(.playPause)
+        let hidden = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: title)
+        XCTAssertEqual(XCTWaiter.wait(for: [hidden], timeout: 20), .completed, "The card must hide with native controls during playback")
+        remote.press(.down)
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "Showing native controls reveals the same card")
+        capture("player-native-controls-info-overlay")
+        for _ in 0..<3 where !hero.isHittable { remote.press(.menu); wait(1) }
+        XCTAssertTrue(hero.isHittable)
+        XCTAssertEqual(app.state, .runningForeground)
     }
 
     private func launch(_ tab: String) {

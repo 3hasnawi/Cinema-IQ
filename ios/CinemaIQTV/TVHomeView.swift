@@ -247,8 +247,11 @@ struct TVHeroHeader: View {
         starting = true
         Task { @MainActor in
             defer { starting = false }
-            guard let found = try? await SourceClient().detail(media),
-                  let target = PlayTarget.pick(found.1, library: library) else {
+            let result = try? await SourceClient().detail(media)
+            // A slow source must not navigate or start a title after the viewer leaves Home.
+            guard !Task.isCancelled, router.tab == .home, router.paths[.home, default: []].isEmpty,
+                  player.selection == nil else { return }
+            guard let found = result, let target = PlayTarget.pick(found.1, library: library) else {
                 router.open(media)
                 return
             }

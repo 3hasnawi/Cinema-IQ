@@ -12,6 +12,7 @@ Work branch: `chatgpt/ios-tvos-reference-interface`. This preview does not merge
 ## Playback and account repairs
 
 - Advancing in the ending interval marks the prior episode complete and keeps that completion during later persistence.
+- On pause or native remote-control interaction, a compact upper-right poster/title/rating/year appears beneath AVKit controls. It hides during unobstructed playback and does not intercept remote input. Missing metadata is omitted.
 - Quality changes retain pause/play intent and match native audio by stable track identity/language rather than a potentially reordered index. Subtitle selection remains intact.
 - Subtitle failures are visible, and Retry reloads stream URLs rather than repeatedly opening the same expired URL.
 - Cast portraits are informational focusable credits, no longer empty-action buttons that imply a person page.

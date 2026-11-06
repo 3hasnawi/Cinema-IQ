@@ -24,6 +24,8 @@ struct TVPlayerView: View {
     @State private var skips = SkipSegments()
     /// The series of an episode opened without one (from continue watching).
     @State private var fetchedSeries: Media?
+    @State private var overlayInfo: OMDbInfo?
+    @State private var overlayInfoID: String?
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
@@ -41,6 +43,11 @@ struct TVPlayerView: View {
                                   duration: controller.duration, creditsStart: skips.creditsStart)
     }
     private var inIntro: Bool { skips.inIntro(controller.position) }
+    private var overlayWork: Media { current.episode > 0 ? selection.series ?? fetchedSeries ?? current : current }
+    private var overlayDetails: PlaybackOverlayDetails {
+        PlaybackOverlayDetails(media: current, series: selection.series ?? fetchedSeries,
+                               info: overlayInfoID == overlayWork.id ? overlayInfo : nil)
+    }
 
     var body: some View {
         ZStack {
@@ -50,7 +57,9 @@ struct TVPlayerView: View {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro-\(current.id)-\(skips.introEnd ?? 0)" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
-                         episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
+                         episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel },
+                         overlayDetails: overlayDetails, overlayReady: !loading && controller.duration > 0,
+                         paused: !controller.playing && !controller.buffering, active: scenePhase == .active)
                 .ignoresSafeArea()
             }
             VStack {
@@ -98,6 +107,7 @@ struct TVPlayerView: View {
         .task(id: "\(current.id)|\(retryAttempt)") { await start(current) }
         .task(id: "queue-\(current.id)|\(retryAttempt)") { await loadQueue(current) }
         .task(id: "skips-\(current.id)") { await loadSkips(current) }
+        .task(id: "info-\(overlayWork.id)") { await loadOverlayInfo(overlayWork) }
         .onDisappear { controller.close() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { controller.persist(); controller.player.pause() }
@@ -109,6 +119,14 @@ struct TVPlayerView: View {
         (resolutionError ?? controller.error).map {
             $0.replacingOccurrences(of: "بمشغّل الآيفون", with: "على Apple TV").replacingOccurrences(of: "الآيفون", with: "Apple TV")
         }
+    }
+
+    private func loadOverlayInfo(_ work: Media) async {
+        guard !Task.isCancelled else { return }
+        overlayInfo = nil; overlayInfoID = nil
+        let found = await OMDb.shared?.info(for: work)
+        guard !Task.isCancelled else { return }
+        overlayInfo = found; overlayInfoID = work.id
     }
 
     // MARK: Menus in the transport bar
@@ -278,19 +296,65 @@ struct SystemPlayer: UIViewControllerRepresentable {
     let actions: () -> [UIAction]
     let episodesKey: String
     let episodes: () -> [UIViewController]
+    let overlayDetails: PlaybackOverlayDetails
+    let overlayReady: Bool
+    let paused: Bool
+    let active: Bool
 
-    final class Coordinator {
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
         var menuKey: String?
         var actionKey: String?
         var titleKey: String?
         var episodesKey: String?
+        var overlayHost: UIHostingController<TVPlaybackInfoOverlay>?
+        var details: PlaybackOverlayDetails?
+        var ready = false
+        var paused = false
+        var active = false
+        var transportVisible = false
+        private var displayedDetails: PlaybackOverlayDetails?
+        private var displayedVisibility: Bool?
+
+        func refreshOverlay() {
+            guard let details, let overlayHost else { return }
+            let visible = PlaybackOverlayPolicy.isVisible(ready: ready, paused: paused,
+                                                         transportVisible: transportVisible, active: active)
+            guard displayedDetails != details || displayedVisibility != visible else { return }
+            displayedDetails = details; displayedVisibility = visible
+            overlayHost.rootView = TVPlaybackInfoOverlay(details: details, visible: visible)
+        }
+
+        func playerViewController(_ playerViewController: AVPlayerViewController,
+                                  willTransitionToVisibilityOfTransportBar visible: Bool,
+                                  with coordinator: AVPlayerViewControllerAnimationCoordinator) {
+            transportVisible = visible
+            refreshOverlay()
+        }
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
+        controller.delegate = context.coordinator
         controller.view.backgroundColor = .black
+        if let content = controller.contentOverlayView {
+            let host = UIHostingController(rootView: TVPlaybackInfoOverlay(details: overlayDetails, visible: false))
+            host.view.backgroundColor = .clear
+            host.view.isUserInteractionEnabled = false
+            host.view.translatesAutoresizingMaskIntoConstraints = false
+            controller.addChild(host)
+            content.addSubview(host.view)
+            // Keep the card in a corner above the transport bar; AVKit's own controls remain in front.
+            NSLayoutConstraint.activate([
+                host.view.topAnchor.constraint(equalTo: content.safeAreaLayoutGuide.topAnchor, constant: 40),
+                host.view.rightAnchor.constraint(equalTo: content.safeAreaLayoutGuide.rightAnchor, constant: -50),
+                host.view.widthAnchor.constraint(equalToConstant: 600),
+                host.view.heightAnchor.constraint(equalToConstant: 216)
+            ])
+            host.didMove(toParent: controller)
+            context.coordinator.overlayHost = host
+        }
         // One subtitle button: Cinema iQ's menu (source files, embedded tracks, size and background). Allowing no
         // language hides the system's own subtitle button.
         controller.allowedSubtitleOptionLanguages = ["zxx"]
@@ -298,6 +362,8 @@ struct SystemPlayer: UIViewControllerRepresentable {
     }
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
         let state = context.coordinator
+        state.details = overlayDetails; state.ready = overlayReady; state.paused = paused; state.active = active
+        state.refreshOverlay()
         if controller.player !== player { controller.player = player }
         if state.menuKey != menuKey {
             state.menuKey = menuKey
@@ -328,6 +394,16 @@ struct SystemPlayer: UIViewControllerRepresentable {
             metadata.append(subtitleItem)
         }
         item.externalMetadata = metadata
+    }
+
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
+        controller.delegate = nil
+        if let host = coordinator.overlayHost {
+            host.willMove(toParent: nil)
+            host.view.removeFromSuperview()
+            host.removeFromParent()
+        }
+        coordinator.overlayHost = nil
     }
 }
 

@@ -204,7 +204,6 @@ private struct TVSubtitleSettingsView: View {
             }
         }
         .navigationTitle("الترجمة")
-        .scrollContentBackground(.hidden)
         .background { TVSettingsBackground() }
         .task(id: router.popup?.id) {
             guard router.popup == nil, let lastRow else { return }
@@ -238,7 +237,6 @@ private struct TVAccountView: View {
     var body: some View {
         List { TVAccountRows() }
             .navigationTitle("حساب Cinema iQ")
-            .scrollContentBackground(.hidden)
             .background { TVSettingsBackground() }
     }
 }
@@ -405,7 +403,6 @@ private struct TVLibrarySettingsView: View {
             }
         }
         .navigationTitle("المكتبة والمزامنة")
-        .scrollContentBackground(.hidden)
         .background { TVSettingsBackground() }
         .confirmationDialog("نسخ مكتبة هذا الجهاز؟", isPresented: $confirmImport, titleVisibility: .visible) {
             Button("نسخ إلى الملف الشخصي") {
@@ -434,7 +431,6 @@ private struct TVAboutView: View {
             }
         }
         .navigationTitle("حول التطبيق")
-        .scrollContentBackground(.hidden)
         .background { TVSettingsBackground() }
     }
 }
@@ -500,7 +496,6 @@ private struct TVProvidersView: View {
             }
         }
         .navigationTitle("المصادر الخارجية")
-        .scrollContentBackground(.hidden)
         .background { TVSettingsBackground() }
     }
 }
