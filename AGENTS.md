@@ -7,3 +7,5 @@
 - Keep package com.cinemaplus.rebuilt for update compatibility. Increase versionCode for future authorized releases.
 - Use English code comments and Arabic RTL UI with Cairo.
 - Claude and ChatGPT share this repo: follow docs/COLLABORATION.md (branch per task, PRs only, one open PR per hot file, pull before work, no builds without explicit approval).
+
+- On the owner-requested `ios` release channel, read `ios/RELEASE-CHANNEL.md`. Its iPhone-specific branch rules override the main-only base instructions in `docs/COLLABORATION.md`: start iPhone tasks from current `origin/ios` and target PRs to `ios`. Android work continues from `origin/main`.
