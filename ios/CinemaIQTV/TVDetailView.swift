@@ -255,7 +255,7 @@ struct TVDetailView: View {
     private var castSection: some View {
         TVShelf(title: "طاقم العمل") {
             ForEach(people) { person in
-                Button {} label: {
+                VStack(spacing: 16) {
                     Circle()
                         .fill(TVTheme.raised)
                         .overlay {
@@ -273,8 +273,12 @@ struct TVDetailView: View {
                         .hoverEffect(.highlight)
                     Text(person.name).font(.caption).lineLimit(1).frame(width: 220)
                 }
-                .buttonStyle(.borderless)
-                .buttonBorderShape(.circle)
+                // Informational credits, not a button that promises a person page. Focus still lets the
+                // Siri Remote scroll the whole cast shelf and VoiceOver read each name.
+                .focusable()
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(person.name)
+                .accessibilityIdentifier("tv.cast.person.\(person.id)")
             }
         }
     }

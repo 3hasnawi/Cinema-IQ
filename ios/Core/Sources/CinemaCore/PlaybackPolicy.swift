@@ -28,7 +28,8 @@ public enum PlaybackPolicy {
     /// Never reuse an old index or guess between ambiguous language/commentary variants.
     public static func matchingTrack(_ selected: PlaybackTrackIdentity,
                                      in options: [PlaybackTrackIdentity]) -> Int? {
-        if let exact = options.firstIndex(of: selected) { return exact }
+        let exact = options.indices.filter { options[$0] == selected }
+        if !exact.isEmpty { return exact.count == 1 ? exact[0] : nil }
         let matches = options.indices.filter { index in
             let option = options[index]
             guard option.characteristics == selected.characteristics else { return false }

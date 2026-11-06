@@ -198,7 +198,7 @@ struct TVPlayerView: View {
         let recovering = failure != nil
         quality = stream.id
         open(current, stream: stream, resume: controller.position, preservingState: true)
-        if recovering { controller.player.play() }
+        if recovering, scenePhase == .active { controller.player.play() }
     }
 
     private func play(_ episode: Media) {
@@ -218,6 +218,8 @@ struct TVPlayerView: View {
         controller.open(media, url: stream.url, resume: resume, preservingState: preservingState) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
+        // Resolution can finish after Home/sleep interrupted the request.
+        if scenePhase != .active { controller.player.pause() }
     }
 
     /// IntroDB timings for what plays (optional: a miss changes nothing).
@@ -230,6 +232,7 @@ struct TVPlayerView: View {
     }
 
     private func start(_ media: Media) async {
+        guard !Task.isCancelled else { return }
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil
         async let tracks = SourceClient().subtitles(media)

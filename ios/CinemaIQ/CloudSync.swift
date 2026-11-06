@@ -120,6 +120,7 @@ import CinemaCore
     func choose(profile id: String) async {
         guard let session else { return }
         await flush()
+        guard self.session?.uid == session.uid else { return }
         profileID = id
         defaults.set(id, forKey: profileKey(session.uid))
         library?.switchTo(account: namespace)
@@ -135,15 +136,31 @@ import CinemaCore
             await self.choose(profile: id)
         }
     }
-    /// Copies this iPhone's own library into the active profile. Matching titles take the iPhone's values.
+    /// Copies the device library into the active profile, preserving queued data if the upload is interrupted.
     func importDeviceLibrary() async {
-        guard let library, namespace != nil else { return }
-        let records = library.deviceRecords()
-        guard !records.isEmpty else { message = "لا توجد بيانات على هذا الجهاز لنقلها."; return }
-        enqueue(records, force: true)
-        await flush()
-        await pull()
-        message = "نُقلت مكتبة هذا الجهاز إلى الملف."
+        guard !busy, let library, let destination = namespace else { return }
+        busy = true; message = nil
+        defer { busy = false }
+        let outcome = await CloudLibraryImport.copy(
+            records: library.deviceRecords(),
+            enqueue: { self.enqueue($0, force: true) },
+            flush: { await self.flush() },
+            refresh: { await self.pull() },
+            destinationIsCurrent: { self.namespace == destination }
+        )
+        switch outcome {
+        case .noRecords:
+            message = "لا توجد بيانات قابلة للنقل على هذا الجهاز. محتوى المصادر الخارجية يبقى على الجهاز."
+        case .pendingUpload:
+            message = "لم يكتمل رفع المكتبة. حُفظ طلب النسخ على الجهاز وسيُرسل عند الاتصال."
+        case .uploadedNeedsRefresh:
+            message = "نُسخت مكتبة هذا الجهاز إلى حسابك، لكن تحديث المكتبة لم يكتمل. ستُعاد المزامنة عند الاتصال."
+        case .completed:
+            message = "نُسخت مكتبة هذا الجهاز إلى الملف الشخصي."
+        case .destinationChanged:
+            // Never show the old account's result in a different account or profile.
+            break
+        }
     }
 
     // MARK: Sync
@@ -171,22 +188,30 @@ import CinemaCore
         }
     }
 
-    func pull() async {
-        guard let client, let namespace, let profileID, let current = try? await validSession() else { return }
+    /// True only when the read succeeded and no writes remain queued for this same account/profile.
+    @discardableResult func pull() async -> Bool {
+        guard let client, let destination = namespace, let profileID else { return false }
+        guard let current = try? await validSession(), namespace == destination else { return false }
         await flush()
+        guard namespace == destination else { return false }
         do {
             let records = try await client.records(current, profile: profileID)
-            guard namespace == self.namespace else { return }
+            guard namespace == destination else { return false }
             known = Dictionary(records.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
-            // Unsent edits from this iPhone stay until they reach the server.
+            // Unsent edits stay in the visible library and in the persistent outbox until acknowledged.
             var merged = records.filter { outbox[$0.key] == nil }
             merged += outbox.map { CloudRecord(key: $0.key, value: $0.value, updatedAt: Date()) }
             library?.applyRemote(merged)
-            status = "تمت المزامنة " + Self.time.string(from: Date())
+            if outbox.isEmpty {
+                status = "تمت المزامنة " + Self.time.string(from: Date())
+                return true
+            }
+            status = "التغييرات محفوظة على الجهاز وستُرسل عند الاتصال."
         } catch is CancellationError {
         } catch {
-            status = "تعذّرت المزامنة: " + error.localizedDescription
+            if namespace == destination { status = "تعذّرت المزامنة: " + error.localizedDescription }
         }
+        return false
     }
 
     private func enqueue(_ changes: [String: String], force: Bool = false) {
@@ -206,31 +231,39 @@ import CinemaCore
             flushTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(urgent ? 2 : 30))
                 guard !Task.isCancelled else { return }
-                await self?.flush()
+                // Detach the scheduled task before flush cancels any other pending timer, not its own request.
+                self?.flushTask = nil
+                _ = await self?.flush()
             }
         }
     }
 
-    func flush() async {
+    /// True only after the captured batch is acknowledged, or when this destination has no pending writes.
+    @discardableResult func flush() async -> Bool {
         flushTask?.cancel(); flushTask = nil
-        guard let client, let profileID, !outbox.isEmpty, namespace != nil,
-              let current = try? await validSession() else { return }
+        guard let client, let destination = namespace, let profileID, let sentKey = outboxKey else { return false }
+        guard !outbox.isEmpty else { return true }
+        // Capture data and destination together before token refresh can suspend and switch the active profile.
         let pending = outbox
-        // The account or profile can change while the write is under way; the sent records then belong to the
-        // outbox that was saved for the old profile, never to the one now loaded.
-        let sentFrom = namespace, sentKey = outboxKey
+        guard let current = try? await validSession(), namespace == destination else {
+            if namespace == destination { status = "التغييرات محفوظة على الجهاز وستُرسل عند الاتصال." }
+            return false
+        }
         do {
             try await client.write(pending, session: current, profile: profileID)
-            if namespace == sentFrom {
+            if namespace == destination {
                 for (key, value) in pending where outbox[key] == value { outbox[key] = nil }
                 saveOutbox()
-            } else if let sentKey {
+            } else {
+                // A successful write belongs to the saved old account, never to the newly loaded outbox.
                 var stored = defaults.dictionary(forKey: sentKey) as? [String: String] ?? [:]
                 for (key, value) in pending where stored[key] == value { stored[key] = nil }
                 if stored.isEmpty { defaults.removeObject(forKey: sentKey) } else { defaults.set(stored, forKey: sentKey) }
             }
+            return true
         } catch {
-            status = "التغييرات محفوظة على الجهاز وستُرسل عند الاتصال."
+            if namespace == destination { status = "التغييرات محفوظة على الجهاز وستُرسل عند الاتصال." }
+            return false
         }
     }
 
@@ -249,12 +282,16 @@ import CinemaCore
         guard session.needsRefresh else { return session }
         do {
             let fresh = try await client.refresh(session)
+            guard let active = self.session, active.uid == session.uid else { throw CloudError.signedOut }
+            // Another refresh or sign-in may have completed while this request was suspended.
+            guard active == session else { return active }
             store(fresh)
             return fresh
         } catch CloudError.auth(let code) {
             // The account was removed or the password changed elsewhere.
             // Nothing can be sent with this session any more, so it ends without flushing (which would refresh again).
-            if ["TOKEN_EXPIRED", "INVALID_REFRESH_TOKEN", "USER_NOT_FOUND", "USER_DISABLED"].contains(code) { endSession() }
+            if self.session == session,
+               ["TOKEN_EXPIRED", "INVALID_REFRESH_TOKEN", "USER_NOT_FOUND", "USER_DISABLED"].contains(code) { endSession() }
             throw CloudError.auth(code)
         }
     }

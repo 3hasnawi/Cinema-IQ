@@ -142,24 +142,38 @@ final class LongTourTests: XCTestCase {
         Thread.sleep(forTimeInterval: 25)
     }
 
-    /// Opens the sidebar with Menu and moves to the named tab.
+    /// Uses the floating bar, with Home shortcuts for the two catalog destinations.
     private func openTab(_ name: String) {
-        for _ in 0..<3 {
-            // Menu only until the sidebar has focus: Menu on the sidebar leaves the app.
-            if !order.contains(where: { focusedLabel().contains($0) }) { press(.menu, wait: 2) }
-            for _ in 0..<8 {
-                if focusedLabel().contains(name) { press(.select, wait: 8); return }
-                press(focusedIsAbove(name) ? .down : .up, wait: 0.8)
-            }
+        let ids = ["الرئيسية": "home", "مكتبتي": "library", "البحث": "search", "الإعدادات": "settings"]
+        let destination = ids[name] ?? "home"
+        let target = app.buttons["tv.navigation.\(destination)"]
+        for _ in 0..<6 where !target.isHittable { press(.menu, wait: 1) }
+        for _ in 0..<12 {
+            if focusedNavigation() != nil { break }
+            press(.up, wait: 0.5)
         }
-        press(.select, wait: 8)
+        for _ in 0..<8 where !target.hasFocus {
+            guard let focused = focusedNavigation() else { press(.up, wait: 0.5); continue }
+            press(target.frame.midX < focused.frame.midX ? .left : .right, wait: 0.5)
+        }
+        guard target.hasFocus else { XCTFail("Could not reach floating navigation: \(name)"); return }
+        press(.select, wait: 3)
+        if ids[name] == nil {
+            let catalog = app.buttons[name == "أفلام" ? "tv.catalog.movies" : "tv.catalog.series"]
+            for _ in 0..<40 where !catalog.hasFocus {
+                let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+                if focused.identifier.hasPrefix("tv.catalog.") {
+                    press(catalog.frame.midX < focused.frame.midX ? .left : .right, wait: 0.5)
+                } else { press(.down, wait: 0.5) }
+            }
+            guard catalog.hasFocus else { XCTFail("Could not reach catalog shortcut: \(name)"); return }
+            press(.select, wait: 8)
+        }
     }
 
-    private let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "الإعدادات"]
-    private func focusedIsAbove(_ name: String) -> Bool {
-        let label = focusedLabel()
-        guard let now = order.firstIndex(where: { label.contains($0) }), let target = order.firstIndex(of: name) else { return true }
-        return now < target
+    private func focusedNavigation() -> XCUIElement? {
+        ["home", "library", "search", "settings"].map { app.buttons["tv.navigation.\($0)"] }
+            .first { $0.exists && $0.hasFocus }
     }
 
     private func focusedLabel() -> String {

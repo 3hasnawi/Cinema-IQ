@@ -57,6 +57,11 @@ final class PlaybackPolicyTests: XCTestCase {
         XCTAssertNil(PlaybackPolicy.matchingTrack(selected, in: []))
     }
 
+    func testDuplicateExactTracksAreNotGuessedAfterReordering() {
+        let selected = PlaybackTrackIdentity(language: "ar", title: "Arabic", characteristics: ["main"])
+        XCTAssertNil(PlaybackPolicy.matchingTrack(selected, in: [selected, selected]))
+    }
+
     func testUnlabelledAudioUsesTitleAndNotOldIndex() {
         let chosen = PlaybackTrackIdentity(language: nil, title: "Original")
         let other = PlaybackTrackIdentity(language: nil, title: "Dubbed")

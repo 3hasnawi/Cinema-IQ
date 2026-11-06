@@ -20,8 +20,9 @@ concurrency:
 jobs:
   compile:
     runs-on: macos-15
+    # Compile checks and downloadable previews must not contain repository credentials.
     env:
-      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      TMDB_API_KEY: ""
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -74,7 +75,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee -a "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           test "$(grep -c "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log")" -ge 2
-      - name: Verify optional metadata configuration without printing secrets
+      - name: Verify the preview contains no metadata credential
         run: |
           set -euo pipefail
           plist=$(find "$RUNNER_TEMP/DerivedData" -path '*Release-appletvos/CinemaIQTV.app/Info.plist' | head -1)
@@ -83,11 +84,9 @@ jobs:
           import os, plistlib
           with open(os.environ['PLIST'], 'rb') as source:
               info = plistlib.load(source)
-          expected = os.environ.get('TMDB_API_KEY', '')
-          actual = info.get('TMDBAPIKey', '')
-          if expected and actual != expected:
-              raise SystemExit('Configured metadata credential was not embedded correctly')
-          print('Optional metadata configuration verified; no credential values logged.')
+          if info.get('TMDBAPIKey', ''):
+              raise SystemExit('Refusing export: the preview contains a metadata credential')
+          print('Verified no TMDB credential is embedded in this preview.')
           PYTHON
       - name: Package the requested unsigned Apple TV branch preview
         if: github.ref == 'refs/heads/chatgpt/ios-tvos-reference-interface'

@@ -36,7 +36,7 @@ final class ScreenshotTests: XCTestCase {
         press(.menu, wait: 4)
         shot("09-back-home")
         press(.menu, wait: 3)
-        shot("10-sidebar")
+        shot("10-floating-navigation")
         press(.down, wait: 2)
         press(.select, wait: 10)
         shot("11-movies")

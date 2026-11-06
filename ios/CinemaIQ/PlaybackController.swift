@@ -52,6 +52,7 @@ struct MediaOption: Identifiable, Hashable {
     private var pendingAudio: PlaybackTrackIdentity?
     private var pendingEmbeddedSubtitle: PlaybackTrackIdentity?
     private var completion = PlaybackCompletion()
+    private var pendingSeekID: UUID?
     /// The language chosen automatically for a new title (from Settings); cleared once the viewer turns
     /// subtitles off, so they are not switched back on by themselves.
     private(set) var preferredLanguage: String? = "ar"
@@ -119,7 +120,7 @@ struct MediaOption: Identifiable, Hashable {
             }
         }
         Task { await loadSelectionGroups(item) }
-        if resume.isFinite && resume > 0 { player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
+        if resume.isFinite && resume > 0 { seek(to: resume) }
         player.defaultRate = rate
         if shouldPlay { player.play() }
     }
@@ -127,7 +128,7 @@ struct MediaOption: Identifiable, Hashable {
     private func tick() {
         guard let item = player.currentItem else { return }
         let now = player.currentTime().seconds, length = item.duration.seconds
-        if now.isFinite { position = now }
+        if pendingSeekID == nil, now.isFinite { position = now }
         if length.isFinite && length > 0 { duration = length }
         let line = cues.isEmpty ? nil : SubtitleCatalog.cue(at: position, in: cues)?.text
         if line != cue { cue = line }
@@ -138,7 +139,8 @@ struct MediaOption: Identifiable, Hashable {
     func persist(completed: Bool = false) {
         guard let item = player.currentItem else { return }
         let isCompleted = completion.record(completed: completed || ended)
-        let now = player.currentTime().seconds, length = item.duration.seconds
+        let now = pendingSeekID == nil ? player.currentTime().seconds : position
+        let length = item.duration.seconds
         guard now.isFinite, length.isFinite, length > 0 else { return }
         save?(now, length, isCompleted)
     }
@@ -152,9 +154,24 @@ struct MediaOption: Identifiable, Hashable {
         }
     }
     func seek(to seconds: Double) {
+        guard seconds.isFinite else { return }
         let target = max(0, duration > 0 ? min(seconds, duration) : seconds)
         position = target
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        guard let item = player.currentItem else { return }
+        // Keep the requested position while the new quality is preparing. A second quality switch must not
+        // resume from a transient zero; an older seek completion must not clear a newer pending seek.
+        let requestID = UUID()
+        pendingSeekID = requestID
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak item] finished in
+            Task { @MainActor in
+                guard let self, let item, self.player.currentItem === item, self.pendingSeekID == requestID else { return }
+                // A failed item still needs the requested checkpoint for Retry, rather than its unusable clock.
+                if !finished, item.status == .failed { return }
+                self.pendingSeekID = nil
+                let now = self.player.currentTime().seconds
+                if now.isFinite { self.position = now }
+            }
+        }
     }
     func skip(_ delta: Double) { seek(to: position + delta) }
     func setRate(_ value: Float) {
@@ -258,6 +275,7 @@ struct MediaOption: Identifiable, Hashable {
         if let failureToken { NotificationCenter.default.removeObserver(failureToken) }; failureToken = nil
         statusObservation = nil; controlObservation = nil
         legibleGroup = nil; audibleGroup = nil; embeddedSubtitles = []; audioOptions = []; audioID = nil
+        pendingSeekID = nil
         player.replaceCurrentItem(with: nil); save = nil
         pendingAudio = nil; pendingEmbeddedSubtitle = nil
         playing = false; buffering = false; error = nil; ended = false; position = 0; duration = 0

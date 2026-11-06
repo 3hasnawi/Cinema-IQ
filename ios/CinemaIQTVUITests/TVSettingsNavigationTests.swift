@@ -7,7 +7,7 @@ final class TVSettingsNavigationTests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = false
-        app.launchArguments = ["-tv.initialTab", "settings", "-ios.contentSource.v1", "cinemana",
+        app.launchArguments = ["-tv.initialTab", "settings", "-ios.contentSource.v1", "ext:demo",
                                "-ios.subtitle.language.v1", "ar", "-ios.subtitle.size.v1", "20"]
         app.launch()
         XCTAssertTrue(button("tv.settings.source").waitForExistence(timeout: 15))
@@ -38,7 +38,7 @@ final class TVSettingsNavigationTests: XCTestCase {
         focus(source)
         for _ in 0..<2 {
             remote.press(.select)
-            let selected = option("سينمانا")
+            let selected = option("عروض مفتوحة (تجريبي)")
             XCTAssertTrue(selected.waitForExistence(timeout: 5))
             assertFocus(selected)
             remote.press(.menu)
