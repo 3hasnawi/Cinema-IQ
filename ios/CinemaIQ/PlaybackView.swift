@@ -40,6 +40,7 @@ struct PlaybackView: View {
     /// IntroDB timings of what plays: the opening (skip button) and the start of the end credits.
     @State private var skips = SkipSegments()
     @State private var fetchedSeries: Media?
+    @StateObject private var cast = CastSender()
     @StateObject private var controller = PlaybackController()
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
@@ -80,7 +81,14 @@ struct PlaybackView: View {
                 .ignoresSafeArea()
                 .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() } }
             subtitleLayer
-            if controlsVisible { controls.transition(.opacity) }
+            if controlsVisible && !cast.active { controls.transition(.opacity) }
+            if cast.active {
+                VStack(spacing: 20) {
+                    Text("التشغيل على جهاز الكاست")
+                    Button("التحكم والجودة والترجمة") { cast.showControls = true }.primaryAction()
+                    Button("إغلاق المشغل") { dismiss() }.secondaryAction()
+                }
+            }
             // Skip the opening: shown during it whether or not the controls are, above the timeline.
             if inIntro, let end = skips.introEnd, resolutionError == nil, controller.error == nil {
                 VStack {
@@ -127,6 +135,17 @@ struct PlaybackView: View {
                 .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             }
         }
+        .sheet(isPresented: $cast.showControls) { CastControls(cast: cast) }
+        .onAppear {
+            cast.didLoad = { controller.persist(); controller.externalPlayback = true; controller.player.pause() }
+            cast.localPosition = { controller.position }
+            cast.didDisconnect = { seconds, finished in
+                controller.externalPlayback = false
+                controller.seek(to: seconds)
+                if !finished { controller.player.play() }
+            }
+            cast.start()
+        }
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(.hidden)
         // Controls fade after four seconds of playback; any change of state starts the wait again.
@@ -149,7 +168,7 @@ struct PlaybackView: View {
             if value != .active { controller.persist(); controller.player.pause(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
             else { UIApplication.shared.isIdleTimerDisabled = true }
         }
-        .onDisappear { controller.close(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
+        .onDisappear { cast.close(); controller.close(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
     }
 
     // MARK: Layers
@@ -229,6 +248,7 @@ struct PlaybackView: View {
             }
             .lineLimit(1)
             Spacer(minLength: 8)
+            CastButton().frame(width: 44, height: 44).glass(in: Circle())
             RoutePicker()
                 .frame(width: 44, height: 44)
                 .glass(in: Circle())
@@ -448,6 +468,7 @@ struct PlaybackView: View {
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
+        controller.externalPlayback = false
         controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
@@ -456,6 +477,10 @@ struct PlaybackView: View {
 
     private func start(_ media: Media) async {
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
+        cast.media = media; cast.streams = []; cast.tracks = []; cast.quality = nil
+        cast.save = { seconds, duration, completed in
+            library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
+        }
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil; controlsVisible = true
         async let tracks = SourceClient().subtitles(media)
         // An episode opened from continue watching comes without its season: load it so the next episode is known.
@@ -478,6 +503,8 @@ struct PlaybackView: View {
         let found = await tracks
         guard !Task.isCancelled else { return }
         externalTracks = found
+        cast.streams = streams; cast.tracks = found; cast.quality = quality
+        cast.connectCurrent()
         // The preferred language from Settings, from the source's files, unless the viewer already chose.
         if controller.subtitleID == nil, let preferred = controller.preferredLanguage,
            let track = found.first(where: { $0.language == preferred }) {

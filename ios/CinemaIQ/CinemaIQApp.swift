@@ -1,6 +1,7 @@
 import SwiftUI
 
 @main struct CinemaIQApp: App {
+    init() { CastSender.configure() }
     @StateObject private var library = LibraryStore()
     @StateObject private var cloud = CloudSync()
     // Created first, so Core knows the external providers before any page asks for one.

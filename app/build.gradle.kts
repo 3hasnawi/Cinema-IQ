@@ -46,6 +46,9 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
+    implementation("com.google.android.gms:play-services-cast-framework:22.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.9")
+    implementation("androidx.mediarouter:mediarouter:1.8.1")
     implementation(platform("com.google.firebase:firebase-bom:34.3.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")

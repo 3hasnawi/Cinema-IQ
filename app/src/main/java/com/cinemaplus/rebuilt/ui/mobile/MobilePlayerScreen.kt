@@ -68,6 +68,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         setHandleAudioBecomingNoisy(true)
     } }
     com.cinemaplus.rebuilt.ui.PlaybackScreenAwake(player)
+    var casting by remember { mutableStateOf(false) }
     var qualityIndex by remember(film.id) { mutableIntStateOf(0) }
     var qualityChosen by remember(film.id) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -91,7 +92,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     var sheetSeason by remember(film.id) { mutableIntStateOf(vm.seasons.indexOfFirst { it.number == film.season }.coerceAtLeast(0)) }
     val next = vm.nextEpisode()
     fun saveProgress() {
-        if (player.currentMediaItem?.mediaId == film.id && player.currentPosition > 0)
+        if (!casting && player.currentMediaItem?.mediaId == film.id && player.currentPosition > 0)
             vm.recordProgress(film, player.currentPosition, player.duration.coerceAtLeast(0))
     }
     fun close() { saveProgress(); vm.stop() }
@@ -219,7 +220,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                 onTap = { if (controlsVisible) controlsVisible = false else { controlsVisible = true; interact() } },
                 // Double tap: left half goes back 10 s, right half forward 10 s (physical sides).
                 onDoubleTap = { offset ->
-                    if (MobilePlayerActions.canSeek(player)) {
+                    if (!casting && MobilePlayerActions.canSeek(player)) {
                         val forward = offset.x > size.width / 2
                         seekBy(if (forward) 10_000 else -10_000)
                         notice = if (forward) "تقديم 10 ثوانٍ" else "رجوع 10 ثوانٍ"
@@ -235,7 +236,14 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                     if (drag < -40.dp.toPx()) { episodesOpen = true; drag = 0f }
                 })
             })
-        AnimatedVisibility(controlsVisible, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+                Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 20.dp)) {
+                    com.cinemaplus.rebuilt.cast.MobileCastButton(film, vm.streams, qualityIndex,
+                        position = { player.currentPosition }, pauseLocal = { player.pause() },
+                        resumeLocal = { player.seekTo(it); player.play() },
+                        save = { at, length -> vm.recordProgress(film, at, length) },
+                        complete = { vm.completePlayback(film) }, onCasting = { casting = it })
+                }
+        AnimatedVisibility(controlsVisible && !casting, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .70f), .26f to Color.Transparent,
                 .52f to Color.Transparent, 1f to Color.Black.copy(alpha = .90f)))
