@@ -68,6 +68,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         setHandleAudioBecomingNoisy(true)
     } }
     com.cinemaplus.rebuilt.ui.PlaybackScreenAwake(player)
+    var casting by remember { mutableStateOf(false) }
     var qualityIndex by remember(film.id) { mutableIntStateOf(0) }
     var qualityChosen by remember(film.id) { mutableStateOf(false) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -91,7 +92,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
     var sheetSeason by remember(film.id) { mutableIntStateOf(vm.seasons.indexOfFirst { it.number == film.season }.coerceAtLeast(0)) }
     val next = vm.nextEpisode()
     fun saveProgress() {
-        if (player.currentMediaItem?.mediaId == film.id && player.currentPosition > 0)
+        if (!casting && player.currentMediaItem?.mediaId == film.id && player.currentPosition > 0)
             vm.recordProgress(film, player.currentPosition, player.duration.coerceAtLeast(0))
     }
     fun close() { saveProgress(); vm.stop() }
@@ -123,7 +124,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         var resume = false
         val observer = LifecycleEventObserver { _, event -> when (event) {
             Lifecycle.Event.ON_PAUSE -> { resume = player.playWhenReady; saveProgress(); player.pause() }
-            Lifecycle.Event.ON_RESUME -> if (resume) { resume = false; player.play() }
+            Lifecycle.Event.ON_RESUME -> if (resume && !casting) { resume = false; player.play() }
             Lifecycle.Event.ON_STOP -> saveProgress()
             else -> Unit
         } }
@@ -156,7 +157,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         playerError = null
         player.setMediaItem(MediaItem.Builder().setMediaId(film.id).setUri(stream.url).setSubtitleConfigurations(subtitles).build(), resume)
         player.prepare()
-        player.playWhenReady = shouldPlay && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        player.playWhenReady = !casting && shouldPlay && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
     }
     val ranges by produceState<List<LongRange>>(emptyList(), film.id, film.subtitles, vm.sceneFilter) {
         value = if (!vm.sceneFilter) emptyList() else try { SceneFilter.ranges(context, film) }
@@ -219,7 +220,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                 onTap = { if (controlsVisible) controlsVisible = false else { controlsVisible = true; interact() } },
                 // Double tap: left half goes back 10 s, right half forward 10 s (physical sides).
                 onDoubleTap = { offset ->
-                    if (MobilePlayerActions.canSeek(player)) {
+                    if (!casting && MobilePlayerActions.canSeek(player)) {
                         val forward = offset.x > size.width / 2
                         seekBy(if (forward) 10_000 else -10_000)
                         notice = if (forward) "تقديم 10 ثوانٍ" else "رجوع 10 ثوانٍ"
@@ -235,7 +236,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                     if (drag < -40.dp.toPx()) { episodesOpen = true; drag = 0f }
                 })
             })
-        AnimatedVisibility(controlsVisible, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+        AnimatedVisibility(controlsVisible && !casting, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                 0f to Color.Black.copy(alpha = .70f), .26f to Color.Transparent,
                 .52f to Color.Transparent, 1f to Color.Black.copy(alpha = .90f)))
@@ -288,8 +289,15 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
                 }
             }
         }
+        Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 20.dp)) {
+            com.cinemaplus.rebuilt.cast.MobileCastButton(film, vm.streams, qualityIndex,
+                position = { player.currentPosition }, pauseLocal = { player.pause() },
+                resumeLocal = { at, play -> player.seekTo(at); player.playWhenReady = play && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) },
+                save = { at, length -> vm.recordProgress(film, at, length) },
+                complete = { vm.completePlayback(film) }, onCasting = { casting = it })
+        }
         // Skip intro / next episode above the scrubber on the left, in the TV design; it stays while controls fade.
-        if ((introTarget != null || (offerNext && next != null)) && panel == null && !episodesOpen) {
+        if (!casting && (introTarget != null || (offerNext && next != null)) && panel == null && !episodesOpen) {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 val place = Modifier.align(Alignment.BottomStart).displayCutoutPadding().navigationBarsPadding()
                     .padding(start = 20.dp, bottom = 132.dp)
