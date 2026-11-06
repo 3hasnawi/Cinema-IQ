@@ -292,7 +292,7 @@ fun MobilePlayerScreen(vm: CinemaViewModel) {
         Box(Modifier.align(Alignment.TopEnd).padding(top = 64.dp, end = 20.dp)) {
             com.cinemaplus.rebuilt.cast.MobileCastButton(film, vm.streams, qualityIndex,
                 position = { player.currentPosition }, pauseLocal = { player.pause() },
-                resumeLocal = { player.seekTo(it); player.play() },
+                resumeLocal = { at, play -> player.seekTo(at); player.playWhenReady = play && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) },
                 save = { at, length -> vm.recordProgress(film, at, length) },
                 complete = { vm.completePlayback(film) }, onCasting = { casting = it })
         }

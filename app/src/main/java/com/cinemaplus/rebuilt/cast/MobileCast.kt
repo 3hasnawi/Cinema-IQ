@@ -12,7 +12,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.mediarouter.app.MediaRouteButton
 import com.google.android.gms.cast.*
 import com.google.android.gms.cast.framework.*
-import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import com.cinemaplus.rebuilt.data.Film
 import com.cinemaplus.rebuilt.data.Stream
 import kotlinx.coroutines.delay
@@ -20,7 +19,7 @@ import kotlinx.coroutines.delay
 /** A phone-only sender. The receiver downloads the original media; it never receives account credentials. */
 @Composable
 fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: () -> Long,
-                     pauseLocal: () -> Unit, resumeLocal: (Long) -> Unit,
+                     pauseLocal: () -> Unit, resumeLocal: (Long, Boolean) -> Unit,
                      save: (Long, Long) -> Unit, complete: () -> Unit, onCasting: (Boolean) -> Unit) {
     val context = LocalContext.current
     // Devices without Google Play services keep their local player intact.
@@ -29,6 +28,8 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
     var expanded by remember { mutableStateOf(false) }
     var remotePosition by remember { mutableLongStateOf(0) }
     var duration by remember { mutableLongStateOf(0) }
+    var seekTarget by remember { mutableStateOf<Float?>(null) }
+    var ownsMedia by remember { mutableStateOf(false) }
     var isPlaying by remember { mutableStateOf(false) }
     var selected by remember(film.id) { mutableIntStateOf(quality) }
     var subtitle by remember(film.id) { mutableLongStateOf(0L) }
@@ -73,7 +74,7 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
             override fun onSessionStarted(s: CastSession, id: String) { session = s; expanded = true }
             override fun onSessionResumed(s: CastSession, suspended: Boolean) { session = s; expanded = true }
             override fun onSessionEnded(s: CastSession, code: Int) {
-                if (loadedID == film.id && !completed) latestResume(remotePosition)
+                if (loadedID == film.id && !completed) latestResume(remotePosition, isPlaying)
                 session = null; loadedID = null; expanded = false; latestCasting(false)
             }
             override fun onSessionStarting(s: CastSession) {}
@@ -87,7 +88,7 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
         onDispose {
             alive.set(false)
             cast.sessionManager.removeSessionManagerListener(listener, CastSession::class.java)
-            if (loadedID == film.id) {
+            if (loadedID == film.id && session?.remoteMediaClient?.mediaStatus?.mediaInfo?.customData?.optString("cinemaID") == film.id) {
                 if (!completed && duration > 0) latestSave(remotePosition, duration)
                 session?.remoteMediaClient?.stop()
                 latestCasting(false)
@@ -105,10 +106,15 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
     LaunchedEffect(client, film.id) {
         while (client != null) {
             val status = client.mediaStatus
-            if (status?.mediaInfo?.customData?.optString("cinemaID") == film.id) {
+            ownsMedia = status?.mediaInfo?.customData?.optString("cinemaID") == film.id
+            if (ownsMedia && status != null) {
                 latestPause()
                 remotePosition = client.approximateStreamPosition; duration = client.streamDuration
                 isPlaying = client.isPlaying
+                if (!pending) {
+                    streams.indexOfFirst { it.url == status?.mediaInfo?.contentId }.takeIf { it >= 0 }?.let { selected = it }
+                    subtitle = status?.activeTrackIds?.firstOrNull()?.takeIf { it in 1L..tracks.size.toLong() } ?: 0L
+                }
                 if (status.playerState == MediaStatus.PLAYER_STATE_IDLE && status.idleReason == MediaStatus.IDLE_REASON_FINISHED) {
                     if (!completed) { completed = true; latestComplete() }
                 } else if (status.idleReason == MediaStatus.IDLE_REASON_ERROR) {
@@ -131,26 +137,27 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
             Text("يجب أن يكون جهاز الكاست على الشبكة الداعمة للمصدر.")
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (pending) LinearProgressIndicator()
-            if (duration > 0) Slider(value = remotePosition.toFloat().coerceIn(0f, duration.toFloat()),
-                onValueChange = { remotePosition = it.toLong() }, onValueChangeFinished = {
-                    client?.seek(MediaSeekOptions.Builder().setPosition(remotePosition).build())
+            if (duration > 0) Slider(value = (seekTarget ?: remotePosition.toFloat()).coerceIn(0f, duration.toFloat()),
+                enabled = ownsMedia && !pending,
+                onValueChange = { seekTarget = it }, onValueChangeFinished = {
+                    seekTarget?.let { client?.seek(MediaSeekOptions.Builder().setPosition(it.toLong()).build()) }; seekTarget = null
                 }, valueRange = 0f..duration.toFloat())
             Row {
-                TextButton(onClick = { client?.seek(MediaSeekOptions.Builder().setPosition((remotePosition - 10000).coerceAtLeast(0)).build()) }) { Text("−10") }
-                TextButton(onClick = { if (isPlaying) client?.pause() else client?.play() }) { Text(if (isPlaying) "إيقاف مؤقت" else "تشغيل") }
-                TextButton(onClick = { client?.seek(MediaSeekOptions.Builder().setPosition((remotePosition + 10000).coerceAtMost(duration.coerceAtLeast(0))).build()) }) { Text("+10") }
+                TextButton(enabled = ownsMedia && !pending, onClick = { client?.seek(MediaSeekOptions.Builder().setPosition((remotePosition - 10000).coerceAtLeast(0)).build()) }) { Text("−10") }
+                TextButton(enabled = ownsMedia && !pending, onClick = { if (isPlaying) client?.pause() else client?.play() }) { Text(if (isPlaying) "إيقاف مؤقت" else "تشغيل") }
+                TextButton(enabled = ownsMedia && !pending, onClick = { client?.seek(MediaSeekOptions.Builder().setPosition((remotePosition + 10000).coerceAtMost(duration.coerceAtLeast(0))).build()) }) { Text("+10") }
             }
             Text("الجودة")
             streams.forEachIndexed { index, stream -> TextButton(enabled = !pending, onClick = { load(index, if (loadedID == film.id) remotePosition else position(), isPlaying || loadedID != film.id) }) {
                 Text((if (index == selected) "✓ " else "") + stream.resolution)
             } }
             Text("الترجمة (WebVTT)")
-            TextButton(onClick = { client?.setActiveMediaTracks(longArrayOf())?.setResultCallback {
-                if (it.status.isSuccess) subtitle = 0 else error = "تعذّر تغيير الترجمة."
+            TextButton(enabled = ownsMedia && !pending, onClick = { client?.setActiveMediaTracks(longArrayOf())?.setResultCallback {
+                if (alive.get() && it.status.isSuccess) subtitle = 0 else error = "تعذّر تغيير الترجمة."
             } }) { Text("بدون ترجمة") }
-            tracks.forEachIndexed { index, track -> TextButton(onClick = {
+            tracks.forEachIndexed { index, track -> TextButton(enabled = ownsMedia && !pending, onClick = {
                 client?.setActiveMediaTracks(longArrayOf(index + 1L))?.setResultCallback {
-                    if (it.status.isSuccess) subtitle = index + 1L else error = "تعذّر إرسال الترجمة إلى الكاست."
+                    if (alive.get() && it.status.isSuccess) subtitle = index + 1L else error = "تعذّر إرسال الترجمة إلى الكاست."
                 }
             }) { Text((if (subtitle == index + 1L) "✓ " else "") + track.title) } }
             if (tracks.size < film.subtitles.size) Text("بعض ملفات الترجمة تحتاج تحويلًا إلى WebVTT على خادم مصرح به قبل إرسالها.")

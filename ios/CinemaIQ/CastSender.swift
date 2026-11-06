@@ -30,6 +30,10 @@ import CinemaCore
     private var subtitleRequest: GCKRequest?
     private var manager: GCKSessionManager { GCKCastContext.sharedInstance().sessionManager }
     private var client: GCKRemoteMediaClient? { manager.currentCastSession?.remoteMediaClient }
+    private var ownsMedia: Bool {
+        guard let id = (client?.mediaStatus?.mediaInformation?.customData as? [String: Any])?["cinemaID"] as? String else { return false }
+        return id == media?.id
+    }
     var castTracks: [SubtitleTrack] { tracks.filter(CastMediaPolicy.subtitle) }
 
     static func configure() {
@@ -93,7 +97,7 @@ import CinemaCore
     func sessionManager(_ sessionManager: GCKSessionManager, didEnd session: GCKSession, withError error: Error?) {
         let wasActive = active
         connected = false; active = false; pending = false
-        if wasActive { didDisconnect(position, finished) }
+        if wasActive { didDisconnect(position, !finished && playing) }
     }
     func sessionManager(_ sessionManager: GCKSessionManager, didFailToStart session: GCKSession, withError error: Error) {
         self.error = "تعذّر الاتصال بجهاز الكاست."; showControls = true
@@ -105,6 +109,11 @@ import CinemaCore
         position = max(0, client.approximateStreamPosition())
         duration = status.mediaInformation?.streamDuration ?? 0
         playing = status.playerState == .playing
+        if !pending {
+            let content = status.mediaInformation?.contentURL?.absoluteString ?? status.mediaInformation?.contentID
+            if let stream = streams.first(where: { $0.id == content }) { quality = stream.id }
+            subtitle = status.activeTrackIDs?.first?.intValue ?? 0
+        }
         if status.playerState == .idle && status.idleReason == .finished {
             if !finished { finished = true; save(duration, duration, true) }
         } else if status.playerState == .idle && status.idleReason == .error {
@@ -114,12 +123,14 @@ import CinemaCore
         }
     }
     func seek(_ seconds: Double) {
+        guard ownsMedia, !pending else { return }
         let options = GCKMediaSeekOptions()
         options.interval = max(0, duration > 0 ? min(seconds, duration) : seconds)
         client?.seek(with: options).delegate = self
     }
-    func toggle() { if playing { client?.pause().delegate = self } else { client?.play().delegate = self } }
+    func toggle() { guard ownsMedia, !pending else { return }; if playing { client?.pause().delegate = self } else { client?.play().delegate = self } }
     func selectSubtitle(_ id: Int) {
+        guard ownsMedia, !pending else { return }
         pendingSubtitle = id
         subtitleRequest = client?.setActiveTrackIDs(id == 0 ? [] : [NSNumber(value: id)])
         subtitleRequest?.delegate = self
@@ -127,7 +138,7 @@ import CinemaCore
     func disconnect() { manager.endSessionAndStopCasting(true) }
     func close() {
         manager.remove(self); timer?.invalidate(); timer = nil
-        if active {
+        if active && ownsMedia {
             poll()
             if !finished && duration > 0 { save(position, duration, false) }
             client?.stop()
@@ -150,6 +161,7 @@ struct CastButton: UIViewRepresentable {
 
 struct CastControls: View {
     @ObservedObject var cast: CastSender
+    @State private var scrubbing: Double?
     var body: some View {
         NavigationStack {
             Form {
@@ -159,7 +171,9 @@ struct CastControls: View {
                 if let error = cast.error { Text(error).foregroundStyle(.red) }
                 if cast.active {
                     if cast.duration > 0 {
-                        Slider(value: Binding(get: { min(cast.position, cast.duration) }, set: { cast.seek($0) }), in: 0...cast.duration)
+                        Slider(value: Binding(get: { min(scrubbing ?? cast.position, cast.duration) }, set: { scrubbing = $0 }), in: 0...cast.duration) { editing in
+                            if !editing, let target = scrubbing { cast.seek(target); scrubbing = nil }
+                        }
                     }
                     HStack {
                         Button("−10 ثوانٍ") { cast.seek(cast.position - 10) }

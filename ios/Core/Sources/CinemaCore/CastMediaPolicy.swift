@@ -1,6 +1,6 @@
 import Foundation
 
-/// The default receiver fetches original URLs itself. No cookies, tokens or custom headers are forwarded.
+/// The default receiver fetches original URLs itself. No cookies or custom authentication headers are forwarded.
 public enum CastMediaPolicy {
     public static func valid(_ url: URL) -> Bool {
         ["http", "https"].contains(url.scheme?.lowercased() ?? "") &&

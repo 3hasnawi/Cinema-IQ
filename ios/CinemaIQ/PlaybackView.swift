@@ -139,10 +139,10 @@ struct PlaybackView: View {
         .onAppear {
             cast.didLoad = { controller.persist(); controller.externalPlayback = true; controller.player.pause() }
             cast.localPosition = { controller.position }
-            cast.didDisconnect = { seconds, finished in
+            cast.didDisconnect = { seconds, shouldResume in
                 controller.externalPlayback = false
                 controller.seek(to: seconds)
-                if !finished { controller.player.play() }
+                if shouldResume && phase == .active { controller.player.play() }
             }
             cast.start()
         }
