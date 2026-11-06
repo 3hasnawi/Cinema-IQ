@@ -1,42 +1,54 @@
-name: Build unsigned iPhone IPA
+name: Build and publish iPhone IPA
 
-# Manual only: exporting an app requires an explicit user build request.
+# Manual only: the owner must explicitly request a build and separately authorize publication.
 on:
   workflow_dispatch:
-
+    inputs:
+      confirm:
+        description: 'Type RELEASE to approve the iPhone build'
+        required: true
+        type: string
+      publish:
+        description: 'Publish the unsigned iPhone IPA as a public preview (Android latest is unchanged)'
+        required: true
+        default: false
+        type: boolean
 permissions:
   contents: read
-
 concurrency:
-  group: ios-unsigned-ipa-${{ github.ref }}
+  group: cinema-iq-iphone-release
   cancel-in-progress: false
-
 jobs:
   iphone-ipa:
+    if: inputs.confirm == 'RELEASE' && github.ref == 'refs/heads/ios'
     runs-on: macos-15
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Check publication credentials without displaying them
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          gh api repos/3hasnawi/Cinema-IQ-Releases --jq .full_name
       - name: Set temporary paths
         run: |
           echo "DERIVED_DATA=$RUNNER_TEMP/CinemaIQDerivedData" >> "$GITHUB_ENV"
           echo "IPA_STAGING=$RUNNER_TEMP/CinemaIQIPA" >> "$GITHUB_ENV"
       - name: Select the newest installed Xcode
-        # Liquid Glass needs the iOS 26 SDK or later; the app still builds (without glass) on older Xcode.
         run: |
           set -euo pipefail
-          ls -d /Applications/Xcode*.app
           newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
           sudo xcode-select -s "$newest/Contents/Developer"
-      - name: Inspect Xcode toolchain
-        run: |
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
       - name: Install project generator
         run: brew install xcodegen
-      - name: Test source parsing
+      - name: Test Swift Core
         run: swift test --package-path ios/Core
       - name: Generate Xcode project
         working-directory: ios
@@ -52,68 +64,79 @@ jobs:
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY= \
-            build
-      - name: Package unsigned device app
+            CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= build
+      - name: Verify and package iPhone IPA
         run: |
           set -euo pipefail
           device_app="$DERIVED_DATA/Build/Products/Release-iphoneos/CinemaIQ.app"
-          test -d "$device_app"
           test -x "$device_app/CinemaIQ"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist"
           xcrun lipo "$device_app/CinemaIQ" -verify_arch arm64
+          bundle=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist")
+          test "$bundle" = 'com.cinemaplus.rebuilt.ios'
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$device_app/Info.plist")
+          build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$device_app/Info.plist")
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          [[ "$build" =~ ^[0-9]+$ ]]
+          cast="$device_app/Frameworks/GoogleCast.framework/GoogleCast"
+          test -f "$cast"
+          xcrun lipo "$cast" -verify_arch arm64
           mkdir -p "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output"
           ditto "$device_app" "$IPA_STAGING/Payload/CinemaIQ.app"
-          ditto -c -k --keepParent "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
-          unzip -t "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
-      - name: Compile Release for Apple TV without signing
-        run: |
-          set -euo pipefail
-          xcodebuild \
-            -project ios/CinemaIQ.xcodeproj \
-            -scheme CinemaIQTV \
-            -configuration Release \
-            -sdk appletvos \
-            -destination 'generic/platform=tvOS' \
-            -derivedDataPath "$DERIVED_DATA" \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY= \
-            build
-      - name: Package unsigned Apple TV app
-        run: |
-          set -euo pipefail
-          tv_app="$DERIVED_DATA/Build/Products/Release-appletvos/CinemaIQTV.app"
-          test -d "$tv_app"
-          test -x "$tv_app/CinemaIQTV"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$tv_app/Info.plist"
-          xcrun lipo "$tv_app/CinemaIQTV" -verify_arch arm64
-          mkdir -p "$RUNNER_TEMP/TVIPA/Payload" "$RUNNER_TEMP/tv-output"
-          ditto "$tv_app" "$RUNNER_TEMP/TVIPA/Payload/CinemaIQTV.app"
-          ditto -c -k --keepParent "$RUNNER_TEMP/TVIPA/Payload" "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-unsigned.ipa"
-          unzip -t "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-unsigned.ipa"
-      - name: Upload Apple TV IPA for atvloadly
-        uses: actions/upload-artifact@v4
-        with:
-          name: Cinema-iQ-AppleTV-unsigned-${{ github.run_number }}
-          path: ${{ runner.temp }}/tv-output/Cinema-iQ-AppleTV-unsigned.ipa
-          if-no-files-found: error
-          retention-days: 3
-      - name: Upload IPA for Windows sideloading
+          filename="Cinema-iQ-iPhone-${version}-unsigned.ipa"
+          ditto -c -k --keepParent "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output/$filename"
+          unzip -t "$RUNNER_TEMP/ipa-output/$filename"
+          cd "$RUNNER_TEMP/ipa-output"
+          shasum -a 256 "$filename" > SHA256SUMS.txt
+          echo "RELEASE_TAG=ios-v${version}" >> "$GITHUB_ENV"
+          echo "IPHONE_VERSION=$version" >> "$GITHUB_ENV"
+          echo "IPHONE_BUILD=$build" >> "$GITHUB_ENV"
+          echo "IPA_FILENAME=$filename" >> "$GITHUB_ENV"
+      - name: Upload short-lived build artifact
         uses: actions/upload-artifact@v4
         with:
           name: Cinema-iQ-iPhone-unsigned-${{ github.run_number }}
-          path: ${{ runner.temp }}/ipa-output/Cinema-iQ-iPhone-unsigned.ipa
+          path: ${{ runner.temp }}/ipa-output/
           if-no-files-found: error
           retention-days: 1
-      - name: Explain installation
+      - name: Prepare public release notes
+        if: inputs.publish
         run: |
-          cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          ## iPhone preview for Windows testing
-          Download the artifact ZIP, extract it, and select **Cinema-iQ-iPhone-unsigned.ipa** in Sideloadly on Windows. This is an arm64 iPhone app, not a simulator build.
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          notes = f'''Cinema iQ للآيفون — {os.environ['IPHONE_VERSION']} (البناء {os.environ['IPHONE_BUILD']})
 
-          Install and use Sideloadly from https://sideloadly.io/. Connect and trust the iPhone, sign with your own Apple account, and enable Developer Mode on the phone if requested. Free-account signing normally expires after 7 days and must be renewed. Do not send Apple credentials, verification codes or signing certificates to the repository or chat.
+          إضافة Google Cast مع التحكم بالتشغيل وتغيير الجودة وحفظ تقدم المشاهدة واختيار الترجمات الخارجية المتوافقة بصيغة WebVTT.
 
-          No Apple developer certificate or GitHub signing secret is required for this unsigned artifact. The download expires after 3 days. No public release or TestFlight upload is performed. See `ios/WINDOWS-TESTING.md` for steps and preview limitations.
+          يتطلب iOS 18 أو أحدث. هذا ملف IPA غير موقّع للتثبيت عبر Sideloadly من Windows؛ ليس إصدار App Store أو TestFlight. نزّل ملف IPA ثم وقّعه بحساب Apple الخاص بك. توقيع الحساب المجاني يحتاج التجديد عادة كل 7 أيام.
+
+          يجب أن يكون الهاتف وجهاز Chromecast على نفس الشبكة، وأن يتمكن جهاز الكاست من الوصول إلى شبكة مصدر المحتوى. ملفات SRT تحتاج خدمة تحويل إضافية. نجحت الاختبارات وفحوص الترجمة، لكن الكاست لم يُختبر على جهاز فعلي بعد؛ لذلك نُشر هذا الإصدار كتجريبي.
+
+          هذا إصدار مستقل للآيفون من فرع ios، ولا يغيّر إصدار أندرويد أو ملف update.json الخاص به.
+
+          Source commit: {os.environ['GITHUB_SHA']}
+          '''
+          Path(os.environ['RUNNER_TEMP'], 'iphone-release-notes.md').write_text(notes, encoding='utf-8')
+          PY
+      - name: Publish only the iPhone preview
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            "$RUNNER_TEMP/ipa-output/$IPA_FILENAME" \
+            "$RUNNER_TEMP/ipa-output/SHA256SUMS.txt" \
+            --repo 3hasnawi/Cinema-IQ-Releases \
+            --title "Cinema iQ iPhone $IPHONE_VERSION" \
+            --notes-file "$RUNNER_TEMP/iphone-release-notes.md" \
+            --prerelease --latest=false
+      - name: Summarize the iPhone build
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<SUMMARY
+          ## Cinema iQ iPhone $IPHONE_VERSION (build $IPHONE_BUILD)
+          Verified arm64 device app, bundle com.cinemaplus.rebuilt.ios, embedded Google Cast framework and IPA ZIP integrity. Artifacts expire after one day.
+          Install the unsigned IPA using Sideloadly: https://sideloadly.io/
+          Public releases: https://github.com/3hasnawi/Cinema-IQ-Releases/releases/tag/$RELEASE_TAG
+          Android APK and update.json are unchanged. No physical-device Cast test was performed.
           SUMMARY

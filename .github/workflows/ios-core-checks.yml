@@ -1,7 +1,7 @@
 name: iOS Core Checks
 on:
   pull_request:
-    branches: [main]
+    branches: [main, ios]
     paths:
       - 'ios/**'
       - '.github/workflows/ios-core-checks.yml'
