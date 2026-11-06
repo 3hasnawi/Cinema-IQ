@@ -48,6 +48,10 @@ struct MediaOption: Identifiable, Hashable {
     private var legibleGroup: AVMediaSelectionGroup?
     private var audibleGroup: AVMediaSelectionGroup?
     private var cues: [SubtitleCue] = []
+    private var subtitleTask: Task<Void, Never>?
+    private var pendingAudio: PlaybackTrackIdentity?
+    private var pendingEmbeddedSubtitle: PlaybackTrackIdentity?
+    private var completion = PlaybackCompletion()
     /// The language chosen automatically for a new title (from Settings); cleared once the viewer turns
     /// subtitles off, so they are not switched back on by themselves.
     private(set) var preferredLanguage: String? = "ar"
@@ -63,24 +67,37 @@ struct MediaOption: Identifiable, Hashable {
 
     init() { player.appliesMediaSelectionCriteriaAutomatically = false }
 
-    func open(_ media: Media, url: URL, resume: Double, save: @escaping (Double, Double, Bool) -> Void) {
-        close(); self.save = save; error = nil; ended = false; position = max(0, resume); duration = 0; ticks = 0
+    func open(_ media: Media, url: URL, resume: Double, preservingState: Bool = false,
+              save: @escaping (Double, Double, Bool) -> Void) {
+        // Read the item's selection, not audioID: tvOS also changes audio through its native menu.
+        let shouldPlay = !preservingState || player.timeControlStatus != .paused
+        let audio = preservingState ? selectedTrack(in: audibleGroup) ?? pendingAudio : nil
+        let subtitle = preservingState ? selectedTrack(in: legibleGroup) ?? pendingEmbeddedSubtitle : nil
+        let wasCompleted = preservingState && completion.completed
+        close(preservingSubtitles: true)
+        self.save = save; error = nil; ended = false; position = resume.isFinite ? max(0, resume) : 0; duration = 0; ticks = 0
+        completion = PlaybackCompletion(completed: wasCompleted)
+        pendingAudio = audio; pendingEmbeddedSubtitle = subtitle
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch { self.error = error.localizedDescription; return }
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
-        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+        statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             if item.status == .failed {
-                Task { @MainActor in self?.error = "تعذّر تشغيل هذه النسخة. قد تكون صيغة الفيديو أو الصوت غير مدعومة على iOS. جرّب جودة أخرى." }
+                Task { @MainActor in
+                    guard let self, self.player.currentItem === item else { return }
+                    self.error = "تعذّر تشغيل هذه النسخة. قد تكون صيغة الفيديو أو الصوت غير مدعومة على iOS. جرّب جودة أخرى."
+                }
             }
         }
         controlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let status = player.timeControlStatus
             Task { @MainActor in
-                self?.playing = status != .paused
-                self?.buffering = status == .waitingToPlayAtSpecifiedRate
+                guard let self, self.player.currentItem === item else { return }
+                self.playing = status != .paused
+                self.buffering = status == .waitingToPlayAtSpecifiedRate
             }
         }
         endToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -90,15 +107,21 @@ struct MediaOption: Identifiable, Hashable {
             }
         }
         failureToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.error = "انقطع تشغيل الفيديو. تحقق من الاتصال وأعد فتح العمل." }
+            Task { @MainActor in
+                guard let self, self.player.currentItem === item else { return }
+                self.error = "انقطع تشغيل الفيديو. تحقق من الاتصال وأعد المحاولة."
+            }
         }
         timer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+            Task { @MainActor in
+                guard let self, self.player.currentItem === item else { return }
+                self.tick()
+            }
         }
         Task { await loadSelectionGroups(item) }
         if resume.isFinite && resume > 0 { player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
         player.defaultRate = rate
-        player.play()
+        if shouldPlay { player.play() }
     }
 
     private func tick() {
@@ -114,14 +137,15 @@ struct MediaOption: Identifiable, Hashable {
 
     func persist(completed: Bool = false) {
         guard let item = player.currentItem else { return }
+        let isCompleted = completion.record(completed: completed || ended)
         let now = player.currentTime().seconds, length = item.duration.seconds
         guard now.isFinite, length.isFinite, length > 0 else { return }
-        save?(now, length, completed || ended)
+        save?(now, length, isCompleted)
     }
 
     func togglePlay() {
         if player.timeControlStatus == .paused {
-            if ended { ended = false; seek(to: 0) }
+            if ended { ended = false; completion = PlaybackCompletion(); seek(to: 0) }
             player.play()
         } else {
             player.pause()
@@ -141,33 +165,49 @@ struct MediaOption: Identifiable, Hashable {
 
     /// A new title starts with no subtitle chosen; the preferred language is picked automatically when offered.
     func resetSubtitles(preferred: String?) {
-        subtitleID = nil; cues = []; cue = nil; preferredLanguage = preferred
+        subtitleTask?.cancel(); subtitleTask = nil
+        subtitleID = nil; cues = []; cue = nil; notice = nil; preferredLanguage = preferred
+        pendingEmbeddedSubtitle = nil
     }
 
     func selectSubtitle(_ id: String?, external: [SubtitleTrack]) {
+        subtitleTask?.cancel(); subtitleTask = nil; pendingEmbeddedSubtitle = nil
         subtitleID = id; cues = []; cue = nil; notice = nil
         if id == nil { preferredLanguage = nil }
         applyEmbeddedSelection()
         guard let id, id.hasPrefix("ext:"), let track = external.first(where: { "ext:" + $0.id == id }) else { return }
-        Task {
+        subtitleTask = Task {
             do {
                 let data = try await SubtitleCatalog.download(track)
                 let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: Self.arabicWindows) ?? ""
                 let parsed = SubtitleCatalog.cues(text)
-                guard subtitleID == id else { return }
+                guard !Task.isCancelled, subtitleID == id else { return }
                 if parsed.isEmpty { notice = "ملف الترجمة غير صالح للعرض." }
                 cues = parsed
             } catch {
-                if subtitleID == id { notice = "تعذّر تحميل الترجمة." }
+                if !Task.isCancelled, subtitleID == id { notice = "تعذّر تحميل الترجمة. جرّبها مجدداً من قائمة الترجمة." }
             }
         }
     }
 
     func selectAudio(_ id: String) {
-        audioID = id
         guard let group = audibleGroup, let item = player.currentItem,
               let index = Int(id.dropFirst(4)), group.options.indices.contains(index) else { return }
+        audioID = id; pendingAudio = nil
         item.select(group.options[index], in: group)
+    }
+
+    private func selectedTrack(in group: AVMediaSelectionGroup?) -> PlaybackTrackIdentity? {
+        guard let group, let selected = player.currentItem?.currentMediaSelection.selectedMediaOption(in: group) else { return nil }
+        return identity(of: selected)
+    }
+
+    private func identity(of option: AVMediaSelectionOption) -> PlaybackTrackIdentity {
+        let characteristics: [AVMediaCharacteristic] = [.isMainProgramContent, .isAuxiliaryContent,
+                                                        .describesVideoForAccessibility, .containsOnlyForcedSubtitles]
+        return PlaybackTrackIdentity(language: option.extendedLanguageTag ?? option.locale?.identifier,
+                                     title: option.displayName,
+                                     characteristics: characteristics.filter { option.hasMediaCharacteristic($0) }.map(\.rawValue))
     }
 
     private func applyEmbeddedSelection() {
@@ -186,6 +226,21 @@ struct MediaOption: Identifiable, Hashable {
         legibleGroup = legible; audibleGroup = audible
         embeddedSubtitles = (legible?.options ?? []).enumerated().map { MediaOption(id: "emb:\($0.offset)", title: $0.element.displayName) }
         audioOptions = (audible?.options ?? []).enumerated().map { MediaOption(id: "aud:\($0.offset)", title: $0.element.displayName) }
+        if let pendingAudio, let audible,
+           let index = PlaybackPolicy.matchingTrack(pendingAudio, in: audible.options.map({ identity(of: $0) })) {
+            item.select(audible.options[index], in: audible)
+        }
+        self.pendingAudio = nil
+        if let pendingEmbeddedSubtitle {
+            if let legible,
+               let index = PlaybackPolicy.matchingTrack(pendingEmbeddedSubtitle, in: legible.options.map({ identity(of: $0) })) {
+                subtitleID = "emb:\(index)"
+            } else {
+                subtitleID = nil
+                notice = "الترجمة المختارة غير متاحة بهذه الجودة. اختر ترجمة من القائمة."
+            }
+        }
+        pendingEmbeddedSubtitle = nil
         if let audible, let selected = item.currentMediaSelection.selectedMediaOption(in: audible),
            let index = audible.options.firstIndex(of: selected) { audioID = "aud:\(index)" }
         if subtitleID == nil, let preferred = preferredLanguage, let legible,
@@ -195,14 +250,17 @@ struct MediaOption: Identifiable, Hashable {
         applyEmbeddedSelection()
     }
 
-    func close() {
+    func close(preservingSubtitles: Bool = false) {
         persist(); player.pause()
+        if !preservingSubtitles { subtitleTask?.cancel(); subtitleTask = nil; notice = nil; cue = nil }
         if let timer { player.removeTimeObserver(timer) }; timer = nil
         if let endToken { NotificationCenter.default.removeObserver(endToken) }; endToken = nil
         if let failureToken { NotificationCenter.default.removeObserver(failureToken) }; failureToken = nil
         statusObservation = nil; controlObservation = nil
         legibleGroup = nil; audibleGroup = nil; embeddedSubtitles = []; audioOptions = []; audioID = nil
         player.replaceCurrentItem(with: nil); save = nil
+        pendingAudio = nil; pendingEmbeddedSubtitle = nil
+        playing = false; buffering = false; error = nil; ended = false; position = 0; duration = 0
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 }

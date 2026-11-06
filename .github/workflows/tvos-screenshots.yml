@@ -1,118 +1,130 @@
 name: Apple TV screenshots
 
-# Manual only: runs the Apple TV app in the tvOS simulator, walks its screens with the remote and uploads the
-# screenshots. Nothing is signed or exported.
+# Unsigned simulator validation only. Artifacts stay on the workflow run, never in a shared branch.
 on:
   workflow_dispatch:
-  # Also when the tour itself changes on an Apple TV work branch.
   push:
-    branches: ['claude/ios-tvos-**']
+    branches: ['chatgpt/ios-tvos-reference-interface']
     paths:
-      - 'ios/CinemaIQTV/**'
-      - 'ios/CinemaIQTVUITests/**'
+      - 'ios/**'
+      - 'scripts/ci/**'
       - '.github/workflows/tvos-screenshots.yml'
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: tvos-screenshots-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   screenshots:
     runs-on: macos-15
-    env:
-      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
-      - name: Select the newest installed Xcode
+      - name: Select the newest stable installed Xcode
         run: |
           set -euo pipefail
-          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          newest="$(python3 - <<'PY'
+          import glob, re
+          paths = [p for p in glob.glob('/Applications/Xcode_*.app')
+                   if re.fullmatch(r'/Applications/Xcode_[0-9.]+\.app', p)]
+          if not paths:
+              raise SystemExit('No stable Xcode found')
+          print(max(paths, key=lambda p: tuple(map(int, re.findall(r'\d+', p)))))
+          PY
+          )"
           sudo xcode-select -s "$newest/Contents/Developer"
           xcodebuild -version
+      - name: Validate simulator selector
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py'
       - name: Install project generator
         run: brew install xcodegen
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate --spec project.yml
-      - name: Prepare an Apple TV simulator
+      - name: Prepare a supported Apple TV simulator
         run: |
           set -euo pipefail
-          if ! xcrun simctl list runtimes | grep -q "tvOS"; then
-            xcodebuild -downloadPlatform tvOS
+          mkdir -p "$RUNNER_TEMP/tvos-diagnostics"
+          xcrun simctl list runtimes --json > "$RUNNER_TEMP/tvos-diagnostics/runtimes.json"
+          if ! selection="$(python3 scripts/ci/select_tvos_simulator.py < "$RUNNER_TEMP/tvos-diagnostics/runtimes.json")"; then
+            xcodebuild -downloadPlatform tvOS 2>&1 | tee "$RUNNER_TEMP/tvos-diagnostics/runtime-download.log"
+            xcrun simctl list runtimes --json > "$RUNNER_TEMP/tvos-diagnostics/runtimes.json"
+            selection="$(python3 scripts/ci/select_tvos_simulator.py < "$RUNNER_TEMP/tvos-diagnostics/runtimes.json")"
           fi
-          xcrun simctl list runtimes
-          runtime="$(xcrun simctl list runtimes | grep tvOS | tail -1 | sed -E 's/.* - (com\.apple\.CoreSimulator\.SimRuntime\.[^ ]+).*/\1/')"
-          type="$(xcrun simctl list devicetypes | grep -m1 'Apple TV 4K' | sed -E 's/.*\((com\.apple\.[^)]+)\).*/\1/')"
+          read -r runtime type <<< "$selection"
           device="$(xcrun simctl create CinemaTV "$type" "$runtime")"
-          xcrun simctl boot "$device"
           echo "TV_DEVICE=$device" >> "$GITHUB_ENV"
-      - name: Walk the app and take screenshots
-        timeout-minutes: 60
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+      - name: Build and run focused demo-source navigation tests
+        timeout-minutes: 40
         run: |
-          set -o pipefail
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tvos-diagnostics"
+          # Fail clearly rather than silently selecting zero tests on an older manual-dispatch ref.
+          grep -Rq 'class TVNavigationTests:' ios/CinemaIQTVUITests
+          grep -Rq 'class TVSettingsNavigationTests:' ios/CinemaIQTVUITests
           xcodebuild test \
             -project ios/CinemaIQ.xcodeproj \
             -scheme CinemaIQTV \
             -destination "id=$TV_DEVICE" \
-            -resultBundlePath "$RUNNER_TEMP/shots.xcresult" \
-            -test-timeouts-enabled YES -default-test-execution-time-allowance 1500 -maximum-test-execution-time-allowance 1500 \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" 2>&1 | grep -E "error:|Test Case|TEST (SUCCEEDED|FAILED)" || true
-      - name: Check TMDB in the build
-        if: always()
-        run: |
-          echo "secret length: ${#TMDB_API_KEY}"
-          plist=$(find ~/Library/Developer/Xcode/DerivedData -path '*Debug-appletvsimulator/CinemaIQTV.app/Info.plist' | head -1)
-          value=$(/usr/libexec/PlistBuddy -c 'Print :TMDBAPIKey' "$plist" 2>/dev/null || echo MISSING)
-          echo "::warning::TMDB secret length ${#TMDB_API_KEY}; key in app: ${#value} chars, starts with '${value:0:2}'"
-          code=$(curl -s -o /tmp/tmdb.json -w '%{http_code}' "https://api.themoviedb.org/3/search/tv?api_key=$TMDB_API_KEY&query=A%20Shop%20for%20Killers&language=en-US")
-          echo "::warning::TMDB search HTTP $code: $(head -c 300 /tmp/tmdb.json | tr -d '\n\"')"
-      - name: Export screenshots
-        if: always()
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/shots"
-          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/shots.xcresult" --output-path "$RUNNER_TEMP/shots"
-          ls -la "$RUNNER_TEMP/shots"
-      - name: Publish screenshots to the tvos-screenshots branch
-        if: always()
-        run: |
-          set -euo pipefail
-          trap 'echo "::error::publish failed (exit $?) at: $BASH_COMMAND"' ERR
-          out="$RUNNER_TEMP/named"; mkdir -p "$out"
-          python3 - "$RUNNER_TEMP/shots" "$out" <<'PY'
-          import json, shutil, sys, os, re
-          src, dst = sys.argv[1], sys.argv[2]
-          try:
-              manifest = json.load(open(os.path.join(src, "manifest.json")))
-          except Exception as error:
-              print("::error::manifest: %r; files: %s" % (error, os.listdir(src)[:10]))
-              sys.exit(0)
-          for test in manifest:
-              for a in test.get("attachments", []):
-                  name = re.sub(r"(_\d+)?(_[0-9A-Fa-f-]{36})?\.(png|jpe?g)$", "", a.get("suggestedHumanReadableName", a["exportedFileName"]))
-                  name = re.sub(r"[^\w\u0600-\u06FF .,\[\]·()-]", "-", name)[:120]
-                  ext = os.path.splitext(a["exportedFileName"])[1].lower()
-                  # Screenshots only: Xcode also attaches screen recordings, far too big for git.
-                  if ext not in (".png", ".jpg", ".jpeg"):
-                      continue
-                  try:
-                      shutil.copy(os.path.join(src, a["exportedFileName"]), os.path.join(dst, name + ext))
-                  except OSError as error:
-                      print("skipped", a["exportedFileName"], error)
+            -derivedDataPath "$RUNNER_TEMP/tvos-derived" \
+            -resultBundlePath "$RUNNER_TEMP/tvos-diagnostics/shots.xcresult" \
+            -only-testing:CinemaIQTVUITests/TVNavigationTests \
+            -only-testing:CinemaIQTVUITests/TVSettingsNavigationTests \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 240 \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/tvos-diagnostics/xcodebuild.log"
+          xcrun xcresulttool get test-results summary \
+            --path "$RUNNER_TEMP/tvos-diagnostics/shots.xcresult" \
+            > "$RUNNER_TEMP/tvos-diagnostics/test-summary.json"
+          python3 - "$RUNNER_TEMP/tvos-diagnostics/test-summary.json" <<'PY'
+          import json, sys
+          summary = json.load(open(sys.argv[1]))
+          if summary.get('passedTests', 0) < 2 or summary.get('failedTests', 0) != 0:
+              raise SystemExit('Expected both focused test classes to run and pass; inspect test-summary.json')
           PY
-          for f in "$out"/*.png; do sips -Z 1280 "$f" >/dev/null 2>&1 || echo "could not resize $f"; done
-          # Crash reports of the app, if any.
-          find ~/Library/Logs/DiagnosticReports -name 'CinemaIQTV*' -exec cp {} "$out"/ \; 2>/dev/null || true
-          ls "$out" | grep -v png || echo "no crash reports" 
-          cd "$out"
-          git init -q -b tvos-screenshots
-          git -c user.name=github-actions -c user.email=actions@github.com add .
-          git -c user.name=github-actions -c user.email=actions@github.com commit -qm "Apple TV screenshots ${{ github.sha }}"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" tvos-screenshots 2>&1 | tail -5 | sed 's/^/::warning::push: /'
-      - name: Upload screenshots
+      - name: Export screenshots and retain crash reports
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tvos-diagnostics/screenshots" "$RUNNER_TEMP/tvos-diagnostics/crashes"
+          if [ -d "$HOME/Library/Logs/DiagnosticReports" ]; then
+            find "$HOME/Library/Logs/DiagnosticReports" -type f -name 'CinemaIQTV*' \
+              -exec cp {} "$RUNNER_TEMP/tvos-diagnostics/crashes/" \;
+          fi
+          if [ -d "$RUNNER_TEMP/tvos-diagnostics/shots.xcresult" ]; then
+            xcrun xcresulttool export attachments \
+              --path "$RUNNER_TEMP/tvos-diagnostics/shots.xcresult" \
+              --output-path "$RUNNER_TEMP/tvos-diagnostics/screenshots"
+          fi
+      - name: Package unsigned simulator app if compilation finished
+        if: always()
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/tvos-derived/Build/Products/Debug-appletvsimulator/CinemaIQTV.app"
+          if [ -d "$app" ]; then
+            ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/CinemaIQTV-unsigned-simulator.zip"
+          fi
+      - name: Upload diagnostics and screenshots even on failure
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Cinema-iQ-AppleTV-screenshots-${{ github.run_number }}
-          path: ${{ runner.temp }}/shots
-          if-no-files-found: error
-          retention-days: 3
+          name: Cinema-iQ-AppleTV-diagnostics-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tvos-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload unsigned simulator app
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinema-iQ-AppleTV-unsigned-simulator-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/CinemaIQTV-unsigned-simulator.zip
+          if-no-files-found: ignore
+          retention-days: 7

@@ -10,6 +10,7 @@ struct TVPlayerView: View {
     @StateObject private var controller = PlaybackController()
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var active: Media?
     /// The season list when playback started without one (from continue watching).
     @State private var fetchedQueue: [Media] = []
@@ -18,6 +19,7 @@ struct TVPlayerView: View {
     @State private var externalTracks: [SubtitleTrack] = []
     @State private var loading = false
     @State private var resolutionError: String?
+    @State private var retryAttempt = 0
     /// IntroDB timings of what is playing: the opening (skip button) and the start of the end credits.
     @State private var skips = SkipSegments()
     /// The series of an episode opened without one (from continue watching).
@@ -35,12 +37,8 @@ struct TVPlayerView: View {
         return list[index + 1]
     }
     private var offerNext: Bool {
-        guard next != nil else { return false }
-        if controller.ended { return true }
-        // From the start of the end credits when IntroDB knows it, else in the last 20 seconds.
-        if let credits = skips.creditsStart, controller.duration > 0, credits < controller.duration, controller.position >= credits { return true }
-        guard let left = controller.remaining else { return false }
-        return left <= 20
+        PlaybackPolicy.offersNext(hasNext: next != nil, ended: controller.ended, position: controller.position,
+                                  duration: controller.duration, creditsStart: skips.creditsStart)
     }
     private var inIntro: Bool { skips.inIntro(controller.position) }
 
@@ -51,11 +49,20 @@ struct TVPlayerView: View {
             if failure == nil {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
-                         menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
+                         menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro-\(current.id)-\(skips.introEnd ?? 0)" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
                          episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
                 .ignoresSafeArea()
             }
             VStack {
+                if let notice = controller.notice {
+                    Label(notice, systemImage: "captions.bubble")
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 30).padding(.vertical, 18)
+                        .background(.black.opacity(0.85), in: RoundedRectangle(cornerRadius: 18))
+                        .padding(.top, 60)
+                        .accessibilityIdentifier("player.subtitleNotice")
+                }
                 Spacer()
                 if let cue = controller.cue {
                     SubtitleText(text: cue, size: subtitleSize, background: subtitleBackground)
@@ -71,11 +78,13 @@ struct TVPlayerView: View {
                         .font(.headline)
                     Text(message).multilineTextAlignment(.center).foregroundStyle(TVTheme.muted).frame(maxWidth: 1000)
                     HStack(spacing: 30) {
+                        Button("إعادة المحاولة") { retry() }
+                            .accessibilityIdentifier("player.retry")
                         if streams.count > 1 && resolutionError == nil {
                             Menu("جودة أخرى") { ForEach(streams) { stream in Button(stream.quality) { choose(stream) } } }
                         }
                         if let next {
-                            Button("الحلقة \(next.episode)") { active = next }
+                            Button("الحلقة \(next.episode)") { play(next) }
                         }
                         Button("إغلاق") { dismiss() }
                     }
@@ -86,9 +95,13 @@ struct TVPlayerView: View {
                 .onExitCommand { dismiss() }
             }
         }
-        .task(id: current.id) { await start(current) }
+        .task(id: "\(current.id)|\(retryAttempt)") { await start(current) }
+        .task(id: "queue-\(current.id)|\(retryAttempt)") { await loadQueue(current) }
         .task(id: "skips-\(current.id)") { await loadSkips(current) }
         .onDisappear { controller.close() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { controller.persist(); controller.player.pause() }
+        }
     }
 
     /// The error to show, worded for the Apple TV (the shared messages speak of the iPhone's player).
@@ -103,7 +116,7 @@ struct TVPlayerView: View {
     /// Everything the menus show; they are rebuilt only when this changes, so an open menu is not replaced while
     /// the video plays (the controller publishes its position several times a second).
     private var menuKey: String {
-        var parts: [String] = []
+        var parts: [String] = [current.id]
         parts.append(streams.map(\.id).joined(separator: ","))
         parts.append(quality ?? "")
         parts.append(controller.subtitleID ?? "")
@@ -139,10 +152,10 @@ struct TVPlayerView: View {
                 controller.selectSubtitle(option.id, external: externalTracks)
             }
         }
-        subtitleItems.append(UIMenu(title: "الحجم", children: SubtitlePreference.sizes.map { option in
+        subtitleItems.append(UIMenu(title: "حجم الترجمة الخارجية", children: SubtitlePreference.sizes.map { option in
             UIAction(title: option.0, state: abs(option.1 - subtitleSize) < 0.01 ? .on : .off) { _ in subtitleSize = option.1 }
         }))
-        subtitleItems.append(UIMenu(title: "الخلفية", children: SubtitlePreference.backgrounds.map { option in
+        subtitleItems.append(UIMenu(title: "خلفية الترجمة الخارجية", children: SubtitlePreference.backgrounds.map { option in
             UIAction(title: option.0, state: abs(option.1 - subtitleBackground) < 0.01 ? .on : .off) { _ in subtitleBackground = option.1 }
         }))
         items.append(UIMenu(title: "الترجمة", image: UIImage(systemName: "captions.bubble"), children: subtitleItems))
@@ -162,7 +175,7 @@ struct TVPlayerView: View {
         guard list.count > 1 else { return [] }
         let row = PlayerEpisodesRow(episodes: list, currentID: current.id, multiSeason: Set(list.map(\.season)).count > 1,
                                     progress: { library.fraction($0) }, select: { episode in
-            if episode.id != current.id { active = episode }
+            play(episode)
         })
         let host = UIHostingController(rootView: row)
         host.title = "الحلقات"
@@ -176,18 +189,33 @@ struct TVPlayerView: View {
             return [UIAction(title: "تخطي المقدمة", image: UIImage(systemName: "forward.fill")) { _ in controller.seek(to: end) }]
         }
         guard offerNext, let next else { return [] }
-        return [UIAction(title: "الحلقة \(next.episode)", image: UIImage(systemName: "forward.end.fill")) { _ in active = next }]
+        return [UIAction(title: "الحلقة \(next.episode)", image: UIImage(systemName: "forward.end.fill")) { _ in play(next) }]
     }
 
     // MARK: Playback
 
     private func choose(_ stream: StreamChoice) {
+        let recovering = failure != nil
         quality = stream.id
-        open(current, stream: stream, resume: controller.position)
+        open(current, stream: stream, resume: controller.position, preservingState: true)
+        if recovering { controller.player.play() }
     }
 
-    private func open(_ media: Media, stream: StreamChoice, resume: Double) {
-        controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
+    private func play(_ episode: Media) {
+        guard episode.id != current.id else { return }
+        if episode.id == next?.id, offerNext { controller.persist(completed: true) }
+        // Stop the old item before changing identity; close saves must retain the completion above.
+        controller.close()
+        active = episode
+    }
+
+    private func retry() {
+        loading = true; resolutionError = nil; controller.error = nil
+        retryAttempt += 1
+    }
+
+    private func open(_ media: Media, stream: StreamChoice, resume: Double, preservingState: Bool = false) {
+        controller.open(media, url: stream.url, resume: resume, preservingState: preservingState) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
     }
@@ -205,19 +233,14 @@ struct TVPlayerView: View {
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil
         async let tracks = SourceClient().subtitles(media)
-        // An episode opened from continue watching comes without its season: load it so the next episode is known.
-        if selection.queue.isEmpty, media.episode > 0, !fetchedQueue.contains(where: { $0.id == media.id }) {
-            Task {
-                if let found = try? await SourceClient().detail(media) { fetchedQueue = found.1.flatMap(\.episodes) }
-            }
-        }
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()
+            guard let first = result.first else { throw CinemaError.noStreams }
             streams = result
-            quality = result[0].id
+            quality = first.id
             let prior = library.progress[media.id]
-            open(media, stream: result[0], resume: prior?.completed == false ? prior?.seconds ?? 0 : 0)
+            open(media, stream: first, resume: prior?.completed == false ? prior?.seconds ?? 0 : 0)
         } catch {
             if !Task.isCancelled { resolutionError = error.localizedDescription }
         }
@@ -229,6 +252,14 @@ struct TVPlayerView: View {
            let track = found.first(where: { $0.language == preferred }) {
             controller.selectSubtitle("ext:" + track.id, external: found)
         }
+    }
+
+    /// Structured with the playback request so an old episode cannot replace the new request's queue.
+    private func loadQueue(_ media: Media) async {
+        guard selection.queue.isEmpty, media.episode > 0,
+              !fetchedQueue.contains(where: { $0.id == media.id }),
+              let found = try? await SourceClient().detail(media), !Task.isCancelled else { return }
+        fetchedQueue = found.1.flatMap(\.episodes)
     }
 }
 
