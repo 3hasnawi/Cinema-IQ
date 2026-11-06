@@ -10,7 +10,7 @@ final class TVNavigationTests: XCTestCase {
     }
 
     override func tearDown() {
-        if let testRun, !testRun.hasSucceeded {
+        if let testRun, testRun.failureCount > 0 {
             let hierarchy = XCTAttachment(string: app.debugDescription)
             hierarchy.name = "navigation-failure-hierarchy"
             hierarchy.lifetime = .keepAlways

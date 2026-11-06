@@ -208,6 +208,10 @@ struct TVHeroHeader: View {
                 }
                 .frame(width: contentWidth, alignment: .leading)
                 .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                // Extend this target section across the empty cinematic space so Down from the centered
+                // navigation reaches the primary action before the centered pagination row below it.
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusSection()
                 Spacer(minLength: 32)
                 if count > 1 {
                     TVHeroPagination(count: count, index: index, select: select, focusChanged: paginationFocusChanged)
