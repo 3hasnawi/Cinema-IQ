@@ -4,7 +4,7 @@ name: iOS App Compile Check
 # Runs only for pushes to iOS work branches, so ordinary Android work never uses macOS minutes.
 on:
   push:
-    branches: ['claude/ios-**', 'chatgpt/ios-**']
+    branches: ['claude/ios-**', 'chatgpt/ios-**', 'chatgpt/tvos-preview-0.3.1']
     paths:
       - 'ios/**'
       - '.github/workflows/ios-app-compile.yml'
@@ -23,6 +23,7 @@ jobs:
     # Compile checks and downloadable previews must not contain repository credentials.
     env:
       TMDB_API_KEY: ""
+      OMDB_API_KEY: ""
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +60,7 @@ jobs:
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" OMDB_API_KEY="$OMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
       - name: Compile the Apple TV app without signing
@@ -72,7 +73,7 @@ jobs:
             -sdk appletvos \
             -destination 'generic/platform=tvOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" OMDB_API_KEY="$OMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee -a "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           test "$(grep -c "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log")" -ge 2
       - name: Verify the preview contains no metadata credential
@@ -84,12 +85,12 @@ jobs:
           import os, plistlib
           with open(os.environ['PLIST'], 'rb') as source:
               info = plistlib.load(source)
-          if info.get('TMDBAPIKey', ''):
+          if info.get('TMDBAPIKey', '') or info.get('OMDbAPIKey', ''):
               raise SystemExit('Refusing export: the preview contains a metadata credential')
-          print('Verified no TMDB credential is embedded in this preview.')
+          print('Verified no TMDB or OMDb credential is embedded in this preview.')
           PYTHON
       - name: Package the requested unsigned Apple TV branch preview
-        if: github.ref == 'refs/heads/chatgpt/ios-tvos-reference-interface'
+        if: github.ref == 'refs/heads/chatgpt/ios-tvos-reference-interface' || github.ref == 'refs/heads/chatgpt/tvos-preview-0.3.1'
         run: |
           set -euo pipefail
           tv_app="$RUNNER_TEMP/DerivedData/Build/Products/Release-appletvos/CinemaIQTV.app"
@@ -102,7 +103,7 @@ jobs:
           printf 'Source commit: %s\nUnsigned arm64 Apple TV preview. Requires user signing before installation. Not App Store/TestFlight.\n' "$GITHUB_SHA" > "$RUNNER_TEMP/tv-preview-output/README.txt"
           shasum -a 256 "$RUNNER_TEMP/tv-preview-output/Cinema-iQ-AppleTV-unsigned.ipa" > "$RUNNER_TEMP/tv-preview-output/SHA256.txt"
       - name: Upload the requested Apple TV preview
-        if: github.ref == 'refs/heads/chatgpt/ios-tvos-reference-interface'
+        if: github.ref == 'refs/heads/chatgpt/ios-tvos-reference-interface' || github.ref == 'refs/heads/chatgpt/tvos-preview-0.3.1'
         uses: actions/upload-artifact@v4
         with:
           name: Cinema-iQ-AppleTV-branch-preview-${{ github.sha }}

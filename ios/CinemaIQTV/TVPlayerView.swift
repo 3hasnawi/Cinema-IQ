@@ -16,6 +16,7 @@ struct TVPlayerView: View {
     @State private var fetchedQueue: [Media] = []
     @State private var streams: [StreamChoice] = []
     @State private var quality: String?
+    @AppStorage(PlaybackQualityPreference.key) private var preferredQuality = PlaybackQualityPreference.automatic
     @State private var externalTracks: [SubtitleTrack] = []
     @State private var loading = false
     @State private var resolutionError: String?
@@ -215,6 +216,7 @@ struct TVPlayerView: View {
     private func choose(_ stream: StreamChoice) {
         let recovering = failure != nil
         quality = stream.id
+        preferredQuality = PlaybackQualityPreference.value(for: stream)
         open(current, stream: stream, resume: controller.position, preservingState: true)
         if recovering, scenePhase == .active { controller.player.play() }
     }
@@ -235,6 +237,9 @@ struct TVPlayerView: View {
     private func open(_ media: Media, stream: StreamChoice, resume: Double, preservingState: Bool = false) {
         controller.open(media, url: stream.url, resume: resume, preservingState: preservingState) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
+        }
+        if PlaybackQualityPreference.isAdaptive(stream), let height = PlaybackQualityPreference.height(preferredQuality) {
+            controller.player.currentItem?.preferredMaximumResolution = CGSize(width: Double(height) * 16 / 9, height: Double(height))
         }
         // Resolution can finish after Home/sleep interrupted the request.
         if scenePhase != .active { controller.player.pause() }
@@ -257,7 +262,7 @@ struct TVPlayerView: View {
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()
-            guard let first = result.first else { throw CinemaError.noStreams }
+            guard let first = PlaybackQualityPreference.choose(result, preferred: preferredQuality) else { throw CinemaError.noStreams }
             streams = result
             quality = first.id
             let prior = library.progress[media.id]

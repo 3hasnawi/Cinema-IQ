@@ -52,6 +52,12 @@ public struct CinemanaClient: Sendable {
         let seasons = result.isSeries || media.episode > 0 ? Self.seasons(try await get("videoSeason/id/\(parent)"), parent: parent) : []
         return (result, seasons)
     }
+    /// Trailer metadata does not need the complete episode/season listing.
+    public func trailer(_ id: String) async throws -> URL? {
+        guard try ContentSource.owner(of: id) == .cinemana else { throw CinemaError.invalidID }
+        let row = Self.rows(try await get("allVideoInfo/id/\(id)")).first ?? [:]
+        return HeroTrailer.url(HeroTrailer.sourceURL(row))
+    }
     public func streams(_ id: String) async throws -> [StreamChoice] {
         guard try ContentSource.owner(of: id) == .cinemana else { throw CinemaError.invalidID }
         return Self.parseStreams(try await get("transcoddedFiles/id/\(id)"))
@@ -89,6 +95,7 @@ public struct CinemanaClient: Sendable {
             media.episode = Int(DawwirliClient.text(row, "episodeNummer", "episodeNumber", "episode")) ?? 0
             media.seriesID = DawwirliClient.text(row, "seriesId")
             media.enTitle = DawwirliClient.text(row, "en_title")
+            media.trailerURL = HeroTrailer.sourceURL(row)
             media.quality = DawwirliClient.text(row, "videoQuality", "quality", "resolution", "contentQuality")
             return media
         }.uniqueMedia()

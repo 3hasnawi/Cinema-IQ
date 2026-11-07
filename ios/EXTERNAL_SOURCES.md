@@ -104,3 +104,7 @@
 - Core: `ios/Core/Sources/CinemaCore/ExternalSource.swift` (`ExternalProvider`، `ExternalClient`، `ExternalParser`، `ExternalTransport`).
 - التطبيق: `ios/CinemaIQ/ExternalSources.swift` (`ProviderStore`، قسم الإعدادات).
 - الاختبارات: `ios/Core/Tests/CinemaCoreTests/ExternalSourceTests.swift` مع ملفات `Fixtures/external`.
+
+### Optional Apple TV hero trailer
+
+An item in `home`, `catalog` or item details may include `trailerURL`: a direct HTTPS MP4, M4V, MOV or HLS URL for that work's promotional trailer. A missing field leaves the artwork in place. YouTube/Vimeo webpage links and the main feature's playback URL are not trailer streams. The provider must have permission to supply the promotional video. Existing providers need no change to remain compatible.

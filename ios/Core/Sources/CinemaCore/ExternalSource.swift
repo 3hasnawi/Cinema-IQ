@@ -245,6 +245,7 @@ public enum ExternalParser {
         media.rating = text(object, "rating")
         media.quality = text(object, "quality")
         media.enTitle = text(object, "enTitle")
+        media.trailerURL = HeroTrailer.sourceURL(object)
         if type == "episode" {
             media.episode = max(1, Int(text(object, "episode")) ?? 1)
             media.season = max(1, Int(text(object, "season")) ?? 1)
@@ -334,6 +335,7 @@ struct DemoTransport: ExternalTransport {
         ["id": "sintel", "title": "Sintel", "enTitle": "Sintel", "type": "movie", "year": "2010", "duration": "1",
          "overview": "العرض الدعائي لفيلم Sintel من مؤسسة Blender، مرخّص بالمشاع الإبداعي (CC BY 3.0).",
          "poster": commons + "8/8f/Sintel_poster.jpg", "backdrop": commons + "8/8f/Sintel_poster.jpg", "quality": "720p",
+         "trailerURL": blender + "durian/trailer/sintel_trailer-720p.mp4",
          "stream": blender + "durian/trailer/sintel_trailer-720p.mp4"],
         ["id": "tears-of-steel", "title": "Tears of Steel", "enTitle": "Tears of Steel", "type": "movie", "year": "2012", "duration": "12",
          "overview": "فيلم خيال علمي قصير من مؤسسة Blender، مرخّص بالمشاع الإبداعي (CC BY 3.0).",

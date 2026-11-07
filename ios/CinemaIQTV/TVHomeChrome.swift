@@ -50,6 +50,7 @@ struct TVFloatingNavigation: View {
 struct TVHomeBackdrop: View {
     let url: String
     let belowFold: Bool
+    @ObservedObject var preview: TVHeroPreview
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var direction
 
@@ -59,6 +60,8 @@ struct TVHomeBackdrop: View {
             Artwork(url: url)
                 .id(url)
                 .transition(.opacity)
+            TVHeroVideoSurface(player: preview.player, rendered: preview.didRender)
+                .opacity(preview.visible ? 1 : 0)
             LinearGradient(stops: [
                 .init(color: .black.opacity(0.66), location: 0),
                 .init(color: .black.opacity(0.28), location: 0.38),
@@ -76,6 +79,7 @@ struct TVHomeBackdrop: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: url)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: preview.visible)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.35), value: belowFold)
     }
 }
@@ -132,7 +136,10 @@ struct TVHeroPagination: View {
                 .accessibilityIdentifier("tv.hero.page.\(dot)")
             }
         }
-        .onChange(of: focused) { _, value in focusChanged(value != nil) }
+        .onChange(of: focused) { _, value in
+            focusChanged(value != nil)
+            if let value { select(value) }
+        }
         .onDisappear { focusChanged(false) }
         .animation(.easeInOut(duration: 0.2), value: index)
     }

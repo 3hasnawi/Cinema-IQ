@@ -49,7 +49,15 @@ public struct DawwirliClient: Sendable {
         result.year = String(Self.text(info, "releasedate", "releaseDate").prefix(4))
         result.duration = Self.text(info, "duration", "episode_run_time")
         result.rating = Self.text(info, "rating")
+        result.trailerURL = HeroTrailer.sourceURL(info)
         return (result, key.type == "series" ? Self.parseSeasons(data, parent: key.raw) : [])
+    }
+    public func trailer(_ id: String) async throws -> URL? {
+        let key = try DawKey(id)
+        let series = key.type != "movie"
+        let data = try await get(series ? "api/series_info" : "api/info",
+                                 [series ? "series_id" : "id": key.type == "episode" ? key.parent : key.raw])
+        return HeroTrailer.url(HeroTrailer.sourceURL(data["info"] as? [String: Any] ?? [:]))
     }
     public static func cleanTitle(_ raw: String) -> String {
         raw.replacingOccurrences(of: "^(?:AR|EN|TR|HI|KR|FR)\\s*[|:-]\\s*", with: "", options: [.regularExpression, .caseInsensitive])
@@ -76,6 +84,7 @@ public struct DawwirliClient: Sendable {
             var media = Media(id: id, title: title); media.isSeries = isSeries
             media.poster = image(text(row, "poster", "icon", "cover")); media.backdrop = image(text(row, "backdrop"))
             media.overview = text(row, "plot", "description"); media.year = text(row, "year"); media.rating = text(row, "rating")
+            media.trailerURL = HeroTrailer.sourceURL(row)
             return media
         }
     }
