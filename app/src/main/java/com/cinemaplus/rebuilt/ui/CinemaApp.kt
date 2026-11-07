@@ -264,7 +264,10 @@ internal const val ExitWindowMillis = 2_500L
                                     event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown,
                                     event.nativeKeyEvent.repeatCount, tabBar.hasFocus)
                                 if (routed.consumed) {
-                                    if (routed.restore) { pendingFocus = false; returnToPage() }
+                                    if (routed.restore) {
+                                        pendingFocus = pageEntry.target == null && vm.busy
+                                        if (!pendingFocus) returnToPage()
+                                    }
                                     return@onPreviewKeyEvent true
                                 }
                                 if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && key in listOf(
