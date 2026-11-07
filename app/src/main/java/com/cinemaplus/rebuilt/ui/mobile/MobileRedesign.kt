@@ -152,7 +152,7 @@ internal fun PhoneShelfTitle(text: String) = PText(text, 16.sp, weight = FontWei
 internal fun PhoneContinueCard(film: Film, progress: Float, onLongClick: () -> Unit, onClick: () -> Unit) {
     Column(Modifier.width(160.dp).combinedClickable(onClick = onClick, onLongClick = onLongClick), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.fillMaxWidth().height(90.dp).clip(RoundedCornerShape(8.dp)).background(Brand.Raised)) {
-            AsyncImage(film.backdrop.ifBlank { film.poster }, mediaTitle(film), Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            AsyncImage(film.backdrop.ifBlank { film.poster }, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             Box(Modifier.align(Alignment.BottomStart).padding(8.dp).size(26.dp).background(Color.Black.copy(alpha = .55f), CircleShape),
                 contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PlayArrow, "استئناف", Modifier.size(16.dp), tint = Color.White) }
             if (progress > 0f) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = .2f))) {
@@ -175,7 +175,7 @@ private fun continueCaption(title: String, film: Film, progress: Float): String 
 @Composable
 internal fun PhonePosterCard(film: Film, modifier: Modifier = Modifier, width: Dp? = 116.dp, onClick: () -> Unit) {
     Column((if (width != null) modifier.width(width) else modifier).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        AsyncImage(film.poster.ifBlank { film.backdrop }, mediaTitle(film),
+        AsyncImage(film.poster.ifBlank { film.backdrop }, null,
             Modifier.fillMaxWidth().aspectRatio(2f / 3f).clip(RoundedCornerShape(8.dp)).background(Brand.Raised), contentScale = ContentScale.Crop)
         PText(mediaTitle(film), 12.sp, Brand.TextSecondary)
     }
