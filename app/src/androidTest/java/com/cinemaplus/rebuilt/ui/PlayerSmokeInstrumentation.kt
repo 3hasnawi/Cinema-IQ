@@ -42,6 +42,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         val backup = prefs.all.toMap()
         val output = File(targetContext.filesDir, "player-smoke").apply { mkdirs() }
         var activity: MainActivity? = null
+        var browseFailure: String? = null
         val result = Bundle()
         fun record(name: String) { checks.put(JSONObject().put("name", name).put("passed", true)) }
         fun waitUntil(name: String, timeout: Long = 45_000, predicate: () -> Boolean) {
@@ -74,7 +75,11 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             activity = startActivitySync(android.content.Intent(targetContext, MainActivity::class.java)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             targetActivity = activity
-            runBrowseChecks(activity!!, ::record, ::screenshot)
+            try { runBrowseChecks(activity!!, ::record, ::screenshot) }
+            catch (error: Throwable) {
+                browseFailure = error.stackTraceToString()
+                screenshot("browse-failure")
+            }
             runOnMainSync {
                 val vm = CinemaViewModel(activity!!.application)
                 vm.selected = Film("demo-show", "اختبار مشغّل التلفزيون", series = true)
@@ -140,14 +145,14 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             result.putString("stream", "Media3 remote smoke passed: ${checks.length()} checks\n")
             status.putString("stream", result.getString("stream")); sendStatus(0, status)
-            File(output, "results.json").writeText(JSONObject().put("passed", true).put("checks", checks)
-                .put("fixture", "Locally generated test pattern; no live service request").toString(2))
+            File(output, "results.json").writeText(JSONObject().put("passed", browseFailure == null).put("checks", checks)
+                .put("browseError", browseFailure).put("fixture", "Locally generated test pattern; no live service request").toString(2))
         } catch(error: Throwable) {
             screenshot("player-failure")
             status.putString("stack", error.stackTraceToString()); sendStatus(-2, status)
             result.putString("stream", error.stackTraceToString())
             File(output, "results.json").writeText(JSONObject().put("passed", false).put("checks", checks)
-                .put("error", error.stackTraceToString()).toString(2))
+                .put("browseError", browseFailure).put("error", error.stackTraceToString()).toString(2))
         } finally {
             runOnMainSync { activity?.setContent { }; activity?.finish() }
             Thread.sleep(500)
