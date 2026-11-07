@@ -296,9 +296,11 @@ fun FilmCard(
         }
     }
 
+    val accessibleTitle = mediaTitle(f)
     Column(modifier.width(cardWidth).bringIntoViewRequester(bringIntoView)) {
         Box(
             Modifier.fillMaxWidth().height(cardHeight)
+                .semantics { contentDescription = accessibleTitle }
                 .focusRequester(focusRequester)
                 .onFocusChanged {
                     focused = it.isFocused
