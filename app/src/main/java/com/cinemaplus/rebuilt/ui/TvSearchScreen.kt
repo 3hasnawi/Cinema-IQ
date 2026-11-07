@@ -114,7 +114,7 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
                 films.isEmpty() -> Label("لا توجد نتائج", 14, Brand.TextTertiary)
                 else -> {
                     val cardWidth = 174.mx
-                    LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxSize(),
+                    LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxSize().tvRailFocusReturn(),
                         contentPadding = PaddingValues(top = 12.mx, bottom = 96.mx),
                         verticalArrangement = Arrangement.spacedBy(24.mx), horizontalArrangement = Arrangement.spacedBy(22.mx)) {
                         items(films, key = { it.id }) { film ->

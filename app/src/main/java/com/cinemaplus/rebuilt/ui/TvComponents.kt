@@ -447,7 +447,7 @@ fun TvShelfRow(
             LazyRow(state = rowState, contentPadding = PaddingValues(
                 horizontal = inset, vertical = 18.mx),
                 horizontalArrangement = Arrangement.spacedBy(TvMetrics.CardGap),
-                modifier = Modifier.fillMaxWidth().then(if(entryRequester != null) Modifier.focusRequester(entryRequester) else Modifier).focusGroup()) {
+                modifier = Modifier.fillMaxWidth().tvRailFocusReturn(entryRequester).focusGroup().tvRailFocusReturn()) {
                 itemsIndexed(shelf.films, key = { _, film -> film.id }, contentType = { _, _ -> "film-card" }) { index, film ->
                     FilmCard(film, vm.library.fraction(film.id), wide, width,
                         modifier = cardModifier(index),
@@ -483,7 +483,7 @@ fun PosterGrid(
     LaunchedEffect(Unit) { if (returnId != null && !awaitTvFocus { returnFocus }) returnId = null }
     RegisterPageEntry(if (returnId != null && films.any { it.id == returnId }) returnFocus else firstRequester)
     LazyVerticalGrid(
-        GridCells.Adaptive(TvMetrics.PosterWidth + 20.dp), modifier.fillMaxSize(),
+        GridCells.Adaptive(TvMetrics.PosterWidth + 20.dp), modifier.fillMaxSize().tvRailFocusReturn(),
         contentPadding = PaddingValues(start = TvMetrics.EdgeInset, end = TvMetrics.EdgeInset,
             top = 8.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),

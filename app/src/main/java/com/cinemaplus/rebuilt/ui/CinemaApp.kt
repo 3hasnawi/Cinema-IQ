@@ -58,6 +58,8 @@ import com.cinemaplus.rebuilt.*
 import com.cinemaplus.rebuilt.R
 import com.cinemaplus.rebuilt.data.*
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import androidx.tv.material3.MaterialTheme as TvTheme
 
 val Ink = Brand.Background
@@ -202,11 +204,32 @@ internal const val ExitWindowMillis = 2_500L
                         // The page names where focus should land when it is entered from the rail (its first card).
                         val pageEntry = remember { arrayOfNulls<FocusRequester>(1) }
                         val latestContentFocus by rememberUpdatedState(contentFocus)
+                        val railReturn = remember(vm.page, vm.demo) { TvRailReturnScope() }
+                        val railPress = remember { TvRailReturnPress() }
+                        val returnScope = rememberCoroutineScope()
+                        var returnJob by remember { mutableStateOf<Job?>(null) }
+                        var pageHasFocus by remember { mutableStateOf(false) }
+                        LaunchedEffect(vm.page, vm.demo) { returnJob?.cancel(); railPress.cancel() }
+                        fun returnToPage() {
+                            returnJob?.cancel()
+                            val page = vm.page
+                            val demo = vm.demo
+                            returnJob = returnScope.launch {
+                                repeat(30) {
+                                    withFrameNanos { }
+                                    if (vm.page != page || vm.demo != demo) return@launch
+                                    val moved = railReturn.restore {
+                                        runCatching { contentFocus.requestFocus() }.getOrDefault(false)
+                                    }
+                                    if (moved || pageHasFocus) return@launch
+                                }
+                            }
+                        }
                         LaunchedEffect(pendingFocus, vm.busy, vm.page) {
                             if (pendingFocus) {
                                 // Take focus as soon as the page has something focusable, so the rail folds at once;
                                 // otherwise wait for loading to finish and try again.
-                                val moved = awaitTvFocus { latestContentFocus }
+                                val moved = awaitTvFocus { pageEntry[0] ?: latestContentFocus }
                                 if (moved || !vm.busy) pendingFocus = false
                             }
                         }
@@ -216,13 +239,21 @@ internal const val ExitWindowMillis = 2_500L
                         LaunchedEffect(tabBar.hasFocus) {
                             if (tabBar.hasFocus && !pendingFocus && System.currentTimeMillis() - lastSelectKey < 600) {
                                 delay(60)
-                                awaitTvFocus { latestContentFocus }
+                                returnToPage()
                             }
                         }
                         CompositionLocalProvider(LocalTabBarState provides tabBar, LocalPageEntry provides pageEntry,
+                            LocalTvRailReturnScope provides railReturn,
                             LocalTvHomeRailEntry provides { runCatching { railFocus.requestFocus() }; Unit }) {
                             Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
                                 val key = event.nativeKeyEvent.keyCode
+                                val routed = railPress.route(key == android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                                    event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown,
+                                    event.nativeKeyEvent.repeatCount, tabBar.hasFocus)
+                                if (routed.consumed) {
+                                    if (routed.restore) returnToPage()
+                                    return@onPreviewKeyEvent true
+                                }
                                 if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && (key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
                                         || key == android.view.KeyEvent.KEYCODE_ENTER || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER))
                                     lastSelectKey = System.currentTimeMillis()
@@ -230,11 +261,13 @@ internal const val ExitWindowMillis = 2_500L
                             }) {
                                 // The page leaves room for the collapsed rail on the right; the rail widens over it.
                                 // Home runs under the rail (its artwork reaches the screen edge behind the icons).
-                                Box(Modifier.fillMaxSize().padding(start = if (vm.page == Page.Home) 0.dp else TvMetrics.RailCollapsed)
-                                    .focusRequester(contentFocus)
-                                    .focusProperties { enter = { pageEntry[0] ?: FocusRequester.Default } }.focusGroup()) {
-                                    if (vm.page == Page.Settings) SettingsScreen(vm)
-                                    else key(vm.page, vm.demo) { BrowseScreen(vm) }
+                                key(vm.page, vm.demo) {
+                                    Box(Modifier.fillMaxSize().padding(start = if (vm.page == Page.Home) 0.dp else TvMetrics.RailCollapsed)
+                                        .onFocusChanged { pageHasFocus = it.hasFocus }
+                                        .tvRailFocusReturn(contentFocus, fallback = { pageEntry[0] }).focusGroup()) {
+                                        if (vm.page == Page.Settings) SettingsScreen(vm)
+                                        else BrowseScreen(vm)
+                                    }
                                 }
                                 // Alpha is read in the layer block, so the dimming animates without recomposing the page.
                                 // With the rail open the page dims behind a scrim that is darkest on the rail side.

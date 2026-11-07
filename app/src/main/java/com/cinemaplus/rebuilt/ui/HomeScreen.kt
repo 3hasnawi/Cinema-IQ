@@ -167,7 +167,7 @@ fun HomeScreen(vm: CinemaViewModel) {
     }) {
         val screen = maxHeight
         WithoutFocusScroll {
-            Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
+            Column(Modifier.fillMaxSize().tvRailFocusReturn().verticalScroll(scroll)) {
                 if (featured.isNotEmpty()) HomeFeaturedSurface(vm, featured, heroIndex, screen,
                     heroFocus, selectPress, rtl,
                     onFocused = { focused ->
