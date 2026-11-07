@@ -189,19 +189,10 @@ internal const val ExitWindowMillis = 2_500L
                 Box(Modifier.fillMaxSize().background(Ink)) {
                     // Long press on a continue-watching card: remove it, or mark it watched.
                     vm.recentOptions?.let { film ->
-                        // The OK key is still held when this dialog opens; its key repeats must not press a button.
-                        // Buttons stay inert for a moment, and the harmless option comes first.
-                        var armed by remember(film.id) { mutableStateOf(false) }
-                        LaunchedEffect(film.id) { delay(900); armed = true }
-                        AlertDialog(onDismissRequest = { if (armed) vm.dismissRecentOptions() },
-                            containerColor = GlassStrong,
-                            title = { Label(film.title, 20, bold = true, lines = 2) },
-                            text = { Column {
-                                TextButton(onClick = { if (armed) vm.markWatched(film) }) { Label("تعليم كمشاهَد", 16, bold = true) }
-                                TextButton(onClick = { if (armed) vm.removeRecent(film) }) { Label("إزالة من تابع المشاهدة", 16, bold = true) }
-                            } },
-                            confirmButton = {},
-                            dismissButton = { TextButton(onClick = { if (armed) vm.dismissRecentOptions() }) { Label("إلغاء", 15) } })
+                        TvRecentActionsDialog(mediaTitle(film),
+                            onWatched = { vm.markWatched(film) },
+                            onRemove = { vm.removeRecent(film) },
+                            onDismiss = { vm.dismissRecentOptions() })
                     }
 
                     if (vm.playing != null) TvScaled { PlayerScreen(vm) }
