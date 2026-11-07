@@ -283,9 +283,7 @@ internal const val ExitWindowMillis = 2_500L
                                 key(vm.page, vm.demo) {
                                     Box(Modifier.fillMaxSize().padding(start = if (vm.page == Page.Home) 0.dp else TvMetrics.RailCollapsed)
                                         .onFocusChanged { pageHasFocus = it.hasFocus }
-                                        // Explicit page entry already prepares and requests its leaf target. Do not redirect the same
-                                        // request recursively from the root's onEnter (notably for keyboard keys without nested groups).
-                                        .tvRailFocusReturn(contentFocus).focusGroup()) {
+                                        .tvRailFocusReturn(contentFocus, fallback = { pageEntry.target.takeIf { pendingFocus } }, deferDefault = pendingFocus).focusGroup()) {
                                         if (vm.page == Page.Settings) SettingsScreen(vm)
                                         else BrowseScreen(vm)
                                     }
