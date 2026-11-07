@@ -23,7 +23,7 @@ internal class TvGridFocus(private val scope: CoroutineScope, private val state:
         if (ids != values) { motion?.cancel(); if (focused !in values) focused = null }
         ids = values; itemOffset = offset
     }
-    fun target(id: String): FocusRequester = if (id == ids.firstOrNull()) first else targets.getOrPut(id) { FocusRequester() }
+    fun target(id: String): FocusRequester = targets.getOrPut(id) { FocusRequester() }
     fun focused(id: String) { focused = id; footerFocused = false }
     fun footerModifier(): Modifier = Modifier.onFocusChanged { footerFocused = it.hasFocus }
     fun cardModifier(id: String): Modifier = Modifier.onFocusChanged { if (!it.hasFocus && focused == id) focused = null }
@@ -48,7 +48,7 @@ internal class TvGridFocus(private val scope: CoroutineScope, private val state:
         if (visible == null || visible.offset.y < layout.viewportStartOffset || visible.offset.y + visible.size.height > layout.viewportEndOffset) {
             if (animate) state.animateScrollToItem(itemIndex) else state.scrollToItem(itemIndex)
         }
-        return awaitTvFocus { target(id) }
+        return awaitTvFocus { if (currentIndex == 0) first else target(id) }
     }
     fun navigate(block: suspend () -> Unit) { motion?.cancel(); motion = scope.launch { block() } }
     fun enterFirst() { navigate { focus(0) } }
