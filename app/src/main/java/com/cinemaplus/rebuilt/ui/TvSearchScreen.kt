@@ -80,8 +80,9 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
     LaunchedEffect(Unit) { if (!fresh && !rail.hasFocus) returnId?.let { if (!resultNavigation.restore(it)) returnId = null } }
     RegisterPageEntry(firstKey) {
         returnId = null
-        // With an empty query there is no results grid to lay out; waiting for it blocks keyboard entry forever.
-        if (films.isNotEmpty()) resultsState.scrollToItem(0)
+        // Keyboard entry must never wait for a results grid (blank query/errors render no grid at all).
+        // Queue its reset for the next grid layout instead of suspending until it becomes visible.
+        resultsState.requestScrollToItem(0)
     }
     LaunchedEffect(typed) {
         delay(400)
