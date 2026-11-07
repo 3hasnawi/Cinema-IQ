@@ -455,26 +455,25 @@ fun PlayerScreen(vm: CinemaViewModel) {
 
         AnimatedVisibility(controlsVisible, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
             Box(Modifier.fillMaxSize().drawBehind {
-                // Top and bottom scrims of the brief: 260 px from the top, 420 px from the bottom (of 1080).
+                // Extend the lower scrim on pause so the synopsis remains readable over the video.
                 val top = size.height * 260f / 1080f
                 drawRect(Brush.verticalGradient(0f to Color.Black.copy(alpha = .75f), 1f to Color.Transparent, endY = top),
                     size = Size(size.width, top))
-                val bottom = size.height * (1f - 420f / 1080f)
+                val bottom = size.height * (1f - (if (!playing) 660f else 420f) / 1080f)
                 drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = .9f), startY = bottom, endY = size.height),
                     topLeft = Offset(0f, bottom), size = Size(size.width, size.height - bottom))
             }) {
-                // Title block at the top start (right in RTL): series name small, episode label large.
-                Column(Modifier.align(Alignment.TopStart).padding(start = 96.mx, top = 54.mx),
-                    verticalArrangement = Arrangement.spacedBy(6.mx)) {
-                    if(isSeries) {
-                        Label(if(vm.selected?.series == true) mediaTitle(vm.selected!!) else mediaTitle(film), 12, Brand.TextTertiary, lines = 1)
-                        Label("الموسم ${film.season} · الحلقة ${film.episode.takeIf { it > 0 } ?: 1}", 20, Color.White, true, lines = 1)
-                    } else Label(mediaTitle(film), 20, Color.White, true, lines = 1)
-                    tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.isSelected }?.let { group ->
-                        (0 until group.length).firstOrNull { group.isTrackSelected(it) }?.let { index ->
-                            group.getTrackFormat(index).channelCount.takeIf { it > 0 }?.let { Label("$it قنوات صوت", 10, Brand.TextMuted, lines = 1) }
-                        }
-                    }
+                // Keep the work name at the upper right; episode facts belong above the timeline.
+                val work = vm.selected?.takeIf { it.series && isSeries } ?: film
+                Label(mediaTitle(work), 24, Color.White, true,
+                    modifier = Modifier.align(AbsoluteAlignment.TopRight)
+                        .absolutePadding(right = 96.mx, top = 54.mx).widthIn(max = 900.mx), lines = 2)
+                if (!playing && !buffering && !ended && playerError == null && duration > 0 &&
+                    previewPosition == null && panel == null && !episodesShown) {
+                    TvPausedInfo(vm, film, duration,
+                        Modifier.align(AbsoluteAlignment.BottomRight)
+                            .absolutePadding(right = 96.mx, bottom = 292.mx)
+                            .widthIn(max = 860.mx))
                 }
                 PlayerControl("إغلاق", "×", modifier = Modifier.focusRequester(backFocus).focusProperties { down = seekFocus },
                     outer = Modifier.align(Alignment.TopEnd).padding(end = 96.mx, top = 48.mx)) { saveProgress(); vm.stop() }
