@@ -40,7 +40,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         val checks = JSONArray()
         val prefs = targetContext.getSharedPreferences("cinema_library", Context.MODE_PRIVATE)
         val backup = prefs.all.toMap()
-        val output = File(targetContext.getExternalFilesDir(null), "player-smoke").apply { mkdirs() }
+        val output = File(targetContext.filesDir, "player-smoke").apply { mkdirs() }
         var activity: MainActivity? = null
         val result = Bundle()
         fun record(name: String) { checks.put(JSONObject().put("name", name).put("passed", true)) }
@@ -56,6 +56,8 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             val bitmap = uiAutomation.takeScreenshot() ?: return
             File(output, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
+            File(output, "$name.json").writeText(JSONObject().put("focused", focusedText())
+                .put("visible", visibleText()).toString(2))
         }
         val status = Bundle().apply {
             putString("id", "PlayerSmoke"); putString("class", javaClass.name)
@@ -116,8 +118,8 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             screenshot("player-seek")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Seek confirmation restores transport focus", predicate = { !visibleText().contains("انتقال إلى") && visibleText().contains("إيقاف مؤقت") })
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
             // Hardware media keys must bypass whichever controller item currently owns focus.
             sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
             waitUntil("Hardware Play/Pause works from another focused control", predicate = { visibleText().contains("تشغيل") && !visibleText().contains("إيقاف مؤقت") })
@@ -290,6 +292,47 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         key(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Remote enters Series section at first card") { vm.page == Page.Series && focusedText().contains("أسرار الشمال") }
         screenshot("10-series-first")
+        key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Explore starts on its first mood") { vm.page == Page.Explore && focusedText().contains("جريمة وغموض") }
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        waitFor("Explore Down enters first mood in next row") { focusedText().contains("حب وعلاقات") }
+        screenshot("11-explore-next-row")
+        key(KeyEvent.KEYCODE_DPAD_UP)
+        waitFor("Explore Up enters first mood in previous row") { focusedText().contains("جريمة وغموض") }
+        key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("My List starts on its first saved card") { vm.page == Page.Library && focusedText().contains("عمل الاختبار 1") }
+        screenshot("12-library-first")
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        val libraryNext = focusedText()
+        check(libraryNext.contains("عمل الاختبار") && !libraryNext.contains("عمل الاختبار 3\n")) { "Library did not move to next row: $libraryNext" }
+        record("Library Down enters another grid row")
+        screenshot("13-library-next-row")
+        key(KeyEvent.KEYCODE_DPAD_UP)
+        waitFor("Library Up resets column to first card") { focusedText().contains("عمل الاختبار 1") }
+        key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Settings starts on Account") { vm.page == Page.Settings && focusedText().contains("الحساب") }
+        screenshot("14-settings-account")
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Account pane can receive remote focus") { focusedText().contains("Cinema") || focusedText().contains("تسجيل") }
+        screenshot("15-account-controls")
+        key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_BACK)
+        repeat(6) { key(KeyEvent.KEYCODE_DPAD_UP) }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Search starts on its first keyboard key") { vm.page == Page.Search && focusedText().trim() == "ا" }
+        screenshot("16-search-first-key")
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Remote search key updates query") { vm.query == "ا" }
+        screenshot("17-search-results")
         runOnMainSync { activity.setContent { } }
         Thread.sleep(250)
     }

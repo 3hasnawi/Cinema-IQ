@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: tv-screenshots-${{ github.ref }}
@@ -54,3 +54,21 @@ jobs:
             ${{ runner.temp }}/tv-validation/
             app/build/outputs/apk/debug/app-debug.apk
             app/build/test-results/testDebugUnitTest/
+      - name: Keep build files in a draft for authenticated download
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tv-validation"
+          cd "$RUNNER_TEMP/tv-validation"
+          if compgen -G '*.png' > /dev/null; then
+            zip -q validation-captures.zip ./*.png ./*.json ./*.txt
+          fi
+          files=()
+          test ! -f validation-captures.zip || files+=(validation-captures.zip)
+          apk="$GITHUB_WORKSPACE/app/build/outputs/apk/debug/app-debug.apk"
+          test ! -f "$apk" || files+=("$apk")
+          if (( ${#files[@]} )); then
+            gh release create "tv-validation-${{ github.run_id }}" "${files[@]}" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" --title "Android TV emulator validation ${{ github.run_id }}" --notes 'Internal debug build and genuine emulator captures. Not a public app update. Read results.json for test status.'
+          fi

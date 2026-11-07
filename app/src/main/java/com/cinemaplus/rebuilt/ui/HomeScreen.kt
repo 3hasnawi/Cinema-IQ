@@ -102,18 +102,17 @@ fun HomeScreen(vm: CinemaViewModel) {
         val row = rows.getOrNull(index) ?: return
         navigation?.cancel()
         navigation = scope.launch {
-            if (first) {
-                // A LazyRow may have scrolled its first card out of composition. Materialize it before focusing.
-                rowStates[index].scrollToItem(0)
-                if (!awaitTvFocus { rowFocus[row.id] }) return@launch
-            }
+            // Reveal the destination before requesting focus: an off-screen lazy row cannot reliably accept it.
+            if (first) rowStates[index].scrollToItem(0)
             rowOffsets[row.id]?.let { scroll.animateScrollTo(it, tween(280)) }
+            if (first) awaitTvFocus { rowFocus[row.id] }
         }
     }
     fun showHero() {
         navigation?.cancel()
         navigation = scope.launch {
-            if (awaitTvFocus { heroFocus }) scroll.animateScrollTo(0, tween(280))
+            scroll.animateScrollTo(0, tween(280))
+            awaitTvFocus { heroFocus }
         }
     }
 
