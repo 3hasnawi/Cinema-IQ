@@ -72,7 +72,9 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
     val logoutFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     var panelHasFocus by remember { mutableStateOf(false) }
-    RegisterPageEntry(rowFocus.getValue(SettingsPane.Account))
+    val panelScroll = rememberScrollState()
+    RegisterPageEntry(rowFocus.getValue(SettingsPane.Account)) { paneName = SettingsPane.Account.name; panelScroll.scrollTo(0) }
+    LaunchedEffect(paneName) { panelScroll.scrollTo(0) }
     BackHandler(enabled = panelHasFocus) { runCatching { rowFocus.getValue(pane).requestFocus() } }
     if (sourceDialog) SourceAccountDialog(vm) { sourceDialog = false; runCatching { panelFocus.requestFocus() } }
 
@@ -80,7 +82,7 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
         Label("الإعدادات", 23, Color.White, true, lines = 1, modifier = Modifier.align(Alignment.TopStart).padding(start = 56.mx, top = 56.mx))
         // Section list. Entering it from outside lands on the selected row.
         Column(Modifier.align(Alignment.TopStart).padding(start = 56.mx, top = 150.mx).width(560.mx)
-            .focusProperties { enter = { rowFocus.getValue(pane) } }.focusGroup(),
+            .tvRailFocusReturn(fallback = { rowFocus.getValue(pane) }).focusGroup(),
             verticalArrangement = Arrangement.spacedBy(8.mx)) {
             SettingsPane.entries.forEach { entry ->
                 SectionRow(entry.title, paneIcon(entry), selected = entry == pane,
@@ -98,13 +100,14 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
         Column(Modifier.align(Alignment.TopEnd).padding(end = 58.mx, top = 150.mx, bottom = 96.mx).width(1060.mx)
             .clip(RoundedCornerShape(24.mx)).background(Brand.Surface)
             .onFocusChanged { panelHasFocus = it.hasFocus }
-            .focusRequester(panelFocus)
+            .tvRailFocusReturn(panelFocus, saveOnExit = false)
             .focusProperties { exit = { direction ->
+                runCatching { panelFocus.saveFocusedChild() }
                 // Leaving the panel towards the list always returns to the selected row.
                 if (direction == androidx.compose.ui.focus.FocusDirection.Right) rowFocus.getValue(pane) else FocusRequester.Default
             } }
             .focusGroup()
-            .verticalScroll(rememberScrollState())
+            .tvRailFocusReturn().verticalScroll(panelScroll)
             .padding(horizontal = 48.mx, vertical = 40.mx),
             verticalArrangement = Arrangement.spacedBy(22.mx)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.mx)) {

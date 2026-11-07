@@ -10,12 +10,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -38,18 +34,19 @@ import coil.request.ImageRequest
 import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.Film
 import com.cinemaplus.rebuilt.data.Shelf
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import android.view.KeyEvent as AndroidKeyEvent
+import kotlinx.coroutines.Job
 import androidx.compose.ui.unit.Dp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /*
- * TV home of the 2026 redesign (01-home.png): a 760 px hero with the title block on the right, then the shelves
- * in one vertical page. Performance rules that keep D-pad navigation smooth on weak devices:
- *  - the hero index is read only by the hero, so a swap never recomposes the shelves;
- *  - the next artwork is prefetched at the size the screen requests;
- *  - card focus is drawn in the graphics layer (see [FilmCard]).
+ * The featured carousel occupies one complete viewport. Shelves start below it and have one explicit vertical
+ * scroll owner, so D-pad focus cannot reveal a row early or fight a second bring-into-view animation.
  */
 
 /** Backdrops are requested at one fixed size so the prefetched bitmap is the one the screen shows. */
@@ -69,108 +66,205 @@ fun HomeScreen(vm: CinemaViewModel) {
     val recent = remember(revision, vm.demo) { vm.library.recent().filter { it.id.startsWith("demo-") == vm.demo } }
     val featured = remember(vm.shelves) { featuredFilms(vm.shelves) }
     val shelves = remember(vm.shelves) { vm.shelves.filter { it.films.isNotEmpty() } }
+    val rows = remember(recent, shelves) {
+        (if (recent.isNotEmpty()) listOf(Shelf("recent", "متابعة المشاهدة", recent)) else emptyList()) + shelves
+    }
+    val rowIDs = rows.map { it.id }
+    val rowFocus = remember(rowIDs) { rowIDs.associateWith { FocusRequester() } }
+    val rowStates = rows.map { shelf -> key(shelf.id) { rememberLazyListState() } }
+    val rowOffsets = remember { mutableMapOf<String, Int>() }
     val heroIndex = rememberSaveable { mutableIntStateOf(0) }
-    val lastInput = remember { longArrayOf(System.currentTimeMillis()) }
-    val playFocus = remember { FocusRequester() }
+    val lastInput = remember { longArrayOf(android.os.SystemClock.uptimeMillis()) }
+    val selectPress = remember { TvHomeSelectPress() }
+    val heroFocus = remember { FocusRequester() }
+    val errorFocus = remember { FocusRequester() }
+    val requestEntry = LocalTvEntryRequest.current
+    var heroFocused by remember { mutableStateOf(false) }
+    var focusedRow by remember { mutableStateOf<String?>(null) }
     val scroll = rememberScrollState()
-    // The card that opened a title or started playback ("shelf/film"); coming back lands on it, not on the hero.
     var returnKey by rememberSaveable { mutableStateOf<String?>(null) }
     val returnFocus = remember { FocusRequester() }
     var restoring by remember { mutableStateOf(returnKey != null) }
+    val scope = rememberCoroutineScope()
+    var navigation by remember { mutableStateOf<Job?>(null) }
+    val context = LocalContext.current
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val enterRail = LocalTvHomeRailEntry.current
+    val freshEntry = LocalTvFreshEntry.current
+    val heroReturn = returnKey == "hero"
+    val returningRow = rows.firstOrNull { row -> row.films.any { "${row.id}/${it.id}" == returnKey } }
+    LaunchedEffect(featured) {
+        heroIndex.intValue = heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0))
+        vm.enrich(featured)
+    }
+
+    fun showRow(index: Int, first: Boolean) {
+        val row = rows.getOrNull(index) ?: return
+        navigation?.cancel()
+        navigation = scope.launch {
+            // Reveal the destination before requesting focus: an off-screen lazy row cannot reliably accept it.
+            if (first) rowStates[index].scrollToItem(0)
+            rowOffsets[row.id]?.let { scroll.animateScrollTo(it, tween(280)) }
+            if (first) awaitTvFocus { rowFocus[row.id] }
+        }
+    }
+    fun showHero() {
+        navigation?.cancel()
+        navigation = scope.launch {
+            scroll.animateScrollTo(0, tween(280))
+            awaitTvFocus { heroFocus }
+        }
+    }
+
+    RegisterPageEntry(if (featured.isNotEmpty()) heroFocus else rowIDs.firstOrNull()?.let { rowFocus[it] } ?: errorFocus.takeIf { vm.error != null }) {
+        navigation?.cancel()
+        returnKey = null
+        heroIndex.intValue = 0
+        scroll.scrollTo(0)
+        if (featured.isEmpty()) rowStates.firstOrNull()?.scrollToItem(0)
+    }
     LaunchedEffect(Unit) {
-        if (returnKey != null) { if (awaitTvFocus { returnFocus }) delay(400) else returnKey = null }
+        if (!freshEntry) when {
+            heroReturn && featured.isNotEmpty() -> {
+                scroll.scrollTo(0)
+                awaitTvFocus { heroFocus }
+            }
+            returningRow != null -> {
+                val row = rows.indexOf(returningRow)
+                val card = returningRow.films.indexOfFirst { "${returningRow.id}/${it.id}" == returnKey }
+                withFrameNanos { }
+                if (row >= 0 && card >= 0 && rowStates[row].layoutInfo.visibleItemsInfo.none { it.index == card })
+                    rowStates[row].scrollToItem(card)
+                if (awaitTvFocus { returnFocus }) rowOffsets[returningRow.id]?.let { scroll.scrollTo(it) }
+                else returnKey = null
+            }
+            else -> returnKey = null
+        }
         restoring = false
     }
-    // Height of the first row under the hero, measured, so that row alone shows at the bottom of any screen.
-    var firstRowHeight by remember { mutableIntStateOf(0) }
-    val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    LaunchedEffect(featured) { vm.enrich(featured) }
-    // Entering the page from the rail, or coming back to it, lands on the hero's main button.
-    RegisterPageEntry(if (returnKey != null) returnFocus else if (featured.isNotEmpty()) playFocus else null)
     LaunchedEffect(featured) {
         while (true) {
             delay(1_000)
-            if (featured.size < 2 || System.currentTimeMillis() - lastInput[0] < HeroRotationMillis) continue
+            if (!heroFocused || scroll.value != 0 || selectPress.armed || featured.size < 2 ||
+                android.os.SystemClock.uptimeMillis() - lastInput[0] < HeroRotationMillis) continue
             val next = (heroIndex.intValue + 1) % featured.size
             featured.getOrNull((next + 1) % featured.size)?.let { upcoming ->
                 val art = vm.withArtwork(upcoming).heroArt()
                 if (art.isNotBlank()) context.imageLoader.enqueue(heroRequest(context, art))
             }
             heroIndex.intValue = next
-            lastInput[0] = System.currentTimeMillis()
+            lastInput[0] = android.os.SystemClock.uptimeMillis()
         }
     }
-    Box(Modifier.fillMaxSize().background(Brand.Background).onPreviewKeyEvent {
-        lastInput[0] = System.currentTimeMillis(); false
-    }) {
-      BoxWithConstraints(Modifier.fillMaxSize()) {
-        // Sizes come from the real screen: TVs report different densities, so fixed heights left two rows showing.
-        val screen = maxHeight
-        val row = if (firstRowHeight > 0) with(density) { firstRowHeight.toDp() } else 330.mx
-        val heroHeight = (screen - row).coerceAtLeast(screen * .55f)
-        WithMinimalFocusScroll {
-        Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-            Box(Modifier.fillMaxWidth()) {
-                val hero = featured.getOrNull(heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork)
-                // The artwork runs the full screen height, behind the continue-watching row too.
-                HomeHeroArtwork(hero, Modifier.fillMaxWidth().height(screen))
-                Column(Modifier.fillMaxWidth()) {
-                    if (hero != null) {
-                        HomeHero(vm, hero, featured.size, heroIndex.intValue, recent, playFocus, heroHeight,
-                            Modifier.onFocusChanged { if (it.hasFocus && !restoring) { returnKey = null; scope.launch { scroll.animateScrollTo(0) } } })
-                    } else {
-                        Box(Modifier.fillMaxWidth().height(heroHeight)) {
-                            if (vm.busy) HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeStart).width(820.mx))
-                        }
-                    }
-                    if (recent.isNotEmpty()) HomeShelf(Modifier.onSizeChanged { firstRowHeight = it.height }) {
-                        TvShelfRow(Shelf("recent", "متابعة المشاهدة", recent), vm, wide = true, width = TvMetrics.ContinueWidth,
-                            preview = false, inset = TvMetrics.HomeStart,
-                            firstRequester = returnFocus.takeIf { returnKey?.substringBefore('/') == "recent" },
-                            firstRequesterIndex = recent.indexOfFirst { "recent/${it.id}" == returnKey }.coerceAtLeast(0),
-                            onCardLongClick = { film -> vm.showRecentOptions(film) },
-                            onCardClick = { returnKey = "recent/${it.id}"; vm.play(it) })
-                    }
-                    shelves.forEachIndexed { index, shelf ->
-                        HomeShelf(if (index == 0 && recent.isEmpty()) Modifier.onSizeChanged { firstRowHeight = it.height } else Modifier) {
-                            TvShelfRow(shelf, vm, preview = false, titleOnly = true, inset = TvMetrics.HomeStart,
-                                firstRequester = returnFocus.takeIf { returnKey?.substringBeforeLast('/') == shelf.id },
-                                firstRequesterIndex = shelf.films.indexOfFirst { "${shelf.id}/${it.id}" == returnKey }.coerceAtLeast(0),
-                                onCardClick = { returnKey = "${shelf.id}/${it.id}"; vm.open(it) })
-                        }
-                    }
-                    if (vm.busy && shelves.isEmpty()) ShelfSkeleton()
-                    vm.error?.let { error ->
-                        Column(Modifier.padding(horizontal = TvMetrics.HomeStart, vertical = 24.mx), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Label(error, 14, Brand.TextTertiary, lines = 2)
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Action("إعادة المحاولة", true) { vm.reload() }
-                                Action("تجربة التصميم") { vm.changeDemo(true) }
-                            }
-                        }
-                    }
-                    if (!vm.busy && vm.error == null && featured.isEmpty() && shelves.isEmpty() && recent.isEmpty())
-                        Label("لا يوجد محتوى متاح حاليًا", 17, Brand.TextTertiary, modifier = Modifier.padding(TvMetrics.HomeStart))
-                    Spacer(Modifier.height(48.mx))
-                }
-                Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
+    BoxWithConstraints(Modifier.fillMaxSize().background(Brand.Background).onPreviewKeyEvent { event ->
+        lastInput[0] = android.os.SystemClock.uptimeMillis()
+        val native = event.nativeKeyEvent
+        val down = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN
+        val up = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP
+        if ((!down && !up) || (!heroFocused && focusedRow == null)) return@onPreviewKeyEvent false
+        if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount == 0) {
+            val current = if (heroFocused) null else rowIDs.indexOf(focusedRow).takeIf { it >= 0 }
+            when (val target = TvHomeNavigation.verticalTarget(current, down, rows.size, featured.isNotEmpty())) {
+                TvHomeNavigation.Destination.Hero -> showHero()
+                TvHomeNavigation.Destination.Rail -> enterRail?.invoke()
+                is TvHomeNavigation.Destination.Shelf -> showRow(target.index, first = true)
+                TvHomeNavigation.Destination.None -> Unit
             }
         }
+        // Keep key-up/repeats from reaching the newly focused row and causing a second jump.
+        true
+    }) {
+        val screen = maxHeight
+        WithoutFocusScroll {
+            Column(Modifier.fillMaxSize().onFocusChanged { if (!it.hasFocus) navigation?.cancel() }.tvRailFocusReturn().verticalScroll(scroll)) {
+                if (featured.isNotEmpty()) HomeFeaturedSurface(vm, featured, heroIndex, screen,
+                    heroFocus, selectPress, rtl,
+                    onFocused = { focused ->
+                        heroFocused = focused
+                        if (focused) lastInput[0] = android.os.SystemClock.uptimeMillis()
+                        if (!focused) selectPress.cancel()
+                        else if (!restoring) {
+                            returnKey = null
+                            if (navigation?.isActive != true) {
+                                navigation?.cancel()
+                                navigation = scope.launch { scroll.animateScrollTo(0, tween(280)) }
+                            }
+                        }
+                    }, onOpen = { film -> returnKey = "hero"; vm.open(film) })
+                else if (vm.busy && rows.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().height(screen)) {
+                        HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeStart).width(820.mx))
+                    }
+                }
+                rows.forEachIndexed { index, shelf -> key(shelf.id) {
+                    val isRecent = shelf.id == "recent"
+                    val returnIndex = shelf.films.indexOfFirst { "${shelf.id}/${it.id}" == returnKey }
+                    Box(Modifier.fillMaxWidth().padding(bottom = 22.mx)
+                        .onGloballyPositioned { rowOffsets[shelf.id] = it.positionInParent().y.toInt() }
+                        .onFocusChanged { if (!it.hasFocus && focusedRow == shelf.id) focusedRow = null }) {
+                        TvShelfRow(shelf, vm, wide = isRecent,
+                            width = if (isRecent) TvMetrics.ContinueWidth else TvMetrics.PosterWidth,
+                            preview = false, titleOnly = !isRecent, inset = TvMetrics.HomeStart,
+                            firstRequester = rowFocus[shelf.id], suppliedRowState = rowStates[index],
+                            cardModifier = { card -> if (card == returnIndex) Modifier.focusRequester(returnFocus) else Modifier },
+                            onFilmFocused = {
+                                if (focusedRow != shelf.id) {
+                                    focusedRow = shelf.id
+                                    if (!restoring && navigation?.isActive != true) showRow(index, first = false)
+                                }
+                            },
+                            onCardLongClick = if (isRecent) ({ film -> vm.showRecentOptions(film) }) else null,
+                            onCardClick = { film ->
+                                returnKey = "${shelf.id}/${film.id}"
+                                if (isRecent) vm.play(film) else vm.open(film)
+                            })
+                    }
+                } }
+                if (vm.busy && shelves.isEmpty()) ShelfSkeleton()
+                vm.error?.let { error ->
+                    Column(Modifier.padding(horizontal = TvMetrics.HomeStart, vertical = 24.mx), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Label(error, 14, Brand.TextTertiary, lines = 2)
+                        Row(Modifier.focusRequester(errorFocus), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Action("إعادة المحاولة", true) { vm.reload(); requestEntry(true) }
+                            Action("تجربة التصميم") { vm.changeDemo(true); requestEntry(true) }
+                        }
+                    }
+                }
+                if (!vm.busy && vm.error == null && featured.isEmpty() && rows.isEmpty())
+                    Label("لا يوجد محتوى متاح حاليًا", 17, Brand.TextTertiary, modifier = Modifier.padding(TvMetrics.HomeStart))
+                Spacer(Modifier.height(48.mx))
+            }
         }
-      }
     }
 }
 
-/** Keeps a whole shelf (title and cards) on screen when focus enters it. */
-@OptIn(ExperimentalFoundationApi::class)
+/** Reads the rotating index here, so changing artwork does not recompose the shelf list. */
 @Composable
-private fun HomeShelf(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val bring = remember { BringIntoViewRequester() }
-    val scope = rememberCoroutineScope()
-    Box(modifier.fillMaxWidth().padding(bottom = 22.mx).bringIntoViewRequester(bring)
-        .onFocusChanged { if (it.hasFocus) scope.launch { bring.bringIntoView() } }) { content() }
+private fun HomeFeaturedSurface(vm: CinemaViewModel, featured: List<Film>, index: MutableIntState,
+    height: Dp, focus: FocusRequester, selectPress: TvHomeSelectPress, rtl: Boolean,
+    onFocused: (Boolean) -> Unit, onOpen: (Film) -> Unit) {
+    val hero = featured.getOrNull(index.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork) ?: return
+    Box(Modifier.fillMaxWidth().height(height)) {
+        HomeHeroArtwork(hero, Modifier.matchParentSize())
+        HomeHero(vm, hero, featured.size, index.intValue, height,
+            Modifier.focusRequester(focus).onFocusChanged { onFocused(it.isFocused) }
+                .onPreviewKeyEvent { event ->
+                    val native = event.nativeKeyEvent
+                    when (native.keyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            if (native.action == AndroidKeyEvent.ACTION_DOWN) index.intValue = TvHomeNavigation.carouselIndex(
+                                index.intValue, featured.size, native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT, rtl)
+                            true
+                        }
+                        AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                            if (selectPress.update(native.action == AndroidKeyEvent.ACTION_DOWN, native.repeatCount)) onOpen(hero)
+                            true
+                        }
+                        else -> false
+                    }
+                }, onOpen = { onOpen(hero) })
+        Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
+    }
 }
 
 /** "Cinema iQ" at the top of the page, on the side away from the rail. */
@@ -206,29 +300,20 @@ private fun HomeHeroArtwork(film: Film?, modifier: Modifier) {
     }
 }
 
-/** Title block of the hero (kind chip, title, facts, two-line story, actions, rotation dots). */
+/** A single focusable featured card: metadata and dots, with OK opening the title instead of action buttons. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, recent: List<Film>,
-    playFocus: FocusRequester, height: Dp, modifier: Modifier) {
+private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int,
+    height: Dp, modifier: Modifier, onOpen: () -> Unit) {
     var about by remember(film.id) { mutableStateOf(film.description) }
     var quality by remember(film.id) { mutableStateOf(film.contentQuality) }
     LaunchedEffect(film.id) { if (about.isBlank()) about = runCatching { vm.describe(film) }.getOrDefault("") }
     LaunchedEffect(film.id) { if (quality.isBlank()) quality = runCatching { vm.bestQuality(film) }.getOrDefault("") }
-    val revision = vm.libraryRevision
-    val saved = remember(revision, film.id) { vm.library.favorites().any { it.id == film.id } }
-    // A series resumes its episode in progress; without one its page opens so an episode can be chosen.
-    val episode = recent.firstOrNull { film.series && it.seriesId == film.id }
-    val started = remember(revision, film.id) { vm.library.progress(film.id) > 0 }
-    val playLabel = when {
-        episode != null -> "شاهد الحلقة ${episode.episode}"
-        !film.series && started -> "استئناف"
-        else -> "شاهد الآن"
-    }
-    // The screen less the first row under it; it grows rather than cut the text when the text needs more room.
-    Box(modifier.fillMaxWidth().heightIn(min = height)) {
+    Box(modifier.fillMaxWidth().height(height).clickable(
+        interactionSource = remember { MutableInteractionSource() }, indication = null,
+        onClickLabel = "عرض تفاصيل ${mediaTitle(film)}", onClick = onOpen)) {
         // Anchored low, so the artwork shows clearly above the text.
-        Column(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeStart, bottom = 64.mx).width(820.mx),
+        Column(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeStart, bottom = 96.mx).width(820.mx),
             verticalArrangement = Arrangement.spacedBy(20.mx)) {
             AccentChip(if (film.series) "مسلسل" else "فيلم")
             Text(mediaTitle(film), color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
@@ -246,17 +331,6 @@ private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int, re
             }
             if (about.isNotBlank()) Text(about, color = Brand.TextSecondary, fontFamily = Cairo, fontSize = 24.ms,
                 lineHeight = (24 * 1.6).toInt().ms, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 760.mx))
-            Row(Modifier.padding(top = 16.mx), horizontalArrangement = Arrangement.spacedBy(20.mx), verticalAlignment = Alignment.CenterVertically) {
-                PillButton(playLabel, Icons.Rounded.PlayArrow, primary = true, modifier = Modifier.focusRequester(playFocus)) {
-                    when {
-                        episode != null -> vm.play(episode)
-                        film.series -> vm.open(film)
-                        else -> vm.play(film)
-                    }
-                }
-                PillButton("قائمتي", if (saved) Icons.Rounded.Check else Icons.Rounded.Add, primary = false) { vm.toggle(film) }
-                PillButton("التفاصيل", Icons.Rounded.Info, primary = false) { vm.open(film) }
-            }
         }
         if (count > 1) Row(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeStart, bottom = 30.mx),
             horizontalArrangement = Arrangement.spacedBy(8.mx)) {
