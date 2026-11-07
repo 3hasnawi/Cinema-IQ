@@ -172,6 +172,7 @@ fun HomeScreen(vm: CinemaViewModel) {
                     heroFocus, selectPress, rtl,
                     onFocused = { focused ->
                         heroFocused = focused
+                        if (focused) lastInput[0] = android.os.SystemClock.uptimeMillis()
                         if (!focused) selectPress.cancel()
                         else if (!restoring) {
                             returnKey = null
