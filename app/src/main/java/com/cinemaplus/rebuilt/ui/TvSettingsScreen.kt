@@ -72,7 +72,9 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
     val logoutFocus = remember { FocusRequester() }
     val panelFocus = remember { FocusRequester() }
     var panelHasFocus by remember { mutableStateOf(false) }
-    RegisterPageEntry(rowFocus.getValue(SettingsPane.Account))
+    val panelScroll = rememberScrollState()
+    RegisterPageEntry(rowFocus.getValue(SettingsPane.Account)) { paneName = SettingsPane.Account.name; panelScroll.scrollTo(0) }
+    LaunchedEffect(paneName) { panelScroll.scrollTo(0) }
     BackHandler(enabled = panelHasFocus) { runCatching { rowFocus.getValue(pane).requestFocus() } }
     if (sourceDialog) SourceAccountDialog(vm) { sourceDialog = false; runCatching { panelFocus.requestFocus() } }
 
@@ -105,7 +107,7 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
                 if (direction == androidx.compose.ui.focus.FocusDirection.Right) rowFocus.getValue(pane) else FocusRequester.Default
             } }
             .focusGroup()
-            .tvRailFocusReturn().verticalScroll(rememberScrollState())
+            .tvRailFocusReturn().verticalScroll(panelScroll)
             .padding(horizontal = 48.mx, vertical = 40.mx),
             verticalArrangement = Arrangement.spacedBy(22.mx)) {
             Column(verticalArrangement = Arrangement.spacedBy(6.mx)) {

@@ -18,15 +18,23 @@ internal val LocalTvRailReturnScope = staticCompositionLocalOf { TvRailReturnSco
 internal fun Modifier.tvRailFocusReturn(
     requester: FocusRequester? = null,
     fallback: (() -> FocusRequester?)? = null,
-    saveOnExit: Boolean = true
+    saveOnExit: Boolean = true,
+    deferDefault: Boolean = false
 ): Modifier {
     val localRequester = remember { FocusRequester() }
     val target = requester ?: localRequester
     val scope = LocalTvRailReturnScope.current
     return focusRequester(target).focusProperties {
         onEnter = {
-            val restored = scope.restoring && runCatching { target.restoreFocusedChild() }.getOrDefault(false)
-            if (!restored) fallback?.invoke()?.let { runCatching { it.requestFocus() } }
+            if (scope.restoring) {
+                // Let the caller prepare the true first card if a saved descendant disappeared.
+                if (!runCatching { target.restoreFocusedChild() }.getOrDefault(false)) cancelFocusChange()
+            } else {
+                val entry = fallback?.invoke()
+                if (entry != null) {
+                    if (!runCatching { entry.requestFocus() }.getOrDefault(false)) cancelFocusChange()
+                } else if (deferDefault) cancelFocusChange()
+            }
         }
         if (saveOnExit) onExit = { runCatching { target.saveFocusedChild() }; Unit }
     }

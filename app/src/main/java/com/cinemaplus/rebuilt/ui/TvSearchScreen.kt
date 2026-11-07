@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
@@ -25,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -39,6 +43,7 @@ import androidx.compose.ui.zIndex
 import com.cinemaplus.rebuilt.CinemaViewModel
 import com.cinemaplus.rebuilt.data.KindFilter
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Letter sets of the on-screen keyboard; the toggle key cycles Arabic → digits → Latin. */
 private enum class KeyboardMode(val keys: List<String>, val toggle: String) {
@@ -63,14 +68,21 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
     val firstKey = remember { FocusRequester() }
     // Coming back from a result's page lands on that result, not on the keyboard.
     var returnId by rememberSaveable { mutableStateOf<String?>(null) }
-    val returnFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (returnId != null && !awaitTvFocus { returnFocus }) returnId = null }
-    RegisterPageEntry(if (returnId != null) returnFocus else firstKey)
+    val resultFocus = remember { FocusRequester() }
+    val filterFocus = remember { FocusRequester() }
+    val moreFocus = remember { FocusRequester() }
+    val resultsState = rememberLazyGridState()
+    val films = vm.filter.apply(vm.shelves.flatMap { it.films }.distinctBy { it.id })
+    val resultNavigation = rememberTvGridFocus(films.map { it.id }, resultsState, resultFocus, 0)
+    val fresh = LocalTvFreshEntry.current
+    val rail = LocalTabBarState.current
+    var filtersFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { if (!fresh && !rail.hasFocus) returnId?.let { if (!resultNavigation.restore(it)) returnId = null } }
+    RegisterPageEntry(firstKey) { returnId = null; resultsState.scrollToItem(0) }
     LaunchedEffect(typed) {
         delay(400)
         if (typed.trim() != vm.query) vm.search(typed)
     }
-    val films = vm.filter.apply(vm.shelves.flatMap { it.films }.distinctBy { it.id })
 
     Row(Modifier.fillMaxSize().padding(start = 56.mx, end = 58.mx, top = 72.mx), horizontalArrangement = Arrangement.spacedBy(94.mx)) {
         Column(Modifier.width(640.mx), verticalArrangement = Arrangement.spacedBy(22.mx)) {
@@ -94,13 +106,19 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
             }
         }
 
-        Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(24.mx)) {
+        Column(Modifier.weight(1f).fillMaxHeight().onPreviewKeyEvent { event ->
+            val native = event.nativeKeyEvent
+            if (!filtersFocused || native.keyCode != AndroidKeyEvent.KEYCODE_DPAD_DOWN || films.isEmpty()) return@onPreviewKeyEvent false
+            if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount == 0) resultNavigation.enterFirst()
+            true
+        }, verticalArrangement = Arrangement.spacedBy(24.mx)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.mx)) {
                     Label("النتائج", 19, Color.White, true, lines = 1)
                     if (vm.query.isNotBlank() && !vm.busy) Label("· ${films.size} عملاً", 13, Brand.TextTertiary, lines = 1)
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.mx)) {
+                Row(Modifier.tvRailFocusReturn(filterFocus).onFocusChanged { filtersFocused = it.hasFocus }.focusGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(10.mx)) {
                     KindFilter.entries.forEach { kind ->
                         FilterPill(kind.label, vm.filter.kind == kind) { vm.filter = vm.filter.copy(kind = kind) }
                     }
@@ -114,20 +132,27 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
                 films.isEmpty() -> Label("لا توجد نتائج", 14, Brand.TextTertiary)
                 else -> {
                     val cardWidth = 174.mx
-                    LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxSize().tvRailFocusReturn(),
+                    WithoutFocusScroll {
+                    LazyVerticalGrid(GridCells.Fixed(5), Modifier.fillMaxSize().then(resultNavigation.modifier(
+                        onTop = { runCatching { filterFocus.requestFocus() }; Unit },
+                        onBottom = if (vm.demo) null else ({
+                            resultNavigation.navigate { resultsState.animateScrollToItem(films.size); awaitTvFocus { moreFocus } }
+                        }))).tvRailFocusReturn(), state = resultsState,
                         contentPadding = PaddingValues(top = 12.mx, bottom = 96.mx),
                         verticalArrangement = Arrangement.spacedBy(24.mx), horizontalArrangement = Arrangement.spacedBy(22.mx)) {
                         items(films, key = { it.id }) { film ->
                             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                                 FilmCard(film, vm.library.fraction(film.id), width = cardWidth, titleOnly = true,
-                                    requester = if (film.id == returnId) returnFocus else null) { returnId = film.id; vm.open(film) }
+                                    modifier = resultNavigation.cardModifier(film.id), requester = if (film.id == films.firstOrNull()?.id) resultFocus else resultNavigation.target(film.id),
+                                    onFocused = { resultNavigation.focused(it.id) }) { returnId = film.id; vm.open(film) }
                             }
                         }
                         if (!vm.demo) item(span = { GridItemSpan(maxLineSpan) }, key = "more") {
-                            Box(Modifier.fillMaxWidth().padding(top = 12.mx), contentAlignment = Alignment.Center) {
+                            Box(Modifier.fillMaxWidth().padding(top = 12.mx).then(resultNavigation.footerModifier()).focusRequester(moreFocus), contentAlignment = Alignment.Center) {
                                 SearchChip(if (vm.busy) "جارٍ التحميل…" else "عرض المزيد") { if (!vm.busy) vm.more() }
                             }
                         }
+                    }
                     }
                 }
             }

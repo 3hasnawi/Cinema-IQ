@@ -88,6 +88,7 @@ fun HomeScreen(vm: CinemaViewModel) {
     val context = LocalContext.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val enterRail = LocalTvHomeRailEntry.current
+    val freshEntry = LocalTvFreshEntry.current
     val heroReturn = returnKey == "hero"
     val returningRow = rows.firstOrNull { row -> row.films.any { "${row.id}/${it.id}" == returnKey } }
     LaunchedEffect(featured) {
@@ -114,18 +115,25 @@ fun HomeScreen(vm: CinemaViewModel) {
         }
     }
 
-    RegisterPageEntry(when {
-        returningRow != null -> returnFocus
-        featured.isNotEmpty() -> heroFocus
-        else -> rowIDs.firstOrNull()?.let { rowFocus[it] }
-    })
+    RegisterPageEntry(if (featured.isNotEmpty()) heroFocus else rowIDs.firstOrNull()?.let { rowFocus[it] }) {
+        navigation?.cancel()
+        returnKey = null
+        heroIndex.intValue = 0
+        scroll.scrollTo(0)
+        if (featured.isEmpty()) rowStates.firstOrNull()?.scrollToItem(0)
+    }
     LaunchedEffect(Unit) {
-        when {
+        if (!freshEntry) when {
             heroReturn && featured.isNotEmpty() -> {
                 scroll.scrollTo(0)
                 awaitTvFocus { heroFocus }
             }
             returningRow != null -> {
+                val row = rows.indexOf(returningRow)
+                val card = returningRow.films.indexOfFirst { "${returningRow.id}/${it.id}" == returnKey }
+                withFrameNanos { }
+                if (row >= 0 && card >= 0 && rowStates[row].layoutInfo.visibleItemsInfo.none { it.index == card })
+                    rowStates[row].scrollToItem(card)
                 if (awaitTvFocus { returnFocus }) rowOffsets[returningRow.id]?.let { scroll.scrollTo(it) }
                 else returnKey = null
             }
@@ -167,7 +175,7 @@ fun HomeScreen(vm: CinemaViewModel) {
     }) {
         val screen = maxHeight
         WithoutFocusScroll {
-            Column(Modifier.fillMaxSize().tvRailFocusReturn().verticalScroll(scroll)) {
+            Column(Modifier.fillMaxSize().onFocusChanged { if (!it.hasFocus) navigation?.cancel() }.tvRailFocusReturn().verticalScroll(scroll)) {
                 if (featured.isNotEmpty()) HomeFeaturedSurface(vm, featured, heroIndex, screen,
                     heroFocus, selectPress, rtl,
                     onFocused = { focused ->

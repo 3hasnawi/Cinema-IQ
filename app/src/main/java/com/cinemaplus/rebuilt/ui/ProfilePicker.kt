@@ -53,7 +53,7 @@ fun ProfilePicker(store: ProfileStore, onChosen: (Profile) -> Unit) {
         if(managing) managing = false else onChosen(store.active())
     }
     LaunchedEffect(adding, editing?.id, managing) {
-        if(!adding && editing == null) { delay(80); runCatching { firstFocus.requestFocus() } }
+        if(!adding && editing == null) awaitTvFocus { firstFocus }
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {

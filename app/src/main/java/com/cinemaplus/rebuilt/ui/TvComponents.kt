@@ -33,7 +33,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
@@ -202,14 +201,6 @@ private const val TrailerLookupDelayMillis = 800L
  */
 private const val CardExpansionEnabled = false
 
-/**
- * Remembers which card of a shelf had focus so it can be restored after returning from another screen.
- * Deliberately not observable: updating it never recomposes anything.
- */
-class RowMemory(var focusedId: String? = null, var returning: Boolean = false)
-private val RowMemorySaver = listSaver<RowMemory, Any>(
-    save = { listOf(it.focusedId.orEmpty(), it.returning) },
-    restore = { RowMemory((it[0] as String).ifEmpty { null }, it[1] as Boolean) })
 
 /**
  * Poster / landscape card. Built so that moving focus costs almost nothing:
@@ -228,7 +219,6 @@ fun FilmCard(
     modifier: Modifier = Modifier,
     onFocused: (Film) -> Unit = {},
     requester: FocusRequester? = null,
-    restoreFocus: Boolean = false,
     preview: Boolean = false,
     describe: (suspend (Film) -> String)? = null,
     onLongClick: (() -> Unit)? = null,
@@ -393,9 +383,7 @@ fun FilmCard(
             }
         }
     }
-    LaunchedEffect(restoreFocus) {
-        if (restoreFocus) { delay(32); focusRequester.requestFocus() }
-    }
+
 }
 
 @Composable
@@ -421,8 +409,6 @@ fun TvShelfRow(
     if (shelf.films.isEmpty()) return
     val localRowState = rememberLazyListState()
     val rowState = suppliedRowState ?: localRowState
-    // Plain holder, not state: moving focus along the row must not recompose the cards.
-    val memory = rememberSaveable(shelf.id, saver = RowMemorySaver) { RowMemory() }
     val describe = remember(vm) { val lookup: suspend (Film) -> String = { film -> vm.describe(film) }; lookup }
     // Warm the next cards' artwork while the viewer is still on the current ones, at the exact size the cards use.
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -452,15 +438,13 @@ fun TvShelfRow(
                     FilmCard(film, vm.library.fraction(film.id), wide, width,
                         modifier = cardModifier(index),
                         requester = if (index == firstRequesterIndex) firstRequester else null,
-                        restoreFocus = memory.returning && memory.focusedId == film.id,
                         preview = preview,
                         titleOnly = titleOnly,
                         describe = describe,
                         onLongClick = onCardLongClick?.let { handler -> { handler(film) } },
                         onFocused = {
-                            memory.focusedId = it.id; memory.returning = false
                             onFilmFocused(it)
-                        }) { memory.returning = true; onCardClick(film) }
+                        }) { onCardClick(film) }
                 }
             }
         }
@@ -474,16 +458,38 @@ fun PosterGrid(
     vm: CinemaViewModel,
     modifier: Modifier = Modifier,
     firstRequester: FocusRequester? = null,
+    headerRequester: FocusRequester? = null,
+    footerRequester: FocusRequester? = null,
     header: (@Composable () -> Unit)? = null,
     footer: (@Composable () -> Unit)? = null
 ) {
-    // Coming back from a title's page lands on the card that opened it; the grid keeps its scroll by itself.
     var returnId by rememberSaveable { mutableStateOf<String?>(null) }
-    val returnFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (returnId != null && !awaitTvFocus { returnFocus }) returnId = null }
-    RegisterPageEntry(if (returnId != null && films.any { it.id == returnId }) returnFocus else firstRequester)
+    val first = firstRequester ?: remember { FocusRequester() }
+    val state = rememberLazyGridState()
+    val navigation = rememberTvGridFocus(films.map { it.id }, state, first, if (header != null) 1 else 0)
+    val fresh = LocalTvFreshEntry.current
+    val rail = LocalTabBarState.current
+    val enterRail = LocalTvHomeRailEntry.current
+    LaunchedEffect(Unit) {
+        if (!fresh && !rail.hasFocus) {
+            val restored = returnId?.let { navigation.restore(it) } ?: false
+            if (!restored && films.isNotEmpty()) { returnId = null; navigation.prepareFirst(); awaitTvFocus { first } }
+        }
+    }
+    RegisterPageEntry(if (films.isNotEmpty()) first else headerRequester) {
+        returnId = null
+        navigation.prepareFirst()
+    }
+    WithoutFocusScroll {
+
     LazyVerticalGrid(
-        GridCells.Adaptive(TvMetrics.PosterWidth + 20.dp), modifier.fillMaxSize().tvRailFocusReturn(),
+        GridCells.Adaptive(TvMetrics.PosterWidth + 20.dp),
+        modifier.fillMaxSize().then(navigation.modifier(onTop = {
+            if (headerRequester != null) navigation.navigate { state.animateScrollToItem(0); awaitTvFocus { headerRequester } }
+            else enterRail?.invoke()
+        }, onBottom = if (footerRequester == null) null else ({
+            navigation.navigate { state.animateScrollToItem((if (header != null) 1 else 0) + films.size); awaitTvFocus { footerRequester } }
+        }))).tvRailFocusReturn(), state = state,
         contentPadding = PaddingValues(start = TvMetrics.EdgeInset, end = TvMetrics.EdgeInset,
             top = 8.dp, bottom = 48.dp),
         verticalArrangement = Arrangement.spacedBy(24.dp),
@@ -493,13 +499,13 @@ fun PosterGrid(
         items(films.size, key = { films[it].id }) { index ->
             val film = films[index]
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                FilmCard(film, vm.library.fraction(film.id), requester = when {
-                    film.id == returnId -> returnFocus
-                    index == 0 -> firstRequester
-                    else -> null
-                }) { returnId = film.id; vm.open(film) }
+                FilmCard(film, vm.library.fraction(film.id), modifier = navigation.cardModifier(film.id),
+                    requester = if (index == 0) first else navigation.target(film.id), onFocused = { navigation.focused(it.id) }) { returnId = film.id; vm.open(film) }
             }
         }
-        if (footer != null) item(span = { GridItemSpan(maxLineSpan) }, key = "footer") { footer() }
+        if (footer != null) item(span = { GridItemSpan(maxLineSpan) }, key = "footer") {
+            Box(Modifier.then(navigation.footerModifier()).then(if (footerRequester == null) Modifier else Modifier.focusRequester(footerRequester))) { footer() }
+        }
+    }
     }
 }

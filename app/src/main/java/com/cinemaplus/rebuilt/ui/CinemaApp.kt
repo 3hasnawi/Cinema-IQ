@@ -202,7 +202,7 @@ internal const val ExitWindowMillis = 2_500L
                     else browseState.SaveableStateProvider("browse") { TvScaled {
                         val contentFocus = remember(vm.page, vm.demo) { FocusRequester() }
                         // The page names where focus should land when it is entered from the rail (its first card).
-                        val pageEntry = remember { arrayOfNulls<FocusRequester>(1) }
+                        val pageEntry = remember(vm.page, vm.demo) { TvPageEntry() }
                         val latestContentFocus by rememberUpdatedState(contentFocus)
                         val railReturn = remember(vm.page, vm.demo) { TvRailReturnScope() }
                         val railPress = remember { TvRailReturnPress() }
@@ -222,15 +222,26 @@ internal const val ExitWindowMillis = 2_500L
                                         runCatching { contentFocus.requestFocus() }.getOrDefault(false)
                                     }
                                     if (moved || pageHasFocus) return@launch
+                                    // A removed/off-screen saved child falls back through the same prepared entry.
+                                    if (pageEntry.enter?.invoke() == true) return@launch
+                                    if (!vm.busy && pageEntry.target == null &&
+                                        runCatching { contentFocus.requestFocus() }.getOrDefault(false)) return@launch
                                 }
                             }
                         }
-                        LaunchedEffect(pendingFocus, vm.busy, vm.page) {
-                            if (pendingFocus) {
-                                // Take focus as soon as the page has something focusable, so the rail folds at once;
-                                // otherwise wait for loading to finish and try again.
-                                val moved = awaitTvFocus { pageEntry[0] ?: latestContentFocus }
-                                if (moved || !vm.busy) pendingFocus = false
+                        LaunchedEffect(pendingFocus, vm.busy, vm.page, pageEntry.target) {
+                            if (!pendingFocus) return@LaunchedEffect
+                            withFrameNanos { }
+                            if (!pendingFocus) return@LaunchedEffect
+                            when (TvBrowseFocusPolicy.entry(pageEntry.target != null, vm.busy)) {
+                                TvBrowseFocusPolicy.Entry.Explicit -> {
+                                    if (pageEntry.enter?.invoke() == true) pendingFocus = false
+                                }
+                                TvBrowseFocusPolicy.Entry.EmptyPage -> {
+                                    pendingFocus = false
+                                    awaitTvFocus { latestContentFocus }
+                                }
+                                TvBrowseFocusPolicy.Entry.Wait -> Unit
                             }
                         }
                         // When a select press removes the focused item (a settings card, a section tab), the system drops
@@ -243,7 +254,8 @@ internal const val ExitWindowMillis = 2_500L
                             }
                         }
                         CompositionLocalProvider(LocalTabBarState provides tabBar, LocalPageEntry provides pageEntry,
-                            LocalTvRailReturnScope provides railReturn,
+                            LocalTvRailReturnScope provides railReturn, LocalTvFreshEntry provides pendingFocus,
+                            LocalTvEntryRequest provides { fresh -> pendingFocus = fresh },
                             LocalTvHomeRailEntry provides { runCatching { railFocus.requestFocus() }; Unit }) {
                             Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
                                 val key = event.nativeKeyEvent.keyCode
@@ -251,9 +263,12 @@ internal const val ExitWindowMillis = 2_500L
                                     event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown,
                                     event.nativeKeyEvent.repeatCount, tabBar.hasFocus)
                                 if (routed.consumed) {
-                                    if (routed.restore) returnToPage()
+                                    if (routed.restore) { pendingFocus = false; returnToPage() }
                                     return@onPreviewKeyEvent true
                                 }
+                                if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && key in listOf(
+                                        android.view.KeyEvent.KEYCODE_DPAD_UP, android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                                        android.view.KeyEvent.KEYCODE_DPAD_RIGHT)) pendingFocus = false
                                 if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && (key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
                                         || key == android.view.KeyEvent.KEYCODE_ENTER || key == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER))
                                     lastSelectKey = System.currentTimeMillis()
@@ -264,7 +279,7 @@ internal const val ExitWindowMillis = 2_500L
                                 key(vm.page, vm.demo) {
                                     Box(Modifier.fillMaxSize().padding(start = if (vm.page == Page.Home) 0.dp else TvMetrics.RailCollapsed)
                                         .onFocusChanged { pageHasFocus = it.hasFocus }
-                                        .tvRailFocusReturn(contentFocus, fallback = { pageEntry[0] }).focusGroup()) {
+                                        .tvRailFocusReturn(contentFocus, fallback = { pageEntry.target.takeIf { pendingFocus } }, deferDefault = pendingFocus).focusGroup()) {
                                         if (vm.page == Page.Settings) SettingsScreen(vm)
                                         else BrowseScreen(vm)
                                     }
@@ -295,13 +310,29 @@ internal const val ExitWindowMillis = 2_500L
     TvActionButton(text, primary, modifier, onClick = onClick)
 }
 
-/** Where focus lands when a page is entered from the side rail; a page publishes its first card here. */
-internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf { arrayOfNulls<FocusRequester>(1) }
+/** Entry has a preparation step: lazy first cards may not be composed until their list is reset. */
+internal class TvPageEntry {
+    var target: FocusRequester? by mutableStateOf(null)
+    var enter: (suspend () -> Boolean)? = null
+    var owner: Any? = null
+}
+internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf { TvPageEntry() }
+internal val LocalTvFreshEntry = androidx.compose.runtime.staticCompositionLocalOf { false }
+internal val LocalTvEntryRequest = androidx.compose.runtime.staticCompositionLocalOf<(Boolean) -> Unit> { {} }
 
-@Composable internal fun RegisterPageEntry(target: FocusRequester?) {
+@Composable internal fun RegisterPageEntry(target: FocusRequester?, prepare: suspend () -> Unit = {}) {
     val slot = LocalPageEntry.current
-    SideEffect { slot[0] = target }
-    DisposableEffect(slot) { onDispose { slot[0] = null } }
+    val owner = remember { Any() }
+    val latestTarget by rememberUpdatedState(target)
+    val latestPrepare by rememberUpdatedState(prepare)
+    SideEffect {
+        slot.owner = owner
+        slot.enter = if (target == null) null else ({ latestPrepare(); awaitTvFocus { latestTarget } })
+        slot.target = target
+    }
+    DisposableEffect(slot, owner) { onDispose {
+        if (slot.owner === owner) { slot.target = null; slot.enter = null; slot.owner = null }
+    } }
 }
 
 // ───────────────────────── Side rail ─────────────────────────
@@ -449,24 +480,19 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
 
 /** Movies and Series grouped by genre: one poster shelf per category under a large page title. */
 @Composable private fun GenreScreen(vm: CinemaViewModel) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = TvMetrics.TabBarSpace, bottom = 48.dp),
-        verticalArrangement = Arrangement.spacedBy(TvMetrics.RowGap)) {
-        item(key = "title") {
-            Column(Modifier.padding(horizontal = TvMetrics.EdgeInset), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                PageHeader(vm.page.label, pageSubtitle(vm.page))
-                if (vm.demo) Label("عرض تجريبي • الأعمال للتوضيح فقط", 13, Muted)
-            }
+    TvShelfPage(vm, vm.shelves, header = {
+        Column(Modifier.padding(horizontal = TvMetrics.EdgeInset), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            PageHeader(vm.page.label, pageSubtitle(vm.page))
+            if (vm.demo) Label("عرض تجريبي • الأعمال للتوضيح فقط", 13, Muted)
         }
-        items(vm.shelves.filter { it.films.isNotEmpty() }, key = { it.id }) { shelf -> TvShelfRow(shelf, vm, wide = false) }
-        item(key = "status") {
-            Column(Modifier.fillMaxWidth().padding(horizontal = TvMetrics.EdgeInset), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (vm.busy) CircularProgressIndicator(color = Accent)
-                vm.error?.let { Message(it, "أعد المحاولة", { vm.reload() }, { vm.changeDemo(true) }) }
-                if (!vm.busy && vm.error == null && vm.shelves.all { it.films.isEmpty() }) Label("لم يُرجع المصدر محتوى للعرض", 17, Muted)
-            }
+    }, footer = {
+        Column(Modifier.fillMaxWidth().padding(horizontal = TvMetrics.EdgeInset), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (vm.busy) CircularProgressIndicator(color = Accent)
+            vm.error?.let { Message(it, "أعد المحاولة", { vm.reload() }, { vm.changeDemo(true) }) }
+            if (!vm.busy && vm.error == null && vm.shelves.all { it.films.isEmpty() }) Label("لم يُرجع المصدر محتوى للعرض", 17, Muted)
         }
-    }
+    })
 }
 
 /** Movies/Series (flat fallback) and Library: big page title over a poster grid. */
@@ -478,9 +504,14 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
     val libraryFilms = remember(vm.libraryRevision, vm.librarySection) { vm.libraryItems() }
     val films = if(vm.page == Page.Library) vm.filter.apply(libraryFilms) else vm.shelves.flatMap { it.films }.distinctBy { it.id }
     val firstFocus = remember { FocusRequester() }
+    val headerFocus = remember { FocusRequester() }
+    val footerFocus = remember { FocusRequester() }
+    val requestEntry = LocalTvEntryRequest.current
     // The grid names the page entry itself: its first card, or the card a title was opened from.
     Column(Modifier.fillMaxSize().padding(top = TvMetrics.TabBarSpace)) {
         PosterGrid(films, vm, firstRequester = firstFocus,
+            headerRequester = headerFocus.takeIf { vm.page == Page.Library },
+            footerRequester = footerFocus.takeIf { vm.error != null || (!vm.demo && vm.page in listOf(Page.Movies, Page.Series) && films.isNotEmpty()) },
             header = {
                 Column(Modifier.padding(top = 8.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     PageHeader(vm.page.label, if (vm.page == Page.Library) vm.librarySection.description else pageSubtitle(vm.page))
@@ -488,7 +519,11 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
                     if (vm.page == Page.Library) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             com.cinemaplus.rebuilt.data.LibrarySection.entries.forEach { section ->
-                                Action(section.label, primary = vm.librarySection == section) { vm.chooseLibrarySection(section) }
+                                Box(if (vm.librarySection == section) Modifier.focusRequester(headerFocus) else Modifier) {
+                                    Action(section.label, primary = vm.librarySection == section) {
+                                        vm.chooseLibrarySection(section); requestEntry(true)
+                                    }
+                                }
                             }
                         }
                         FilterBar(vm)
