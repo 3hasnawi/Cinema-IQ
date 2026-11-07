@@ -45,7 +45,11 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         var browseFailure: String? = null
         var playerVm: CinemaViewModel? = null
         val result = Bundle()
-        fun record(name: String) { checks.put(JSONObject().put("name", name).put("passed", true)) }
+        fun record(name: String) {
+            checks.put(JSONObject().put("name", name).put("passed", true))
+            sendStatus(2, Bundle().apply { putString("stream", "PASS: $name\n") })
+            File(output, "progress.json").writeText(JSONObject().put("checks", checks).toString(2))
+        }
         fun waitUntil(name: String, timeout: Long = 45_000, predicate: () -> Boolean) {
             val end = SystemClock.uptimeMillis() + timeout
             while(SystemClock.uptimeMillis() < end) {
