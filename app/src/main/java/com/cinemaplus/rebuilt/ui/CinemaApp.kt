@@ -228,7 +228,8 @@ internal const val ExitWindowMillis = 2_500L
                                 awaitTvFocus { latestContentFocus }
                             }
                         }
-                        CompositionLocalProvider(LocalTabBarState provides tabBar, LocalPageEntry provides pageEntry) {
+                        CompositionLocalProvider(LocalTabBarState provides tabBar, LocalPageEntry provides pageEntry,
+                            LocalTvHomeRailEntry provides { runCatching { railFocus.requestFocus() }; Unit }) {
                             Box(Modifier.fillMaxSize().onPreviewKeyEvent { event ->
                                 val key = event.nativeKeyEvent.keyCode
                                 if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown && (key == android.view.KeyEvent.KEYCODE_DPAD_CENTER
@@ -512,3 +513,6 @@ internal val LocalPageEntry = androidx.compose.runtime.staticCompositionLocalOf 
 // ───────────────────────── Settings ─────────────────────────
 
 @Composable private fun SettingsScreen(vm: CinemaViewModel) = TvSettingsScreen(vm)
+
+/** Home uses both horizontal arrows for featured titles; Up returns to the section rail. */
+internal val LocalTvHomeRailEntry = androidx.compose.runtime.staticCompositionLocalOf<(() -> Unit)?> { null }
