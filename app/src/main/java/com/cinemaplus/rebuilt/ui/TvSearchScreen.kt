@@ -78,7 +78,11 @@ internal fun TvSearchScreen(vm: CinemaViewModel) {
     val rail = LocalTabBarState.current
     var filtersFocused by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { if (!fresh && !rail.hasFocus) returnId?.let { if (!resultNavigation.restore(it)) returnId = null } }
-    RegisterPageEntry(firstKey) { returnId = null; resultsState.scrollToItem(0) }
+    RegisterPageEntry(firstKey) {
+        returnId = null
+        // With an empty query there is no results grid to lay out; waiting for it blocks keyboard entry forever.
+        if (films.isNotEmpty()) resultsState.scrollToItem(0)
+    }
     LaunchedEffect(typed) {
         delay(400)
         if (typed.trim() != vm.query) vm.search(typed)

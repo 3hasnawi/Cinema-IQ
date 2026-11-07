@@ -43,6 +43,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         val output = File(targetContext.filesDir, "player-smoke").apply { mkdirs() }
         var activity: MainActivity? = null
         var browseFailure: String? = null
+        var playerVm: CinemaViewModel? = null
         val result = Bundle()
         fun record(name: String) { checks.put(JSONObject().put("name", name).put("passed", true)) }
         fun waitUntil(name: String, timeout: Long = 45_000, predicate: () -> Boolean) {
@@ -82,6 +83,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             }
             runOnMainSync {
                 val vm = CinemaViewModel(activity!!.application)
+                playerVm = vm
                 vm.selected = Film("demo-show", "اختبار مشغّل التلفزيون", series = true)
                 vm.playing = Film("demo-smoke-fixture", "حلقة الاختبار", description = "وصف الحلقة لاختبار موضع المعلومات فوق شريط التقدم، مع بقاء الفيديو واضحاً خلفها.",
                     year = "2026", season = 2, episode = 3, episodeTitle = "رحلة الاختبار", contentQuality = "480p", subtitles = listOf(
@@ -123,8 +125,8 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             screenshot("player-seek")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Seek confirmation restores transport focus", predicate = { !visibleText().contains("انتقال إلى") && visibleText().contains("إيقاف مؤقت") })
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+            focusWithRemote("الترجمة والصوت", KeyEvent.KEYCODE_DPAD_RIGHT)
+            record("Remote reaches subtitle/audio button from transport")
             // Hardware media keys must bypass whichever controller item currently owns focus.
             sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
             waitUntil("Hardware Play/Pause works from another focused control", predicate = { visibleText().contains("تشغيل") && !visibleText().contains("إيقاف مؤقت") })
@@ -143,6 +145,35 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             waitUntil("English subtitle selection is confirmed by actual Media3 tracks") { visibleText().contains("✓ الإنجليزية") }
             screenshot("player-english-selected")
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            focusWithRemote("480p", KeyEvent.KEYCODE_DPAD_LEFT)
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+            waitUntil("Quality and speed panel opens from remote") { visibleText().contains("السرعة:") }
+            screenshot("player-quality-panel")
+            sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            runOnMainSync {
+                val vm = playerVm!!
+                vm.playing = vm.playing!!.copy(markers = com.cinemaplus.rebuilt.data.SkipMarkers(introEndMs = 30_000))
+                withPlayer { it.seekTo(5_000) }
+            }
+            waitUntil("Skip intro automatically receives focus") { focusedText().contains("تخطي المقدمة") }
+            screenshot("player-skip-intro-focused")
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+            waitUntil("Skip intro actually seeks past intro") {
+                var skipped = false
+                runOnMainSync { withPlayer { skipped = it.currentPosition >= 30_000 } }
+                skipped && !visibleText().contains("تخطي المقدمة")
+            }
+            runOnMainSync {
+                val vm = playerVm!!
+                vm.chooseAutoNext(false)
+                val current = vm.playing!!.copy(markers = com.cinemaplus.rebuilt.data.SkipMarkers(creditsStartMs = 150_000))
+                vm.playing = current
+                vm.seasons = listOf(com.cinemaplus.rebuilt.data.Season(2,
+                    listOf(current, current.copy(id = "demo-next-fixture", episode = 4, title = "الحلقة التالية"))))
+                withPlayer { it.seekTo(155_000) }
+            }
+            waitUntil("Next episode automatically receives focus") { focusedText().contains("الحلقة التالية") }
+            screenshot("player-next-episode-focused")
             result.putString("stream", "Media3 remote smoke passed: ${checks.length()} checks\n")
             status.putString("stream", result.getString("stream")); sendStatus(0, status)
             File(output, "results.json").writeText(JSONObject().put("passed", browseFailure == null).put("checks", checks)
@@ -173,6 +204,26 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         }
     }
 
+
+    private fun focusWithRemote(label: String, direction: Int) {
+        repeat(12) {
+            if (focusedText().contains(label)) return
+            sendKeyDownUpSync(direction)
+            Thread.sleep(200)
+        }
+        check(focusedText().contains(label)) { "Remote could not reach $label; focused=${focusedText()}" }
+    }
+
+    /** Must be called on the main thread. */
+    private fun withPlayer(block: (androidx.media3.common.Player) -> Unit) {
+        var found = false
+        fun walk(view: View) {
+            if (view is PlayerView) view.player?.let { found = true; block(it) }
+            if (view is ViewGroup) for (i in 0 until view.childCount) walk(view.getChildAt(i))
+        }
+        targetActivity?.window?.decorView?.let(::walk)
+        check(found) { "No actual Media3 player attached" }
+    }
 
     private fun nodes(): List<SemanticsNode> {
         val all = mutableListOf<SemanticsNode>()

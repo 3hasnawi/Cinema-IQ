@@ -13,7 +13,12 @@ internal class TvRemoteKeyRouter {
             return Result(false)
         }
         // A reveal changes focus before key-up. Consume the entire press to avoid a second click.
-        if (consumedPress == key || repeat > 0 && key in listOf(Key.PlayPause, Key.Play, Key.Pause)) return Result(true)
+        if (consumedPress == key) {
+            if (repeat > 0) return Result(true)
+            // A new non-repeat Down is a fresh physical press. Key-up can be lost while focus moves on reveal.
+            consumedPress = null
+        }
+        if (repeat > 0 && key in listOf(Key.PlayPause, Key.Play, Key.Pause)) return Result(true)
         val commands = when (key) {
             Key.PlayPause -> listOf(Command.TogglePlayback, Command.Reveal)
             Key.Play -> listOf(Command.Play, Command.Reveal)

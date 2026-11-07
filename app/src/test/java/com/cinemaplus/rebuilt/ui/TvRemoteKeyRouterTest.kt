@@ -39,6 +39,19 @@ class TvRemoteKeyRouterTest {
         assertFalse(router.route(Key.Right, true, 0, true).consumed)
         assertEquals(listOf(Command.Reveal), router.route(Key.Up, true, 0, false).commands)
     }
+    @Test fun aLostReleaseOnRevealDoesNotSwallowTheNextSelectPress() {
+        val router = TvRemoteKeyRouter()
+        router.route(Key.Select, true, 0, false)
+        // Android may drop KeyUp while the hidden root becomes unfocusable and the seek bar takes focus.
+        assertFalse(router.route(Key.Select, true, 0, true).consumed)
+        assertFalse(router.route(Key.Select, false, 0, true).consumed)
+    }
+    @Test fun mediaButtonRecoversAfterALostReleaseWithoutRepeatingOnHold() {
+        val router = TvRemoteKeyRouter()
+        router.route(Key.PlayPause, true, 0, false)
+        assertTrue(router.route(Key.PlayPause, true, 1, true).commands.isEmpty())
+        assertEquals(Command.TogglePlayback, router.route(Key.PlayPause, true, 0, true).commands.first())
+    }
     @Test fun separatePlayAndPauseButtonsHaveExplicitCommands() {
         val router = TvRemoteKeyRouter()
         assertEquals(Command.Play, router.route(Key.Play, true, 0, true).commands.first())
