@@ -1,0 +1,4 @@
+HeroPreviewTest.mp4 is a synthetic six-second color/shape video generated for Cinema iQ UI acceptance tests.
+It contains no third-party footage, audio, text, likeness or artwork. It is not a real movie trailer.
+Only DEBUG builds with the explicit -tv.testHeroPreview launch argument use it, on the demo Sintel item.
+Generated with FFmpeg lavfi color/drawbox, encoded as H.264 yuv420p without audio.

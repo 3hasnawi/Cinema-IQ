@@ -18,6 +18,8 @@ struct TVDetailView: View {
     @State private var omdb: OMDbInfo?
     /// TMDB: cast portraits, directors, IMDb ID, Arabic story and season dates.
     @State private var tmdb: TMDBWork?
+    @State private var tvmaze: TVMazeCast?
+    @State private var showCastAttribution = false
     @State private var tmdbSeasons: [Int: TMDBSeason] = [:]
     /// OMDb's ratings and first-shown dates, by season.
     @State private var omdbSeasons: [Int: OMDbSeason] = [:]
@@ -25,7 +27,7 @@ struct TVDetailView: View {
     @State private var showStory = false
     @FocusState private var focus: DetailFocus?
 
-    enum DetailFocus: Hashable { case play, list, story, seasons }
+    enum DetailFocus: Hashable { case play, list, story, seasons, castAttribution }
 
     private var current: Media { media ?? initial }
     private var episodes: [Media] { seasons.first { $0.id == seasonID }?.episodes ?? [] }
@@ -45,11 +47,9 @@ struct TVDetailView: View {
         if let overview = tmdb?.overview, !overview.isEmpty { return overview }
         return omdb?.plot ?? ""
     }
-    /// The cast: TMDB's, with portraits; OMDb's names when TMDB has none.
-    private var people: [TMDBPerson] {
-        if let cast = tmdb?.cast, !cast.isEmpty { return cast }
-        return (omdb?.actors ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && $0 != "N/A" }.enumerated().map { TMDBPerson(id: -1 - $0.offset, name: $0.element, photo: "") }
+    /// Preserve the primary credits and enrich missing series portraits only with verified TVmaze cast.
+    private var people: [CastCredit] {
+        CastCredits.merge(tmdb: tmdb?.cast ?? [], omdbActors: omdb?.actors ?? "", tvmaze: tvmaze?.cast ?? [])
     }
     private var makers: (String, String) {
         if let directors = tmdb?.directors, !directors.isEmpty { return ("إخراج", directors.prefix(2).joined(separator: "، ")) }
@@ -85,6 +85,9 @@ struct TVDetailView: View {
         }
         .defaultFocus($focus, .play)
         .fullScreenCover(isPresented: $showStory) { storyPage }
+        .fullScreenCover(isPresented: $showCastAttribution, onDismiss: { focus = .castAttribution }) {
+            if let tvmaze { TVCastAttributionView(sourceURL: tvmaze.sourceURL) }
+        }
         .task { await load() }
         // Back on the season button once the season list closes.
         .onChange(of: router.popup == nil) { _, closed in
@@ -253,38 +256,21 @@ struct TVDetailView: View {
     }
 
     private var castSection: some View {
-        TVShelf(title: "طاقم العمل") {
-            ForEach(people) { person in
-                VStack(spacing: 16) {
-                    Circle()
-                        .fill(TVTheme.raised)
-                        .overlay {
-                            Text(initials(person.name)).font(.system(size: 44, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
-                        }
-                        .overlay {
-                            if let url = URL(string: person.photo), !person.photo.isEmpty {
-                                AsyncImage(url: url) { phase in
-                                    if let image = phase.image { image.resizable().scaledToFill() }
-                                }
-                            }
-                        }
-                        .clipShape(Circle())
-                        .frame(width: 180, height: 180)
-                        .hoverEffect(.highlight)
-                    Text(person.name).font(.caption).lineLimit(1).frame(width: 220)
+        VStack(alignment: .leading, spacing: 24) {
+            TVShelf(title: "طاقم العمل") {
+                ForEach(people) { person in
+                    TVCastLockup(person: person)
                 }
-                // Informational credits, not a button that promises a person page. Focus still lets the
-                // Siri Remote scroll the whole cast shelf and VoiceOver read each name.
-                .focusable()
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(person.name)
-                .accessibilityIdentifier("tv.cast.person.\(person.id)")
+            }
+            if people.contains(where: \.usesTVMaze) {
+                Button { showCastAttribution = true } label: {
+                    Text("بيانات وصور الممثلين: TVmaze · CC BY-SA 4.0")
+                        .font(.caption2)
+                }
+                .focused($focus, equals: .castAttribution)
+                .accessibilityIdentifier("tv.cast.attribution")
             }
         }
-    }
-
-    private func initials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
     }
 
     private func load() async {
@@ -304,6 +290,12 @@ struct TVDetailView: View {
             let (foundOMDb, foundTMDB) = await (omdbInfo, tmdbWork)
             if omdb == nil { omdb = foundOMDb }
             if tmdb == nil { tmdb = foundTMDB }
+            let credits = CastCredits.merge(tmdb: foundTMDB?.cast ?? [], omdbActors: foundOMDb?.actors ?? "", tvmaze: [])
+            if credits.isEmpty || credits.contains(where: { $0.photo.isEmpty }) {
+                let foundCast = await TVMaze.shared.cast(for: detail, tmdbID: foundTMDB?.imdbID ?? "",
+                                                         omdbID: foundOMDb?.imdbID ?? "")
+                if !Task.isCancelled { tvmaze = foundCast }
+            }
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription

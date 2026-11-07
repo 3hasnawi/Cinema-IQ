@@ -11,6 +11,12 @@ enum TMDB {
     }()
 }
 
+/// Public, keyless series cast metadata. The detail page looks up only a verified IMDb series ID.
+enum TVMaze {
+    static let shared = TVMazeClient(cacheURL: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+        .appendingPathComponent("tvmaze-cast-cache.json"))
+}
+
 /// IntroDB skip timings (no key needed).
 enum IntroDB {
     static let shared = IntroDBClient(cacheURL: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?

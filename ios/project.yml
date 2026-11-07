@@ -37,8 +37,8 @@ targets:
       properties:
         CFBundleDisplayName: Cinema iQ
         CFBundleDevelopmentRegion: ar
-        # OMDb key for film information, posters and ratings (free tier: about 1000 requests a day).
-        OMDbAPIKey: "5b9c7295"
+        # OMDb is optional and configured at build time, never embedded in downloadable previews.
+        OMDbAPIKey: "$(OMDB_API_KEY)"
         # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
         TMDBAPIKey: "$(TMDB_API_KEY)"
         UILaunchScreen:
@@ -94,8 +94,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.tv
-        MARKETING_VERSION: "0.3.0"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.3.1"
+        CURRENT_PROJECT_VERSION: "4"
         TARGETED_DEVICE_FAMILY: "3"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Cinema iQ
@@ -106,7 +106,7 @@ targets:
       properties:
         CFBundleDisplayName: Cinema iQ
         CFBundleDevelopmentRegion: ar
-        OMDbAPIKey: "5b9c7295"
+        OMDbAPIKey: "$(OMDB_API_KEY)"
         # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
         TMDBAPIKey: "$(TMDB_API_KEY)"
         UILaunchScreen:
