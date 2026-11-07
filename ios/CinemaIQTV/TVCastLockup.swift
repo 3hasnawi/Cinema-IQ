@@ -77,6 +77,9 @@ struct TVCastFocusFixture: View {
             Button("TVmaze · CC BY-SA 4.0") { showAttribution = true }
                 .accessibilityIdentifier("tv.cast.fixture.attribution")
                 .focused($attributionFocused)
+                // Match the real detail page's leading alignment so Down from the row can reach it.
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusSection()
         }
         .padding(80)
         .background(TVTheme.ink.ignoresSafeArea())
