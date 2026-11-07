@@ -30,7 +30,7 @@ import CinemaCore
     }
     var body: some Scene {
         WindowGroup {
-            TVRootView()
+            initialView
                 .environmentObject(library)
                 .environmentObject(cloud)
                 .environmentObject(providers)
@@ -38,11 +38,28 @@ import CinemaCore
                 .environmentObject(router)
                 .environment(\.layoutDirection, .rightToLeft)
                 .preferredColorScheme(.dark)
-                .task { cloud.start(library: library) }
+                .task { if !isCastFocusTest { cloud.start(library: library) } }
                 .onChange(of: phase) { _, value in
+                    guard !isCastFocusTest else { return }
                     if value == .active { cloud.scene(active: true) } else if value == .background { cloud.scene(active: false) }
                 }
         }
+    }
+
+    private var isCastFocusTest: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-tv.testCastFocus")
+        #else
+        false
+        #endif
+    }
+
+    @ViewBuilder private var initialView: some View {
+        #if DEBUG
+        if isCastFocusTest { TVCastFocusFixture() } else { TVRootView() }
+        #else
+        TVRootView()
+        #endif
     }
 }
 

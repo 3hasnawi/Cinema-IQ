@@ -19,6 +19,8 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     public var quality = ""
     /// When an episode was first shown, as the source gives it (usually "2024-05-01").
     public var airDate = ""
+    /// Optional direct promotional video explicitly provided by the catalog.
+    public var trailerURL = ""
     public init(id: String, title: String) { self.id = id; self.title = title }
     public var isSupported: Bool { (try? ContentSource.owner(of: id)) != nil }
     /// From an external provider added in Settings (not synced to the Android apps).
@@ -28,7 +30,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id = "nb", title = "ar_title", poster = "imgMediumThumbObjUrl", backdrop = "imgObjUrl"
         case overview = "ar_content", year, duration, rating = "stars", kind, season, episode = "episodeNummer"
-        case seriesID = "seriesId", episodeTitle, quality = "contentQuality", enTitle = "en_title", airDate
+        case seriesID = "seriesId", episodeTitle, quality = "contentQuality", enTitle = "en_title", airDate, trailerURL
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -45,6 +47,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
         season = Int(text(.season)) ?? 1; episode = Int(text(.episode)) ?? 0
         seriesID = text(.seriesID); episodeTitle = text(.episodeTitle); quality = text(.quality); enTitle = text(.enTitle)
         airDate = text(.airDate)
+        trailerURL = HeroTrailer.url(text(.trailerURL))?.absoluteString ?? ""
     }
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -57,6 +60,7 @@ public struct Media: Codable, Identifiable, Hashable, Sendable {
         try c.encode(episodeTitle, forKey: .episodeTitle); try c.encode(quality, forKey: .quality)
         try c.encode(enTitle, forKey: .enTitle)
         if !airDate.isEmpty { try c.encode(airDate, forKey: .airDate) }
+        if !trailerURL.isEmpty { try c.encode(trailerURL, forKey: .trailerURL) }
     }
 }
 public struct Shelf: Identifiable, Sendable {

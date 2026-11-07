@@ -10,6 +10,9 @@ struct TVHomeView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
+    @StateObject private var preview = TVHeroPreview()
+    @AppStorage("tv.hero.trailers.enabled.v1") private var trailersEnabled = true
+    @AppStorage("tv.hero.trailers.muted.v1") private var trailersMuted = true
     @State private var shelves: [Shelf] = []
     @State private var loading = false
     @State private var error: String?
@@ -17,8 +20,15 @@ struct TVHomeView: View {
     @State private var loadedSource: String?
     @State private var belowFold = false
     @State private var paginationFocused = false
+    @State private var trailerFocused = false
     @State private var metadata: TVHeroMetadata?
     @FocusState private var heroFocused: Bool
+
+    init() {
+        #if DEBUG
+        _ = TVHeroUITestDefaults.seeded
+        #endif
+    }
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var featured: [Media] {
@@ -36,8 +46,13 @@ struct TVHomeView: View {
         if let value = heroMetadata?.tmdb?.backdrop, !value.isEmpty { return value }
         return hero?.poster ?? ""
     }
+    private var previewActive: Bool {
+        trailersEnabled && !reduceMotion && !belowFold && phase == .active &&
+        router.tab == .home && router.popup == nil && player.selection == nil && router.paths[.home, default: []].isEmpty
+    }
+    private var previewRequest: String { "\(hero?.id ?? "")|\(previewActive)" }
     private var canRotate: Bool {
-        !heroFocused && !paginationFocused && !belowFold && !reduceMotion && phase == .active &&
+        !heroFocused && !paginationFocused && !trailerFocused && (!preview.canControl || preview.ended) && !belowFold && !reduceMotion && phase == .active &&
         router.tab == .home && router.popup == nil && player.selection == nil && router.paths[.home, default: []].isEmpty
     }
 
@@ -45,12 +60,14 @@ struct TVHomeView: View {
         GeometryReader { proxy in
             let showcase = max(440, proxy.size.height * 0.78)
             ZStack {
-                TVHomeBackdrop(url: artwork, belowFold: belowFold)
+                TVHomeBackdrop(url: artwork, belowFold: belowFold, preview: preview)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 28) {
                         TVHeroHeader(media: hero, metadata: heroMetadata, count: featured.count, index: heroIndex,
                                      loading: loading, error: featured.isEmpty ? error : nil,
                                      contentWidth: min(720, proxy.size.width * 0.46), focus: $heroFocused,
+                                     preview: preview, trailersMuted: $trailersMuted,
+                                     previewFocusChanged: { trailerFocused = $0 },
                                      select: selectFeature, paginationFocusChanged: { paginationFocused = $0 },
                                      retry: { Task { await load() } })
                             .frame(height: showcase)
@@ -83,6 +100,13 @@ struct TVHomeView: View {
             }
         }
         .defaultFocus($heroFocused, true)
+        .task(id: previewRequest) {
+            preview.stop()
+            guard previewActive, let media = hero else { return }
+            await preview.load(media, muted: trailersMuted)
+        }
+        .onChange(of: trailersMuted) { _, value in preview.player.isMuted = value }
+        .onDisappear { preview.stop() }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
             if loadedSource != sourceName { shelves = []; heroIndex = 0; metadata = nil }
@@ -118,7 +142,8 @@ struct TVHomeView: View {
     }
 
     private func selectFeature(_ index: Int) {
-        guard featured.indices.contains(index) else { return }
+        guard featured.indices.contains(index), index != heroIndex else { return }
+        preview.stop()
         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.5)) { heroIndex = index }
     }
 
@@ -162,6 +187,12 @@ struct TVHeroHeader: View {
     let error: String?
     let contentWidth: CGFloat
     var focus: FocusState<Bool>.Binding
+    @ObservedObject var preview: TVHeroPreview
+    @Binding var trailersMuted: Bool
+    let previewFocusChanged: (Bool) -> Void
+    @FocusState private var trailerFocus: TrailerControl?
+    private enum TrailerControl: Hashable { case toggle, mute }
+    @Environment(\.layoutDirection) private var direction
     let select: (Int) -> Void
     let paginationFocusChanged: (Bool) -> Void
     let retry: () -> Void
@@ -169,6 +200,7 @@ struct TVHeroHeader: View {
     @EnvironmentObject private var player: PlayerPresenter
     @EnvironmentObject private var router: TVRouter
     @State private var starting = false
+    @State private var playTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -179,6 +211,7 @@ struct TVHeroHeader: View {
                         Text(media.title)
                             .font(.system(size: 56, weight: .heavy))
                             .lineLimit(2).minimumScaleFactor(0.7)
+                            .accessibilityIdentifier("tv.hero.title")
                         facts(media)
                         let overview = media.overview.isEmpty ? (metadata?.tmdb?.overview ?? "") : media.overview
                         if !overview.isEmpty {
@@ -191,20 +224,26 @@ struct TVHeroHeader: View {
                     }
                     .id(media.id)
                     .transition(.opacity)
-                    Button { router.open(media) } label: {
+                    Button { preview.stop(); router.open(media) } label: {
                         Text(starting ? "جارٍ التحضير…" : (media.isSeries ? "إلى المسلسل" : "إلى الفيلم"))
                     }
                     .buttonStyle(TVHeroActionStyle())
                     .focused(focus)
                     .accessibilityIdentifier("tv.hero.details")
-                    .accessibilityHint("افتح التفاصيل، أو اضغط زر التشغيل للمشاهدة مباشرة")
+                    .accessibilityHint("افتح التفاصيل، أو اضغط زر التشغيل للمشاهدة مباشرة. يمين ويسار لتغيير العمل.")
                     .onPlayPauseCommand { play(media) }
+                    .onMoveCommand { direction in
+                        guard direction == .left || direction == .right else { return }
+                        let forward = direction == (self.direction == .rightToLeft ? .left : .right)
+                        if let next = HeroTrailer.nextIndex(index, count: count, step: forward ? 1 : -1) { select(next) }
+                    }
                     .contextMenu {
                         Button("تشغيل", systemImage: "play.fill") { play(media) }
                         Button(library.isFavorite(media) ? "إزالة من قائمتي" : "أضف إلى قائمتي",
                                systemImage: library.isFavorite(media) ? "checkmark" : "plus") { library.toggle(media) }
                     }
                     .padding(.top, 4)
+                    previewControls
                 }
                 .frame(width: contentWidth, alignment: .leading)
                 .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
@@ -228,6 +267,35 @@ struct TVHeroHeader: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .focusSection()
+        .onChange(of: media?.id) { _, _ in playTask?.cancel(); playTask = nil; starting = false }
+        .onChange(of: trailerFocus) { _, value in previewFocusChanged(value != nil) }
+        .onDisappear {
+            playTask?.cancel(); playTask = nil; starting = false
+            previewFocusChanged(false)
+        }
+    }
+
+    @ViewBuilder private var previewControls: some View {
+        if preview.canControl {
+            HStack(spacing: 18) {
+                Button { preview.toggle() } label: {
+                    Label(preview.paused ? "تشغيل الإعلان" : "إيقاف الإعلان", systemImage: preview.paused ? "play.fill" : "pause.fill")
+                }
+                .focused($trailerFocus, equals: .toggle)
+                .accessibilityIdentifier("tv.hero.trailer.toggle")
+                Button { trailersMuted.toggle() } label: {
+                    Image(systemName: trailersMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                }
+                .focused($trailerFocus, equals: .mute)
+                .accessibilityLabel(trailersMuted ? "تشغيل صوت الإعلان" : "كتم صوت الإعلان")
+                .accessibilityIdentifier("tv.hero.trailer.mute")
+            }
+            .buttonStyle(TVHeroActionStyle())
+        } else if preview.status == .unavailable || preview.status == .failed {
+            Text(preview.status == .failed ? "تعذّر تشغيل الإعلان" : "الإعلان غير متاح من المصدر")
+                .font(.system(size: 18)).foregroundStyle(.white.opacity(0.65))
+                .accessibilityIdentifier("tv.hero.trailer.unavailable")
+        }
     }
 
     private func facts(_ media: Media) -> some View {
@@ -248,9 +316,10 @@ struct TVHeroHeader: View {
     /// Direct remote playback and the long-press menu preserve the previous home shortcuts.
     private func play(_ media: Media) {
         guard !starting else { return }
+        preview.stop()
         guard media.isSeries else { player.play(media); return }
         starting = true
-        Task { @MainActor in
+        playTask = Task { @MainActor in
             defer { starting = false }
             let result = try? await SourceClient().detail(media)
             // A slow source must not navigate or start a title after the viewer leaves Home.
@@ -264,3 +333,14 @@ struct TVHeroHeader: View {
         }
     }
 }
+
+#if DEBUG
+/// Seed mutable defaults once per UI-test process, never NSArgumentDomain overrides that hide later changes.
+private enum TVHeroUITestDefaults {
+    static let seeded: Void = {
+        guard ProcessInfo.processInfo.arguments.contains("-tv.testHeroPreview") else { return }
+        UserDefaults.standard.set(true, forKey: "tv.hero.trailers.enabled.v1")
+        UserDefaults.standard.set(true, forKey: "tv.hero.trailers.muted.v1")
+    }()
+}
+#endif

@@ -4,11 +4,12 @@ name: Apple TV screenshots
 on:
   workflow_dispatch:
   push:
-    branches: ['chatgpt/ios-tvos-reference-interface']
+    branches: ['chatgpt/ios-tvos-reference-interface', 'chatgpt/tvos-preview-0.3.1']
     paths:
       - 'ios/**'
       - 'scripts/ci/**'
       - '.github/workflows/tvos-screenshots.yml'
+      - '.github/workflows/ios-app-compile.yml'
 
 permissions:
   contents: read
@@ -67,6 +68,8 @@ jobs:
           # Fail clearly rather than silently selecting zero tests on an older manual-dispatch ref.
           grep -Rq 'class TVNavigationTests:' ios/CinemaIQTVUITests
           grep -Rq 'class TVSettingsNavigationTests:' ios/CinemaIQTVUITests
+          grep -Rq 'class TVHeroPlaybackTests:' ios/CinemaIQTVUITests
+          grep -Rq 'class TVCastFocusTests:' ios/CinemaIQTVUITests
           xcodebuild test \
             -project ios/CinemaIQ.xcodeproj \
             -scheme CinemaIQTV \
@@ -75,11 +78,13 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/tvos-diagnostics/shots.xcresult" \
             -only-testing:CinemaIQTVUITests/TVNavigationTests \
             -only-testing:CinemaIQTVUITests/TVSettingsNavigationTests \
+            -only-testing:CinemaIQTVUITests/TVHeroPlaybackTests \
+            -only-testing:CinemaIQTVUITests/TVCastFocusTests \
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
             -default-test-execution-time-allowance 180 \
             -maximum-test-execution-time-allowance 240 \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/tvos-diagnostics/xcodebuild.log"
           xcrun xcresulttool get test-results summary \
             --path "$RUNNER_TEMP/tvos-diagnostics/shots.xcresult" \
@@ -87,8 +92,8 @@ jobs:
           python3 - "$RUNNER_TEMP/tvos-diagnostics/test-summary.json" <<'PY'
           import json, sys
           summary = json.load(open(sys.argv[1]))
-          if summary.get('passedTests', 0) < 2 or summary.get('failedTests', 0) != 0:
-              raise SystemExit('Expected both focused test classes to run and pass; inspect test-summary.json')
+          if summary.get('passedTests', 0) < 16 or summary.get('failedTests', 0) != 0:
+              raise SystemExit('Expected all navigation, settings, hero and cast test classes to run and pass; inspect test-summary.json')
           PY
       - name: Export screenshots and retain crash reports
         if: always()
@@ -118,6 +123,18 @@ jobs:
         with:
           name: Cinema-iQ-AppleTV-diagnostics-${{ github.run_number }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tvos-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload compact screenshots for visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinema-iQ-AppleTV-visual-review-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/tvos-diagnostics/screenshots/*.png
+            ${{ runner.temp }}/tvos-diagnostics/screenshots/*.txt
+            ${{ runner.temp }}/tvos-diagnostics/screenshots/manifest.json
+            ${{ runner.temp }}/tvos-diagnostics/test-summary.json
           if-no-files-found: warn
           retention-days: 7
       - name: Upload unsigned simulator app

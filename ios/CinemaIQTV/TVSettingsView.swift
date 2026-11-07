@@ -10,7 +10,7 @@ struct TVSettingsView: View {
     @FocusState private var row: SettingsRow?
     @State private var restoreSourceFocus = false
 
-    private enum SettingsRow: Hashable { case source, providers, account, library, subtitles, about }
+    private enum SettingsRow: Hashable { case source, providers, account, library, playback, subtitles, about }
     private var sources: [ContentSource] {
         ContentSource.builtIn + ([ExternalProvider.demo] + providers.providers).map { .external($0.id) }
     }
@@ -54,6 +54,12 @@ struct TVSettingsView: View {
                         }
                         .focused($row, equals: .library)
                         .accessibilityIdentifier("tv.settings.library")
+
+                        NavigationLink { TVPlaybackSettingsView() } label: {
+                            TVSettingsRowLabel(title: "التشغيل")
+                        }
+                        .focused($row, equals: .playback)
+                        .accessibilityIdentifier("tv.settings.playback")
 
                         NavigationLink { TVSubtitleSettingsView() } label: {
                             TVSettingsRowLabel(title: "الترجمة")
