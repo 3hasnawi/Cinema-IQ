@@ -19,6 +19,9 @@ import androidx.media3.ui.PlayerView
 import com.cinemaplus.rebuilt.data.Subtitle
 import com.cinemaplus.rebuilt.MainActivity
 import com.cinemaplus.rebuilt.CinemaViewModel
+import com.cinemaplus.rebuilt.Page
+import com.cinemaplus.rebuilt.data.Demo
+import com.cinemaplus.rebuilt.data.Shelf
 import com.cinemaplus.rebuilt.data.Film
 import com.cinemaplus.rebuilt.data.Stream
 import org.json.JSONArray
@@ -69,9 +72,12 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             activity = startActivitySync(android.content.Intent(targetContext, MainActivity::class.java)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             targetActivity = activity
+            runBrowseChecks(activity!!, ::record, ::screenshot)
             runOnMainSync {
                 val vm = CinemaViewModel(activity!!.application)
-                vm.playing = Film("smoke-fixture", "اختبار مشغّل التلفزيون", subtitles = listOf(
+                vm.selected = Film("demo-show", "اختبار مشغّل التلفزيون", series = true)
+                vm.playing = Film("demo-smoke-fixture", "حلقة الاختبار", description = "وصف الحلقة لاختبار موضع المعلومات فوق شريط التقدم، مع بقاء الفيديو واضحاً خلفها.",
+                    year = "2026", season = 2, episode = 3, episodeTitle = "رحلة الاختبار", contentQuality = "480p", subtitles = listOf(
                     Subtitle(android.net.Uri.fromFile(subtitleFiles[0]).toString(), "ar", "العربية"),
                     Subtitle(android.net.Uri.fromFile(subtitleFiles[1]).toString(), "en", "الإنجليزية")))
                 vm.streams = listOf(Stream(android.net.Uri.fromFile(video).toString(), "480p"))
@@ -93,9 +99,16 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             Thread.sleep(3500)
             if(!visibleText().contains("تشغيل")) throw AssertionError("Paused controls were hidden or Select toggled twice")
             record("Paused controls remain visible; Select key-up does not toggle again")
+            waitUntil("Paused overlay shows season, episode, synopsis and actual metadata") {
+                val text = visibleText()
+                text.contains("الموسم 2 · الحلقة 3") && text.contains("رحلة الاختبار") && text.contains("وصف الحلقة") && text.contains("2026")
+            }
+            assertPauseGeometry()
+            record("Paused work title is upper right; episode information lower right above transport")
             screenshot("player-paused")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Visible focused Play resumes playback", predicate = { visibleText().contains("إيقاف مؤقت") })
+            waitUntil("Paused metadata disappears on resume") { !visibleText().contains("وصف الحلقة") }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
             waitUntil("D-pad Up reaches the seek bar", predicate = { visibleText().contains("اختر موضع المشاهدة") })
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
@@ -151,6 +164,134 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             runOnMainSync { ViewRootForTest.onViewCreatedCallback = previousRootCallback }
             finish(Activity.RESULT_OK, result)
         }
+    }
+
+
+    private fun nodes(): List<SemanticsNode> {
+        val all = mutableListOf<SemanticsNode>()
+        fun walk(node: SemanticsNode) { all.add(node); node.children.forEach(::walk) }
+        composeRoots.filter { it.view.isAttachedToWindow && it.view.isShown }
+            .forEach { walk(it.semanticsOwner.rootSemanticsNode) }
+        return all
+    }
+
+    private fun nodeText(node: SemanticsNode): String = buildString {
+        node.config.getOrNull(SemanticsProperties.Text)?.forEach { append(it.text).append('\n') }
+        node.config.getOrNull(SemanticsProperties.ContentDescription)?.forEach { append(it).append('\n') }
+        node.children.forEach { append(nodeText(it)) }
+    }
+
+    private fun focusedText(): String {
+        var text = ""
+        runOnMainSync { text = nodes().filter { it.config.getOrNull(SemanticsProperties.Focused) == true }
+            .joinToString("\n") { nodeText(it) } }
+        return text
+    }
+
+    private fun assertPauseGeometry() {
+        runOnMainSync {
+            fun rect(text: String) = nodes().first { node ->
+                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text.contains(text) } == true
+            }.boundsInRoot
+            val title = rect("اختبار مشغّل التلفزيون")
+            val info = rect("الموسم 2 · الحلقة 3")
+            val description = rect("وصف الحلقة")
+            val width = targetActivity!!.resources.displayMetrics.widthPixels.toFloat()
+            val height = targetActivity!!.resources.displayMetrics.heightPixels.toFloat()
+            check(title.right > width * .8f && title.top < height * .2f) { "Title not upper right: $title ($width x $height)" }
+            check(info.right > width * .8f && info.top > height * .4f && description.bottom < height * .8f) {
+                "Information not lower right above controls: $info; $description ($width x $height)"
+            }
+        }
+    }
+
+    private fun runBrowseChecks(activity: MainActivity, record: (String) -> Unit, screenshot: (String) -> Unit) {
+        val vm = CinemaViewModel(activity.application)
+        fun waitFor(name: String, predicate: () -> Boolean) {
+            val end = SystemClock.uptimeMillis() + 15_000
+            while (SystemClock.uptimeMillis() < end) {
+                if (predicate()) { record(name); return }
+                Thread.sleep(150)
+            }
+            throw AssertionError("$name; focused=${focusedText()}; visible=${visibleText()}")
+        }
+        fun key(code: Int) { sendKeyDownUpSync(code); Thread.sleep(650) }
+        runOnMainSync { vm.changeDemo(true); vm.chooseTrailerPreview(false) }
+        waitFor("Offline catalog loaded") { !vm.busy && vm.shelves.isNotEmpty() }
+        val cards = (1..16).map { index -> Demo.films[(index - 1) % Demo.films.size]
+            .copy(id = "demo-navigation-$index", title = "عمل الاختبار $index", series = false) }
+        runOnMainSync {
+            vm.shelves = listOf(Shelf("row-a", "صف الاختبار الأول", cards), Shelf("row-b", "صف الاختبار الثاني", cards.reversed()),
+                Shelf("row-c", "صف الاختبار الثالث", cards))
+            vm.library.saveProgress(cards[0], 30_000, 240_000)
+            vm.library.saveProgress(cards[1], 30_000, 240_000)
+            cards.forEach { vm.library.toggle(it) }
+            activity.setContent { CinemaApp(vm, television = true) }
+        }
+        waitFor("Startup focuses full-screen featured card") { focusedText().contains("عمل الاختبار") }
+        check(!visibleText().contains("شاهد الآن")) { "Old hero action still visible" }
+        record("Hero has no Watch now action")
+        screenshot("01-home-fullscreen")
+        val hero = focusedText()
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        waitFor("Left changes featured title") { focusedText().contains("عمل الاختبار") && focusedText() != hero }
+        screenshot("02-home-next-feature")
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Featured OK opens details") { vm.selected != null }
+        screenshot("03-details")
+        key(KeyEvent.KEYCODE_BACK)
+        waitFor("Back returns to the same featured card") { vm.selected == null && focusedText().contains("عمل الاختبار") }
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        waitFor("Down enters first continue-watching card") { focusedText().contains("عمل الاختبار 2") }
+        screenshot("04-continue-first")
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        waitFor("Horizontal movement reaches second continue card") { focusedText().contains("عمل الاختبار 1") }
+        key(KeyEvent.KEYCODE_DPAD_RIGHT)
+        val card = focusedText()
+        // From the first card, Right enters the rail; Left must restore that exact shelf/card.
+        key(KeyEvent.KEYCODE_DPAD_RIGHT)
+        waitFor("Right opens the side rail") { focusedText().contains("الرئيسية") }
+        screenshot("05-side-rail")
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        waitFor("Left restores exact previous card from rail") { focusedText() == card }
+        screenshot("06-rail-return")
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        waitFor("Down from a non-first card enters first item of next shelf") { focusedText().contains("عمل الاختبار 1") }
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        waitFor("Next shelf always starts at its first card") { focusedText().contains("عمل الاختبار 16") }
+        screenshot("07-next-shelf-first")
+        key(KeyEvent.KEYCODE_DPAD_UP)
+        waitFor("Up also returns to first card of preceding shelf") { focusedText().contains("عمل الاختبار 1") }
+        runOnMainSync { vm.showRecentOptions(cards[1]) }
+        waitFor("Recent actions dialog starts on mark watched") { focusedText().contains("تعليم كمشاهَد") }
+        Thread.sleep(1100)
+        screenshot("08-recent-glass-dialog")
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        waitFor("Dialog Down reaches remove action") { focusedText().contains("إزالة من متابعة المشاهدة") }
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        waitFor("Dialog Down reaches cancel") { focusedText().contains("إلغاء") }
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Cancel dismisses recent actions") { vm.recentOptions == null }
+        // Enter actual pages from the remote rail so the fresh-entry flag follows production routing.
+        key(KeyEvent.KEYCODE_DPAD_RIGHT)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Remote enters Movies section at first card") { vm.page == Page.Movies && focusedText().contains("رحلة إلى المجهول") }
+        screenshot("09-movies-first")
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        val movie = focusedText()
+        key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_DPAD_LEFT)
+        waitFor("Movies rail return restores previous movie") { focusedText() == movie }
+        key(KeyEvent.KEYCODE_BACK)
+        key(KeyEvent.KEYCODE_DPAD_DOWN)
+        key(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Remote enters Series section at first card") { vm.page == Page.Series && focusedText().contains("أسرار الشمال") }
+        screenshot("10-series-first")
+        runOnMainSync { activity.setContent { } }
+        Thread.sleep(250)
     }
 
     private fun visibleText(): String {
