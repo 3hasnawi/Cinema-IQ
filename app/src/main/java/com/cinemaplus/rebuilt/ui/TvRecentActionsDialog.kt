@@ -95,6 +95,6 @@ private fun RecentActionRow(text: String, icon: ImageVector, focus: FocusRequest
         .padding(horizontal = 20.mx, vertical = 12.mx),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.mx)) {
         Icon(icon, contentDescription = null, tint = foreground, modifier = Modifier.size(28.mx))
-        Label(text, 14, foreground, focused, lines = 1, modifier = Modifier.weight(1f))
+        Label(text, 14, foreground, lines = 1, modifier = Modifier.weight(1f))
     }
 }
