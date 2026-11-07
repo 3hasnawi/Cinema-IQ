@@ -476,7 +476,7 @@ fun PosterGrid(
             if (!restored && films.isNotEmpty()) { returnId = null; navigation.prepareFirst(); awaitTvFocus { first } }
         }
     }
-    RegisterPageEntry(if (films.isNotEmpty()) first else headerRequester) {
+    RegisterPageEntry(if (films.isNotEmpty()) first else headerRequester ?: footerRequester) {
         returnId = null
         navigation.prepareFirst()
     }

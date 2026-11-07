@@ -561,14 +561,15 @@ internal val LocalTvEntryRequest = androidx.compose.runtime.staticCompositionLoc
 }
 
 @Composable fun Message(message: String, button: String, retry: () -> Unit, demo: (() -> Unit)? = null) {
+    val requestEntry = LocalTvEntryRequest.current
     Column(Modifier.padding(32.dp).widthIn(max = 630.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Icon(Icons.Rounded.Warning, null, Modifier.size(36.dp), tint = Accent)
         Label("تعذّر الوصول إلى المحتوى", 24, bold = true)
         Label(message, 15, Muted)
         Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Action(button, true, onClick = retry)
-            if (demo != null) Action("تجربة التصميم", onClick = demo)
+            Action(button, true) { retry(); requestEntry(true) }
+            if (demo != null) Action("تجربة التصميم") { demo(); requestEntry(true) }
         }
     }
 }

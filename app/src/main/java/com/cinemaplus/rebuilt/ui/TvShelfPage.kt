@@ -45,7 +45,7 @@ internal fun TvShelfPage(vm: CinemaViewModel, shelves: List<Shelf>,
         if (rows.isNotEmpty() && list.layoutInfo.visibleItemsInfo.none { it.index == 1 }) list.scrollToItem(1)
         horizontal.firstOrNull()?.scrollToItem(0)
     }
-    RegisterPageEntry(ids.firstOrNull()?.let(first::get)) { prepareFirst() }
+    RegisterPageEntry(ids.firstOrNull()?.let(first::get) ?: footerFocus.takeIf { vm.error != null }) { prepareFirst() }
     LaunchedEffect(Unit) {
         if (!fresh && !rail.hasFocus) {
             val row = rows.indexOfFirst { shelf -> shelf.films.any { "${shelf.id}/${it.id}" == returnKey } }

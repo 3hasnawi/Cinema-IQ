@@ -77,6 +77,8 @@ fun HomeScreen(vm: CinemaViewModel) {
     val lastInput = remember { longArrayOf(android.os.SystemClock.uptimeMillis()) }
     val selectPress = remember { TvHomeSelectPress() }
     val heroFocus = remember { FocusRequester() }
+    val errorFocus = remember { FocusRequester() }
+    val requestEntry = LocalTvEntryRequest.current
     var heroFocused by remember { mutableStateOf(false) }
     var focusedRow by remember { mutableStateOf<String?>(null) }
     val scroll = rememberScrollState()
@@ -115,7 +117,7 @@ fun HomeScreen(vm: CinemaViewModel) {
         }
     }
 
-    RegisterPageEntry(if (featured.isNotEmpty()) heroFocus else rowIDs.firstOrNull()?.let { rowFocus[it] }) {
+    RegisterPageEntry(if (featured.isNotEmpty()) heroFocus else rowIDs.firstOrNull()?.let { rowFocus[it] } ?: errorFocus.takeIf { vm.error != null }) {
         navigation?.cancel()
         returnKey = null
         heroIndex.intValue = 0
@@ -223,9 +225,9 @@ fun HomeScreen(vm: CinemaViewModel) {
                 vm.error?.let { error ->
                     Column(Modifier.padding(horizontal = TvMetrics.HomeStart, vertical = 24.mx), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Label(error, 14, Brand.TextTertiary, lines = 2)
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Action("إعادة المحاولة", true) { vm.reload() }
-                            Action("تجربة التصميم") { vm.changeDemo(true) }
+                        Row(Modifier.focusRequester(errorFocus), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Action("إعادة المحاولة", true) { vm.reload(); requestEntry(true) }
+                            Action("تجربة التصميم") { vm.changeDemo(true); requestEntry(true) }
                         }
                     }
                 }
