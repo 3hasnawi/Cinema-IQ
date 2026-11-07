@@ -90,7 +90,10 @@ fun HomeScreen(vm: CinemaViewModel) {
     val enterRail = LocalTvHomeRailEntry.current
     val heroReturn = returnKey == "hero"
     val returningRow = rows.firstOrNull { row -> row.films.any { "${row.id}/${it.id}" == returnKey } }
-    LaunchedEffect(featured) { vm.enrich(featured) }
+    LaunchedEffect(featured) {
+        heroIndex.intValue = heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0))
+        vm.enrich(featured)
+    }
 
     fun showRow(index: Int, first: Boolean) {
         val row = rows.getOrNull(index) ?: return
@@ -101,13 +104,13 @@ fun HomeScreen(vm: CinemaViewModel) {
                 rowStates[index].scrollToItem(0)
                 if (!awaitTvFocus { rowFocus[row.id] }) return@launch
             }
-            rowOffsets[row.id]?.let { scroll.animateScrollTo(it) }
+            rowOffsets[row.id]?.let { scroll.animateScrollTo(it, tween(280)) }
         }
     }
     fun showHero() {
         navigation?.cancel()
         navigation = scope.launch {
-            if (awaitTvFocus { heroFocus }) scroll.animateScrollTo(0)
+            if (awaitTvFocus { heroFocus }) scroll.animateScrollTo(0, tween(280))
         }
     }
 
@@ -133,7 +136,7 @@ fun HomeScreen(vm: CinemaViewModel) {
     LaunchedEffect(featured) {
         while (true) {
             delay(1_000)
-            if (!heroFocused || selectPress.armed || featured.size < 2 ||
+            if (!heroFocused || scroll.value != 0 || selectPress.armed || featured.size < 2 ||
                 android.os.SystemClock.uptimeMillis() - lastInput[0] < HeroRotationMillis) continue
             val next = (heroIndex.intValue + 1) % featured.size
             featured.getOrNull((next + 1) % featured.size)?.let { upcoming ->
@@ -165,39 +168,20 @@ fun HomeScreen(vm: CinemaViewModel) {
         val screen = maxHeight
         WithoutFocusScroll {
             Column(Modifier.fillMaxSize().verticalScroll(scroll)) {
-                val hero = featured.getOrNull(heroIndex.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork)
-                if (hero != null) Box(Modifier.fillMaxWidth().height(screen)) {
-                    HomeHeroArtwork(hero, Modifier.matchParentSize())
-                    HomeHero(vm, hero, featured.size, heroIndex.intValue, screen,
-                        Modifier.focusRequester(heroFocus).onFocusChanged {
-                            heroFocused = it.isFocused
-                            if (!it.isFocused) selectPress.cancel()
-                            else if (!restoring) {
-                                returnKey = null
-                                if (navigation?.isActive != true) {
-                                    navigation?.cancel()
-                                    navigation = scope.launch { scroll.animateScrollTo(0) }
-                                }
+                if (featured.isNotEmpty()) HomeFeaturedSurface(vm, featured, heroIndex, screen,
+                    heroFocus, selectPress, rtl,
+                    onFocused = { focused ->
+                        heroFocused = focused
+                        if (!focused) selectPress.cancel()
+                        else if (!restoring) {
+                            returnKey = null
+                            if (navigation?.isActive != true) {
+                                navigation?.cancel()
+                                navigation = scope.launch { scroll.animateScrollTo(0, tween(280)) }
                             }
-                        }.onPreviewKeyEvent { event ->
-                            val native = event.nativeKeyEvent
-                            when (native.keyCode) {
-                                AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    if (native.action == AndroidKeyEvent.ACTION_DOWN) heroIndex.intValue = TvHomeNavigation.carouselIndex(
-                                        heroIndex.intValue, featured.size, native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT, rtl)
-                                    true
-                                }
-                                AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                                    if (selectPress.update(native.action == AndroidKeyEvent.ACTION_DOWN, native.repeatCount)) {
-                                        returnKey = "hero"; vm.open(hero)
-                                    }
-                                    true
-                                }
-                                else -> false
-                            }
-                        }, onOpen = { returnKey = "hero"; vm.open(hero) })
-                    Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
-                } else if (vm.busy && rows.isEmpty()) {
+                        }
+                    }, onOpen = { film -> returnKey = "hero"; vm.open(film) })
+                else if (vm.busy && rows.isEmpty()) {
                     Box(Modifier.fillMaxWidth().height(screen)) {
                         HeroSkeleton(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeStart).width(820.mx))
                     }
@@ -241,6 +225,35 @@ fun HomeScreen(vm: CinemaViewModel) {
                 Spacer(Modifier.height(48.mx))
             }
         }
+    }
+}
+
+/** Reads the rotating index here, so changing artwork does not recompose the shelf list. */
+@Composable
+private fun HomeFeaturedSurface(vm: CinemaViewModel, featured: List<Film>, index: MutableIntState,
+    height: Dp, focus: FocusRequester, selectPress: TvHomeSelectPress, rtl: Boolean,
+    onFocused: (Boolean) -> Unit, onOpen: (Film) -> Unit) {
+    val hero = featured.getOrNull(index.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork) ?: return
+    Box(Modifier.fillMaxWidth().height(height)) {
+        HomeHeroArtwork(hero, Modifier.matchParentSize())
+        HomeHero(vm, hero, featured.size, index.intValue, height,
+            Modifier.focusRequester(focus).onFocusChanged { onFocused(it.isFocused) }
+                .onPreviewKeyEvent { event ->
+                    val native = event.nativeKeyEvent
+                    when (native.keyCode) {
+                        AndroidKeyEvent.KEYCODE_DPAD_LEFT, AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            if (native.action == AndroidKeyEvent.ACTION_DOWN) index.intValue = TvHomeNavigation.carouselIndex(
+                                index.intValue, featured.size, native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT, rtl)
+                            true
+                        }
+                        AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                            if (selectPress.update(native.action == AndroidKeyEvent.ACTION_DOWN, native.repeatCount)) onOpen(hero)
+                            true
+                        }
+                        else -> false
+                    }
+                }, onOpen = { onOpen(hero) })
+        Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
     }
 }
 

@@ -12,7 +12,7 @@ internal object TvHomeNavigation {
     fun carouselIndex(current: Int, count: Int, right: Boolean, rtl: Boolean): Int {
         if (count <= 0) return 0
         val step = if (right == rtl) -1 else 1
-        return Math.floorMod(Math.floorMod(current, count) + step, count)
+        return Math.floorMod(current.coerceIn(0, count - 1) + step, count)
     }
 
     fun verticalTarget(currentShelf: Int?, down: Boolean, shelfCount: Int, hasHero: Boolean): Destination {

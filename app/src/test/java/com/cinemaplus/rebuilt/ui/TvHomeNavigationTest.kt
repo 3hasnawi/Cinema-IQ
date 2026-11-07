@@ -15,6 +15,8 @@ class TvHomeNavigationTest {
         assertEquals(0, TvHomeNavigation.carouselIndex(8, 0, right = false, rtl = true))
         assertEquals(0, TvHomeNavigation.carouselIndex(8, 1, right = false, rtl = true))
         assertEquals(0, TvHomeNavigation.carouselIndex(8, 3, right = false, rtl = true))
+        assertEquals(0, TvHomeNavigation.carouselIndex(6, 4, right = false, rtl = true))
+        assertEquals(2, TvHomeNavigation.carouselIndex(6, 4, right = true, rtl = true))
     }
     @Test fun downEntersFirstAvailableShelfAndStopsAtEnd() {
         assertEquals(TvHomeNavigation.Destination.Shelf(0), TvHomeNavigation.verticalTarget(null, true, 3, true))
