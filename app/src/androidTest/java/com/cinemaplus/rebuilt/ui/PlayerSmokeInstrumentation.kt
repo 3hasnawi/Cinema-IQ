@@ -118,13 +118,24 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Visible focused Play resumes playback", predicate = { visibleText().contains("إيقاف مؤقت") })
             waitUntil("Paused metadata disappears on resume") { !visibleText().contains("وصف الحلقة") }
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
-            waitUntil("D-pad Up reaches the seek bar", predicate = { visibleText().contains("اختر موضع المشاهدة") })
+            waitUntil("D-pad Up reaches the seek bar", predicate = { focusedText().contains("موضع الفيديو") })
+            var seekFrom = 0L
+            runOnMainSync { withPlayer { seekFrom = it.currentPosition } }
+            val expectedTime = String.format(java.util.Locale.US, "%02d:%02d", (seekFrom + 10_000) / 60_000, (seekFrom + 10_000) / 1000 % 60)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-            waitUntil("Seek preview exposes the target timestamp", predicate = { visibleText().contains("انتقال إلى") })
+            waitUntil("Seek preview exposes target time and pauses actual playback", 750) {
+                !mediaIsPlaying() && visibleText().contains(expectedTime)
+            }
             screenshot("player-seek")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
-            waitUntil("Seek confirmation restores transport focus", predicate = { !visibleText().contains("انتقال إلى") && visibleText().contains("إيقاف مؤقت") })
+            waitUntil("Seek confirmation commits the actual playback position") {
+                var committed = false
+                runOnMainSync { withPlayer { committed = it.isPlaying && it.currentPosition >= seekFrom + 9_000 } }
+                committed
+            }
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
             focusWithRemote("الترجمة والصوت", KeyEvent.KEYCODE_DPAD_RIGHT)
             record("Remote reaches subtitle/audio button from transport")
             // Hardware media keys must bypass whichever controller item currently owns focus.
@@ -140,9 +151,19 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Subtitle selection closes the dialog without losing transport") { !visibleText().contains("إيقاف الترجمة") }
-            Thread.sleep(750)
+            waitUntil("English subtitle selection is confirmed by actual Media3 tracks") {
+                var selected = false
+                runOnMainSync { withPlayer { player ->
+                    selected = player.currentTracks.groups.any { group ->
+                        group.type == androidx.media3.common.C.TRACK_TYPE_TEXT && (0 until group.length).any { index ->
+                            group.isTrackSelected(index) && group.getTrackFormat(index).language?.startsWith("en") == true
+                        }
+                    }
+                } }
+                selected
+            }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
-            waitUntil("English subtitle selection is confirmed by actual Media3 tracks") { visibleText().contains("✓ الإنجليزية") }
+            waitUntil("Reopened track panel retains English selection") { visibleText().contains("إيقاف الترجمة") && visibleText().contains("✓") }
             screenshot("player-english-selected")
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             focusWithRemote("480p", KeyEvent.KEYCODE_DPAD_LEFT)
