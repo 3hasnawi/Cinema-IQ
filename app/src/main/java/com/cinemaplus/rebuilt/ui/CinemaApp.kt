@@ -231,6 +231,7 @@ internal const val ExitWindowMillis = 2_500L
                         }
                         LaunchedEffect(pendingFocus, vm.busy, vm.page, pageEntry.target) {
                             if (!pendingFocus) return@LaunchedEffect
+                            returnJob?.cancel()
                             withFrameNanos { }
                             if (!pendingFocus) return@LaunchedEffect
                             when (TvBrowseFocusPolicy.entry(pageEntry.target != null, vm.busy)) {
@@ -239,7 +240,7 @@ internal const val ExitWindowMillis = 2_500L
                                 }
                                 TvBrowseFocusPolicy.Entry.EmptyPage -> {
                                     pendingFocus = false
-                                    awaitTvFocus { latestContentFocus }
+                                    returnToPage()
                                 }
                                 TvBrowseFocusPolicy.Entry.Wait -> Unit
                             }
@@ -250,7 +251,7 @@ internal const val ExitWindowMillis = 2_500L
                         LaunchedEffect(tabBar.hasFocus) {
                             if (tabBar.hasFocus && !pendingFocus && System.currentTimeMillis() - lastSelectKey < 600) {
                                 delay(60)
-                                returnToPage()
+                                if (!pendingFocus && tabBar.hasFocus) returnToPage()
                             }
                         }
                         CompositionLocalProvider(LocalTabBarState provides tabBar, LocalPageEntry provides pageEntry,
