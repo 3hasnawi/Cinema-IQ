@@ -20,7 +20,7 @@ concurrency:
 jobs:
   compile:
     runs-on: macos-15
-    # Compile checks and downloadable previews must not contain repository credentials.
+    # Metadata keys remain blank except the explicitly authorized TMDB inclusion for Apple TV 0.3.1.
     env:
       TMDB_API_KEY: ""
       OMDB_API_KEY: ""
@@ -63,7 +63,31 @@ jobs:
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" OMDB_API_KEY="$OMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log"
+      - name: Verify the approved TMDB key and cast service without logging the key
+        if: github.ref == 'refs/heads/chatgpt/tvos-preview-0.3.1'
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, urllib.parse, urllib.request
+          key = os.environ.get('TMDB_API_KEY', '')
+          if not key:
+              raise SystemExit('TMDB_API_KEY is not configured; refusing a silently incomplete preview.')
+          query = urllib.parse.urlencode({'api_key': key, 'append_to_response': 'credits'})
+          try:
+              with urllib.request.urlopen('https://api.themoviedb.org/3/movie/550?' + query, timeout=20) as response:
+                  result = json.load(response)
+          except Exception as error:
+              raise SystemExit('TMDB verification failed: ' + type(error).__name__)
+          people = result.get('credits', {}).get('cast', [])
+          if result.get('id') != 550 or not any(person.get('profile_path') for person in people):
+              raise SystemExit('TMDB did not return expected title/cast portraits.')
+          print('Verified configured TMDB credential and live cast portrait metadata; no value logged.')
+          PYTHON
       - name: Compile the Apple TV app without signing
+        env:
+          # Only this preview's tvOS Release app may embed the TMDB key, with explicit user risk acceptance.
+          TMDB_API_KEY: ${{ github.ref == 'refs/heads/chatgpt/tvos-preview-0.3.1' && secrets.TMDB_API_KEY || '' }}
         run: |
           set -euo pipefail
           xcodebuild \
@@ -76,7 +100,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" OMDB_API_KEY="$OMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee -a "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           test "$(grep -c "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log")" -ge 2
-      - name: Verify the preview contains no metadata credential
+      - name: Verify only the approved preview metadata credential is included
         run: |
           set -euo pipefail
           plist=$(find "$RUNNER_TEMP/DerivedData" -path '*Release-appletvos/CinemaIQTV.app/Info.plist' | head -1)
@@ -85,9 +109,12 @@ jobs:
           import os, plistlib
           with open(os.environ['PLIST'], 'rb') as source:
               info = plistlib.load(source)
-          if info.get('TMDBAPIKey', '') or info.get('OMDbAPIKey', ''):
-              raise SystemExit('Refusing export: the preview contains a metadata credential')
-          print('Verified no TMDB or OMDb credential is embedded in this preview.')
+          approved = os.environ['GITHUB_REF'] == 'refs/heads/chatgpt/tvos-preview-0.3.1'
+          if bool(info.get('TMDBAPIKey', '')) != approved:
+              raise SystemExit('TMDB credential presence does not match the approved preview scope.')
+          if info.get('OMDbAPIKey', '') or info.get('YouTubeAPIKey', ''):
+              raise SystemExit('Refusing export: an unapproved metadata credential is present.')
+          print('Verified TMDB presence matches approval; OMDb and YouTube credentials remain excluded.')
           PYTHON
       - name: Package the requested unsigned Apple TV branch preview
         if: github.ref == 'refs/heads/chatgpt/ios-tvos-reference-interface' || github.ref == 'refs/heads/chatgpt/tvos-preview-0.3.1'

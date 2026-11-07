@@ -63,11 +63,15 @@ struct TVCastFocusFixture: View {
             Button("قبل طاقم العمل") { presentationCount += 1 }
                 .accessibilityIdentifier("tv.cast.fixture.before")
                 .focused($entryFocused)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusSection()
             TVShelf(title: "طاقم العمل") {
                 ForEach(people) { TVCastLockup(person: $0) }
             }
             Button("بعد طاقم العمل") { presentationCount += 1 }
                 .accessibilityIdentifier("tv.cast.fixture.after")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusSection()
             Text("\(presentationCount)")
                 .accessibilityIdentifier("tv.cast.fixture.activations")
             Button("TVmaze · CC BY-SA 4.0") { showAttribution = true }

@@ -9,6 +9,7 @@ on:
       - 'ios/**'
       - 'scripts/ci/**'
       - '.github/workflows/tvos-screenshots.yml'
+      - '.github/workflows/ios-app-compile.yml'
 
 permissions:
   contents: read
@@ -122,6 +123,18 @@ jobs:
         with:
           name: Cinema-iQ-AppleTV-diagnostics-${{ github.run_number }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tvos-diagnostics
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload compact screenshots for visual review
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinema-iQ-AppleTV-visual-review-${{ github.run_number }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/tvos-diagnostics/screenshots/*.png
+            ${{ runner.temp }}/tvos-diagnostics/screenshots/*.txt
+            ${{ runner.temp }}/tvos-diagnostics/screenshots/manifest.json
+            ${{ runner.temp }}/tvos-diagnostics/test-summary.json
           if-no-files-found: warn
           retention-days: 7
       - name: Upload unsigned simulator app

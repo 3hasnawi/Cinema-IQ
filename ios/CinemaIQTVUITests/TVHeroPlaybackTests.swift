@@ -98,8 +98,11 @@ final class TVHeroPlaybackTests: XCTestCase {
         XCTAssertTrue(hero.waitForExistence(timeout: 10))
         XCTAssertTrue(toggle.waitForExistence(timeout: 15), "Returning to Home starts a fresh preview")
         remote.press(.home)
-        wait(1)
-        XCTAssertNotEqual(app.state, .runningForeground)
+        let backgrounded = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            self.app.state != .runningForeground
+        }, object: nil)
+        XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 10), .completed,
+                       "Wait for SpringBoard to finish backgrounding the app")
         app.activate()
         XCTAssertTrue(hero.waitForExistence(timeout: 10))
         XCTAssertTrue(toggle.waitForExistence(timeout: 15), "Foregrounding restarts the current title preview")

@@ -45,7 +45,7 @@ jobs:
       - name: Download the exact tested unsigned device app
         run: |
           gh run download "$BUILD_RUN_ID" --name "Cinema-iQ-AppleTV-branch-preview-$GITHUB_SHA" --dir preview
-      - name: Verify platform, version, digest and credential exclusion
+      - name: Verify platform, version, digest and approved credential scope
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -59,7 +59,8 @@ jobs:
           assert info['CFBundleShortVersionString'] == '0.3.1', 'Unexpected app version'
           assert info['CFBundleVersion'] == '4', 'Unexpected build number'
           assert info.get('CFBundleSupportedPlatforms') == ['AppleTVOS'], 'Not a physical Apple TV app'
-          assert not info.get('TMDBAPIKey') and not info.get('OMDbAPIKey'), 'Refusing embedded repository metadata credential'
+          assert info.get('TMDBAPIKey'), 'Approved TMDB metadata credential is missing'
+          assert not info.get('OMDbAPIKey') and not info.get('YouTubeAPIKey'), 'Unapproved metadata credential'
           digest = hashlib.sha256(ipa.read_bytes()).hexdigest()
           assert pathlib.Path('preview/SHA256.txt').read_text().split()[0] == digest, 'Build artifact digest mismatch'
           pathlib.Path('preview/SHA256.txt').write_text(digest + '  ' + ipa.name + '\n')
@@ -71,11 +72,11 @@ jobs:
           cat > release-notes.md <<EOF_NOTES
           Apple TV preview 0.3.1 (4), source $GITHUB_SHA, branch chatgpt/tvos-preview-0.3.1.
 
-          Includes remote-driven Home hero selection, source-provided inline video trailer previews with mute/pause/replay, remembered playback quality with safe fallback, circular cast focus, and keyless TVmaze portraits for identified series where available.
+          Includes remote-driven Home hero selection, source-provided inline video trailer previews with mute/pause/replay, remembered playback quality with safe fallback, circular cast focus, TMDB cast portraits for matched movies/series, and a keyless TVmaze series fallback where available.
 
-          Trailer previews require a direct MP4/MOV/M4V/HLS source URL. YouTube pages and arbitrary embedded players are not supported. Movie portraits and series without matching metadata may keep initials. TVmaze source and CC BY-SA 4.0 attribution are available beside applicable cast rows.
+          Trailer previews require a direct MP4/MOV/M4V/HLS source URL. YouTube pages and arbitrary embedded players are not supported. Titles without matching metadata or available portraits may keep initials. TVmaze source and CC BY-SA 4.0 attribution are available beside applicable cast rows.
 
-          This unsigned arm64 IPA is for physical Apple TV (tvOS 18+). Sign or re-sign it in atvloadly with your configured Apple identity. It is not an iPhone/Android build, App Store release or TestFlight upload. No signing identity or TMDB or OMDb API credential is included.
+          This unsigned arm64 IPA is for physical Apple TV (tvOS 18+). Sign or re-sign it in atvloadly with your configured Apple identity. It is not an iPhone/Android build, App Store release or TestFlight upload. The repository owner explicitly authorized embedding the TMDB API key in this public IPA to enable cast portraits after being informed that recipients can extract and reuse it. No signing identity, OMDb key or YouTube key is included.
 
           Swift Core tests, iPhone/tvOS Release compilation, and Apple TV simulator navigation/settings/hero/cast tests passed for this exact commit. Simulator screenshots were reviewed before publication. ISP-restricted catalogs, real-account sync, physical-device playback, VoiceOver and Reduce Motion still need device acceptance.
           EOF_NOTES
