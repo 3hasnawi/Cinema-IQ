@@ -6,4 +6,11 @@
         <item name="android:colorAccent">#FFFFFF</item>
         <item name="android:windowLightStatusBar">false</item>
     </style>
+    <!-- Isolated to the Cast button: MediaRouter requires opaque AppCompat theme colors. -->
+    <style name="CinemaCastButtonTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">#1F252E</item>
+        <item name="colorPrimaryDark">#181D25</item>
+        <item name="colorAccent">#F2B233</item>
+        <item name="android:colorBackground">#181D25</item>
+    </style>
 </resources>
