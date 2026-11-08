@@ -1,5 +1,7 @@
 package com.cinemaplus.rebuilt.cast
 
+import android.view.ContextThemeWrapper
+import com.cinemaplus.rebuilt.R
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -128,8 +130,11 @@ fun MobileCastButton(film: Film, streams: List<Stream>, quality: Int, position: 
         }
     }
     Column {
-        AndroidView(factory = { MediaRouteButton(it).apply { CastButtonFactory.setUpMediaRouteButton(it, this) } },
-            modifier = Modifier.size(44.dp))
+        AndroidView(factory = { context ->
+            // MediaRouter calculates contrast using AppCompat colorPrimary, which the platform-only app theme lacks.
+            val castContext = ContextThemeWrapper(context, R.style.CinemaCastButtonTheme)
+            MediaRouteButton(castContext).apply { CastButtonFactory.setUpMediaRouteButton(castContext, this) }
+        }, modifier = Modifier.size(44.dp))
         if (session?.isConnected == true) TextButton(onClick = { expanded = true }) { Text("تحكم بالكاست") }
     }
     if (expanded) AlertDialog(onDismissRequest = { expanded = false }, title = { Text("Google Cast") },
