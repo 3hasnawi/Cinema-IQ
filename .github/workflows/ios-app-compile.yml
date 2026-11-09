@@ -76,6 +76,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" OMDB_API_KEY="$OMDB_API_KEY" YOUTUBE_API_KEY="$YOUTUBE_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee -a "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           test "$(grep -c "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log")" -ge 2
+      - name: Report optional metadata configuration without revealing values
+        run: |
+          for key_name in TMDB_API_KEY OMDB_API_KEY YOUTUBE_API_KEY; do
+            if [ -n "${!key_name:-}" ]; then echo "$key_name is configured"; else echo "::warning::$key_name is not configured; its optional feature will be unavailable"; fi
+          done
       - name: Report compile errors
         if: failure()
         run: grep -E "error:" "$RUNNER_TEMP/build.log" | head -40 | while read -r line; do echo "::error::$line"; done
