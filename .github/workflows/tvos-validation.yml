@@ -42,7 +42,8 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
-            -destination "id=$TV_TEST_DEVICE" -only-testing:CinemaIQTVUITests/TVRedesignSmokeTests \
+            -destination "id=$TV_TEST_DEVICE" -only-testing:CinemaIQTVUITests/TVRedesignSmokeTests -only-testing:CinemaIQTVUITests/TVVisualAuditTests \
+            -resultBundlePath "$RUNNER_TEMP/tvos-audit.xcresult" -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/tvos-test.log" | grep -E 'error:|Test Case|TEST (SUCCEEDED|FAILED)' || true
@@ -50,3 +51,19 @@ jobs:
       - name: Surface failures
         if: failure()
         run: grep -E 'error:|failed|Assertion' "$RUNNER_TEMP/tvos-test.log" | tail -40 || true
+      - name: Export visual evidence
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/tvos-audit.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/tvos-audit.xcresult" --output-path "$RUNNER_TEMP/tvos-evidence"
+          fi
+      - name: Upload simulator screenshots and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvos-visual-audit-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/tvos-evidence
+            ${{ runner.temp }}/tvos-test.log
+          retention-days: 1
+          if-no-files-found: warn
