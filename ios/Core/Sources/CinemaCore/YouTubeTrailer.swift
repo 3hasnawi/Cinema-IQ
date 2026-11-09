@@ -51,12 +51,13 @@ public actor YouTubeTrailerClient {
         if let cached = cache[query] { return cached }
         guard var parts = URLComponents(string: "https://www.googleapis.com/youtube/v3/search") else { return nil }
         parts.queryItems = [URLQueryItem(name: "part", value: "snippet"),
-            URLQueryItem(name: "type", value: "video"), URLQueryItem(name: "videoEmbeddable", value: "true"),
-            URLQueryItem(name: "maxResults", value: "5"), URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "key", value: key)]
+            URLQueryItem(name: "type", value: "video"), URLQueryItem(name: "maxResults", value: "5"),
+            URLQueryItem(name: "q", value: query)]
         guard let url = parts.url else { return nil }
         var request = URLRequest(url: url)
         request.timeoutInterval = 12
+        // Keep the API key out of URLs and URL-based diagnostics.
+        request.setValue(key, forHTTPHeaderField: "X-Goog-Api-Key")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200,
