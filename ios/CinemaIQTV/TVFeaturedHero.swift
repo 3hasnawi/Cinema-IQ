@@ -15,8 +15,8 @@ struct TVFeaturedHero: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            Spacer(minLength: 0)
             if let media {
+                Spacer(minLength: 0)
                 Text(media.title)
                     .font(.system(size: 72, weight: .bold))
                     .lineLimit(2).minimumScaleFactor(0.7)
@@ -56,10 +56,22 @@ struct TVFeaturedHero: View {
                     }.padding(.vertical, 12)
                 }.scrollClipDisabled().scrollIndicators(.hidden).focusSection()
             } else if loading {
-                ProgressView().frame(maxWidth: .infinity)
+                ProgressView("جارٍ تحميل الأعمال…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("tv.home.loading")
             } else if let error {
                 ErrorState(message: error, retry: retry)
+                    .frame(maxHeight: .infinity)
+            } else {
+                ContentUnavailableView {
+                    Label("لا توجد أعمال متاحة", systemImage: "film")
+                } description: {
+                    Text("أعد المحاولة أو اختر مصدرًا آخر من الإعدادات.")
+                } actions: {
+                    Button("إعادة المحاولة", action: retry)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
