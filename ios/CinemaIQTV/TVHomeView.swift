@@ -11,8 +11,12 @@ struct TVHomeView: View {
     @State private var error: String?
     @State private var heroIndex = 0
     @State private var loadedSource: String?
+    @State private var loadID = UUID()
     @State private var belowFold = false
-    @FocusState private var heroFocus: HeroButton?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @EnvironmentObject private var router: TVRouter
+    @FocusState private var featuredFocus: String?
+    @State private var heroInfo: OMDbInfo?
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var featured: [Media] {
@@ -26,17 +30,18 @@ struct TVHomeView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let showcase = max(400, proxy.size.height * 0.8)
+            let showcase = max(440, proxy.size.height * 0.88)
             ZStack {
                 ShowcaseBackground(url: hero.map { $0.backdrop.isEmpty ? $0.poster : $0.backdrop } ?? "", belowFold: belowFold)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 56) {
-                        TVHeroHeader(media: hero, count: featured.count, index: heroIndex, loading: loading, error: shelves.isEmpty ? error : nil,
-                                     focus: $heroFocus, next: { advance(1) }, retry: { Task { await load() } })
+                        TVFeaturedHero(media: hero, info: heroInfo, featured: featured,
+                                       focused: $featuredFocus, loading: loading, error: shelves.isEmpty ? error : nil,
+                                       retry: { Task { await load() } }, open: { router.open($0) })
                             .frame(height: showcase, alignment: .bottomLeading)
-                            .opacity(belowFold ? 0 : 1)
                             .onScrollVisibilityChange(threshold: 0.5) { visible in
-                                withAnimation { belowFold = !visible }
+                                if reduceMotion { belowFold = !visible }
+                                else { withAnimation(.easeOut(duration: 0.25)) { belowFold = !visible } }
                             }
                         // At least a screen tall, so the page can always scroll to the fold.
                         VStack(alignment: .leading, spacing: 56) {
@@ -60,136 +65,40 @@ struct TVHomeView: View {
                 .scrollTargetBehavior(FoldSnapping(aboveFold: !belowFold, showcaseHeight: showcase + 56))
             }
         }
-        // The page opens on the featured title's Play button, as the Apple TV app does.
-        .defaultFocus($heroFocus, .play)
+        .defaultFocus($featuredFocus, featured.first?.id)
+        .onChange(of: featuredFocus) { _, id in
+            guard let id, let index = featured.firstIndex(where: { $0.id == id }), index != heroIndex else { return }
+            if reduceMotion { heroIndex = index }
+            else { withAnimation(.easeInOut(duration: 0.35)) { heroIndex = index } }
+        }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
-            if loadedSource != sourceName { shelves = []; heroIndex = 0 }
+            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = nil }
             await load()
         }
-        // The featured title changes every 9 s while the viewer is not on its buttons and is above the fold.
-        .task(id: "\(heroIndex)-\(heroFocus == nil)-\(belowFold)-\(featured.count)") {
-            guard featured.count > 1, heroFocus == nil, !belowFold else { return }
-            try? await Task.sleep(for: .seconds(9))
+        .task(id: hero?.id) {
+            heroInfo = nil
+            guard let hero else { return }
+            let info = await OMDb.shared?.info(for: hero)
             guard !Task.isCancelled else { return }
-            advance(1)
+            heroInfo = info
         }
-    }
-
-    private func advance(_ step: Int) {
-        guard featured.count > 1 else { return }
-        withAnimation(.easeInOut(duration: 0.6)) { heroIndex = (heroIndex + step + featured.count) % featured.count }
     }
 
     private func load() async {
-        loading = true; error = nil
-        defer { loading = false }
+        let request = UUID()
+        let requestedSource = sourceName
+        loadID = request; loading = true; error = nil
+        defer { if loadID == request { loading = false } }
         do {
-            let result = try await SourceClient().home(source)
+            let result = try await SourceClient().home(SourcePreference.source(requestedSource))
             try Task.checkCancellation()
+            guard loadID == request, sourceName == requestedSource else { return }
             shelves = result
-            loadedSource = sourceName
+            loadedSource = requestedSource
         } catch is CancellationError {
         } catch {
-            if !Task.isCancelled { self.error = error.localizedDescription }
-        }
-    }
-}
-
-enum HeroButton: Hashable { case play, info, list }
-
-/// The featured title's text and buttons at the bottom of the showcase. The buttons stay the same views while the
-/// title changes, so focus never drops; Left from the last button shows the next title.
-struct TVHeroHeader: View {
-    let media: Media?
-    let count: Int
-    let index: Int
-    let loading: Bool
-    let error: String?
-    var focus: FocusState<HeroButton?>.Binding
-    let next: () -> Void
-    let retry: () -> Void
-    @EnvironmentObject private var library: LibraryStore
-    @EnvironmentObject private var player: PlayerPresenter
-    @EnvironmentObject private var router: TVRouter
-    @State private var starting = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Spacer(minLength: 0)
-            if let media {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(media.isSeries ? "مسلسل" : "فيلم")
-                        .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.7))
-                    Text(media.title)
-                        .font(.system(size: 70, weight: .bold))
-                        .lineLimit(2).minimumScaleFactor(0.7)
-                        .frame(maxWidth: 1150, alignment: .leading)
-                    FactsLine(facts: DisplayFormat.facts(media))
-                    Text(media.overview.isEmpty ? " " : media.overview)
-                        .font(.callout).foregroundStyle(.white.opacity(0.75))
-                        .lineLimit(2).frame(maxWidth: 950, alignment: .leading)
-                }
-                .id(media.id)
-                .transition(.opacity)
-                HStack(spacing: 22) {
-                    Button { play(media) } label: {
-                        Label(starting ? "جارٍ التحضير…" : playTitle(media), systemImage: "play.fill")
-                            .font(.callout.weight(.semibold))
-                    }
-                    .focused(focus, equals: .play)
-                    Button { router.open(media) } label: {
-                        Label(media.isSeries ? "الحلقات" : "التفاصيل", systemImage: media.isSeries ? "list.bullet" : "info.circle")
-                            .font(.callout.weight(.semibold))
-                    }
-                    .focused(focus, equals: .info)
-                    Button { library.toggle(media) } label: {
-                        Image(systemName: library.isFavorite(media) ? "checkmark" : "plus").font(.callout.weight(.semibold))
-                    }
-                    .focused(focus, equals: .list)
-                    .onMoveCommand { direction in if direction == .left { next() } }
-                }
-                .padding(.top, 8)
-                if count > 1 {
-                    HStack(spacing: 8) {
-                        ForEach(0..<count, id: \.self) { dot in
-                            Capsule().fill(dot == index ? Color.white : Color.white.opacity(0.3))
-                                .frame(width: dot == index ? 26 : 8, height: 8)
-                        }
-                    }
-                    .animation(.easeInOut, value: index)
-                    .padding(.top, 6)
-                }
-            } else if loading {
-                ProgressView().frame(maxWidth: .infinity)
-                Spacer(minLength: 0)
-            } else if let error {
-                ErrorState(message: error, retry: retry)
-                Spacer(minLength: 0)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .focusSection()
-    }
-
-    private func playTitle(_ media: Media) -> String {
-        if media.isSeries { return "تشغيل" }
-        return library.fraction(media) > 0 ? "تابع المشاهدة" : "تشغيل"
-    }
-
-    /// A movie plays at once; a series loads its seasons and plays the episode the viewer is on.
-    private func play(_ media: Media) {
-        guard media.isSeries else { player.play(media); return }
-        guard !starting else { return }
-        starting = true
-        Task {
-            defer { starting = false }
-            guard let found = try? await SourceClient().detail(media),
-                  let target = PlayTarget.pick(found.1, library: library) else {
-                router.open(media)
-                return
-            }
-            player.play(target, queue: found.1.flatMap(\.episodes), series: found.0)
+            if !Task.isCancelled, loadID == request, sourceName == requestedSource { self.error = error.localizedDescription }
         }
     }
 }

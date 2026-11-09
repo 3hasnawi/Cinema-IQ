@@ -10,6 +10,7 @@ struct TVIPTVView: View {
                     Label("IPTV", systemImage: "dot.radiowaves.left.and.right")
                         .font(.system(size: 60, weight: .bold))
                         .foregroundStyle(.white)
+                        .accessibilityIdentifier("tv.iptv.heading")
                     Text("قنواتك في مكان واحد")
                         .font(.system(size: 34, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.9))

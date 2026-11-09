@@ -111,7 +111,8 @@ targets:
       properties:
         CFBundleDisplayName: Cinema iQ
         CFBundleDevelopmentRegion: ar
-        OMDbAPIKey: "5b9c7295"
+        OMDbAPIKey: "$(OMDB_API_KEY)"
+        YouTubeAPIKey: "$(YOUTUBE_API_KEY)"
         # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
         TMDBAPIKey: "$(TMDB_API_KEY)"
         UILaunchScreen:

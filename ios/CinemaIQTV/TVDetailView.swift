@@ -9,6 +9,7 @@ struct TVDetailView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
     @EnvironmentObject private var router: TVRouter
+    @Environment(\.openURL) private var openURL
     @State private var pickingSeason = false
     @State private var media: Media?
     @State private var seasons: [Season] = []
@@ -23,9 +24,11 @@ struct TVDetailView: View {
     @State private var omdbSeasons: [Int: OMDbSeason] = [:]
     @State private var belowFold = false
     @State private var showStory = false
+    @State private var trailerID: String?
+    @State private var trailerUnavailable = false
     @FocusState private var focus: DetailFocus?
 
-    enum DetailFocus: Hashable { case play, list, story, seasons }
+    enum DetailFocus: Hashable { case play, trailer, list, story, seasons }
 
     private var current: Media { media ?? initial }
     private var episodes: [Media] { seasons.first { $0.id == seasonID }?.episodes ?? [] }
@@ -86,6 +89,16 @@ struct TVDetailView: View {
         .defaultFocus($focus, .play)
         .fullScreenCover(isPresented: $showStory) { storyPage }
         .task { await load() }
+        .task(id: current.id) {
+            trailerID = nil
+            let name = current.enTitle.isEmpty ? current.title : current.enTitle
+            let found = await TVTrailers.client?.search(title: name, year: current.year)
+            guard !Task.isCancelled else { return }
+            trailerID = found
+        }
+        .alert("التريلر غير متاح", isPresented: $trailerUnavailable) {
+            Button("حسنًا", role: .cancel) { }
+        } message: { Text("تعذّر فتح التريلر. تأكد من توفر تطبيق YouTube على Apple TV.") }
         // Back on the season button once the season list closes.
         .onChange(of: router.popup == nil) { _, closed in
             guard closed, pickingSeason else { return }
@@ -100,55 +113,53 @@ struct TVDetailView: View {
     // MARK: Above the fold
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 26) {
-            Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 24) {
             Text(current.title)
                 .font(.system(size: 76, weight: .bold))
                 .lineLimit(2).minimumScaleFactor(0.7)
-                .frame(maxWidth: 1300, alignment: .leading)
+                .frame(maxWidth: 1250, alignment: .leading)
+            Spacer(minLength: 0)
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
-            HStack(alignment: .top, spacing: 56) {
-                VStack(spacing: 14) {
-                    Button { if let target { player.play(target, queue: target.episode > 0 ? queue : [], series: seriesContext) } } label: {
-                        Label(loading && current.isSeries && seasons.isEmpty ? "جارٍ التحميل…" : PlayTarget.label(target, library: library),
-                              systemImage: "play.fill")
-                            .font(.callout.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                    }
-                    // Not disabled while the seasons load, so focus starts here and not on the story.
-                    .focused($focus, equals: .play)
-                    Button { library.toggle(current) } label: {
-                        Label(library.isFavorite(current) ? "في قائمتي" : "أضف إلى قائمتي",
-                              systemImage: library.isFavorite(current) ? "checkmark" : "plus")
-                            .font(.callout.weight(.semibold))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .focused($focus, equals: .list)
+            FactsLine(facts: facts)
+            if !story.isEmpty {
+                Button { showStory = true } label: {
+                    Text(story).font(.callout).foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(4).multilineTextAlignment(.leading)
+                        .frame(maxWidth: 1000, alignment: .leading)
                 }
-                .frame(width: 440)
-                VStack(alignment: .leading, spacing: 14) {
-                    FactsLine(facts: facts)
-                    if !story.isEmpty {
-                        Button { showStory = true } label: {
-                            Text(story)
-                                .font(.callout).foregroundStyle(.white.opacity(0.85))
-                                .lineLimit(4).multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(14)
-                        }
-                        .buttonStyle(.plain)
-                        .focused($focus, equals: .story)
-                    }
-                }
-                .frame(maxWidth: 820, alignment: .leading)
-                VStack(alignment: .leading, spacing: 12) {
-                    credit("بطولة", people.prefix(3).map(\.name).joined(separator: "، "))
-                    credit(makers.0, makers.1)
-                    credit("النوع", omdb?.genre ?? "")
-                }
-                .frame(maxWidth: 380, alignment: .leading)
+                .buttonStyle(.plain).focused($focus, equals: .story)
             }
-            .focusSection()
+            HStack(spacing: 22) {
+                Button { if let target { player.play(target, queue: target.episode > 0 ? queue : [], series: seriesContext) } } label: {
+                    Label(loading && current.isSeries && seasons.isEmpty ? "جارٍ التحميل…" : PlayTarget.label(target, library: library),
+                          systemImage: "play.fill")
+                        .font(.callout.weight(.semibold)).frame(minWidth: 260)
+                }.focused($focus, equals: .play).accessibilityIdentifier("tv.detail.play")
+                if TVTrailers.client != nil {
+                    Button {
+                        guard let trailerID, let url = YouTubeTrailer.appURL(videoID: trailerID) else {
+                            trailerUnavailable = true
+                            return
+                        }
+                        openURL(url) { accepted in if !accepted { trailerUnavailable = true } }
+                    } label: {
+                        Image(systemName: "play.rectangle").font(.title3).frame(width: 70, height: 70)
+                    }
+                    .accessibilityLabel("عرض التريلر على YouTube")
+                    .focused($focus, equals: .trailer)
+                }
+                Button { library.toggle(current) } label: {
+                    Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
+                        .font(.title3).frame(width: 70, height: 70)
+                }
+                .accessibilityLabel(library.isFavorite(current) ? "إزالة من قائمتي" : "أضف إلى قائمتي")
+                .focused($focus, equals: .list)
+            }.focusSection()
+            HStack(alignment: .top, spacing: 32) {
+                credit("بطولة", people.prefix(3).map(\.name).joined(separator: "، "))
+                credit(makers.0, makers.1)
+                credit("النوع", omdb?.genre ?? "")
+            }
             if loading && seasons.isEmpty && current.isSeries { ProgressView() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
