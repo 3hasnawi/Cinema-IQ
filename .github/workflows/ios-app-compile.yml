@@ -22,6 +22,8 @@ jobs:
     runs-on: macos-15
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -71,15 +73,14 @@ jobs:
             -sdk appletvos \
             -destination 'generic/platform=tvOS' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY="$TMDB_API_KEY" OMDB_API_KEY="$OMDB_API_KEY" YOUTUBE_API_KEY="$YOUTUBE_API_KEY" CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
             build 2>&1 | tee -a "$RUNNER_TEMP/build.log" | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
           test "$(grep -c "BUILD SUCCEEDED" "$RUNNER_TEMP/build.log")" -ge 2
-      - name: Check TMDB in the Apple TV build
+      - name: Report optional metadata configuration without revealing values
         run: |
-          plist=$(find "$RUNNER_TEMP/DerivedData" -path '*Release-appletvos/CinemaIQTV.app/Info.plist' | head -1)
-          value=$(/usr/libexec/PlistBuddy -c 'Print :TMDBAPIKey' "$plist" 2>/dev/null || echo MISSING)
-          code=$(curl -s -o /tmp/tmdb.json -w '%{http_code}' "https://api.themoviedb.org/3/search/tv?api_key=$TMDB_API_KEY&query=A%20Shop%20for%20Killers&language=en-US")
-          echo "::warning::TMDB secret ${#TMDB_API_KEY} chars; key in app ${#value} chars ('${value:0:2}'); search HTTP $code: $(head -c 200 /tmp/tmdb.json | tr -d '\n\"')"
+          for key_name in TMDB_API_KEY OMDB_API_KEY YOUTUBE_API_KEY; do
+            if [ -n "${!key_name:-}" ]; then echo "$key_name is configured"; else echo "::warning::$key_name is not configured; its optional feature will be unavailable"; fi
+          done
       - name: Report compile errors
         if: failure()
         run: grep -E "error:" "$RUNNER_TEMP/build.log" | head -40 | while read -r line; do echo "::error::$line"; done

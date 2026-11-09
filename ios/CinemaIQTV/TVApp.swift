@@ -27,7 +27,7 @@ import CinemaCore
     }
 }
 
-enum TVTab: Hashable { case home, movies, series, library, search, settings }
+enum TVTab: Hashable { case home, movies, series, library, search, iptv, settings }
 
 /// The Apple TV app's layout: a sidebar (Menu or the leading edge opens it) over full-screen pages. Every tab has
 /// its own navigation, and the player opens full screen over all of them.
@@ -51,6 +51,9 @@ struct TVRootView: View {
             }
             Tab("مكتبتي", systemImage: "books.vertical", value: TVTab.library) {
                 stack(.library) { TVLibraryView() }
+            }
+            Tab("IPTV", systemImage: "dot.radiowaves.left.and.right", value: TVTab.iptv) {
+                TVIPTVView()
             }
             Tab("الإعدادات", systemImage: "gearshape", value: TVTab.settings) {
                 NavigationStack { TVSettingsView() }

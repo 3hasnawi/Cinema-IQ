@@ -18,6 +18,8 @@ struct TVPlayerView: View {
     @State private var externalTracks: [SubtitleTrack] = []
     @State private var loading = false
     @State private var resolutionError: String?
+    @State private var overlayInfo: OMDbInfo?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// IntroDB timings of what is playing: the opening (skip button) and the start of the end credits.
     @State private var skips = SkipSegments()
     /// The series of an episode opened without one (from continue watching).
@@ -55,6 +57,12 @@ struct TVPlayerView: View {
                          episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
                 .ignoresSafeArea()
             }
+            if !controller.playing && !controller.buffering && !loading && !controller.ended &&
+                controller.position > 0 && failure == nil {
+                TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
             VStack {
                 Spacer()
                 if let cue = controller.cue {
@@ -88,6 +96,15 @@ struct TVPlayerView: View {
         }
         .task(id: current.id) { await start(current) }
         .task(id: "skips-\(current.id)") { await loadSkips(current) }
+        .task(id: "queue-\(current.id)") { await loadQueue(current) }
+        .task(id: "pause-info-\(current.id)-\(fetchedSeries?.id ?? "")") {
+            overlayInfo = nil
+            let work = selection.series ?? fetchedSeries ?? current
+            let found = await OMDb.shared?.info(for: work)
+            guard !Task.isCancelled else { return }
+            overlayInfo = found
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: controller.playing)
         .onDisappear { controller.close() }
     }
 
@@ -201,23 +218,26 @@ struct TVPlayerView: View {
         if fetchedSeries == nil { fetchedSeries = found.series }
     }
 
+    private func loadQueue(_ media: Media) async {
+        guard selection.queue.isEmpty, media.episode > 0,
+              !fetchedQueue.contains(where: { $0.id == media.id }) else { return }
+        let found = try? await SourceClient().detail(media)
+        guard !Task.isCancelled, current.id == media.id, let found else { return }
+        fetchedQueue = found.1.flatMap(\.episodes)
+    }
+
     private func start(_ media: Media) async {
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil
         async let tracks = SourceClient().subtitles(media)
-        // An episode opened from continue watching comes without its season: load it so the next episode is known.
-        if selection.queue.isEmpty, media.episode > 0, !fetchedQueue.contains(where: { $0.id == media.id }) {
-            Task {
-                if let found = try? await SourceClient().detail(media) { fetchedQueue = found.1.flatMap(\.episodes) }
-            }
-        }
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()
+            guard let first = result.first else { throw CinemaError.noStreams }
             streams = result
-            quality = result[0].id
+            quality = first.id
             let prior = library.progress[media.id]
-            open(media, stream: result[0], resume: prior?.completed == false ? prior?.seconds ?? 0 : 0)
+            open(media, stream: first, resume: prior?.completed == false ? prior?.seconds ?? 0 : 0)
         } catch {
             if !Task.isCancelled { resolutionError = error.localizedDescription }
         }

@@ -48,8 +48,17 @@ enum DisplayFormat {
         var seconds: Int?
         if text.contains(":") {
             let parts = text.split(separator: ":").compactMap { Int($0) }
-            if (2...3).contains(parts.count) { seconds = parts.reduce(0) { $0 * 60 + $1 } }
-        } else if let value = Double(text) {
+            if (2...3).contains(parts.count), parts.allSatisfy({ $0 >= 0 }) {
+                var total = 0
+                for part in parts {
+                    let (scaled, multiplyOverflow) = total.multipliedReportingOverflow(by: 60)
+                    let (next, addOverflow) = scaled.addingReportingOverflow(part)
+                    guard !multiplyOverflow, !addOverflow else { return text }
+                    total = next
+                }
+                seconds = total
+            }
+        } else if let value = Double(text), value.isFinite, value >= 0, value < 1_000_000_000 {
             seconds = Int(value >= 86_400 ? value / 1000 : value)
         }
         guard let seconds, seconds > 0 else { return text }
@@ -63,9 +72,20 @@ enum DisplayFormat {
 /// OMDb client, set up from the key in Info.plist; nil when no key is configured.
 enum OMDb {
     static let shared: OMDbClient? = {
-        guard let key = Bundle.main.object(forInfoDictionaryKey: "OMDbAPIKey") as? String, !key.isEmpty else { return nil }
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "OMDbAPIKey") as? String,
+              !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !key.contains("$(") else { return nil }
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?.appendingPathComponent("omdb-cache.json")
         return OMDbClient(key: key, cacheURL: cache)
+    }()
+}
+
+/// Metadata lookup only; YouTube playback is delegated to the installed YouTube app.
+enum TVTrailers {
+    static let client: YouTubeTrailerClient? = {
+        guard let key = Bundle.main.object(forInfoDictionaryKey: "YouTubeAPIKey") as? String,
+              !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !key.contains("$(") else { return nil }
+        return YouTubeTrailerClient(key: key)
     }()
 }
 

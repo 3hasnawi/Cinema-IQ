@@ -1,0 +1,52 @@
+name: Apple TV navigation checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/tvos-validation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tvos-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          cd ios
+          xcodegen generate --spec project.yml
+      - name: Prepare simulator
+        run: |
+          set -euo pipefail
+          if ! xcrun simctl list runtimes | grep -q tvOS; then xcodebuild -downloadPlatform tvOS; fi
+          runtime="$(xcrun simctl list runtimes | grep tvOS | tail -1 | sed -E 's/.* - (com\.apple\.CoreSimulator\.SimRuntime\.[^ ]+).*/\1/')"
+          type="$(xcrun simctl list devicetypes | grep -m1 'Apple TV 4K' | sed -E 's/.*\((com\.apple\.[^)]+)\).*/\1/')"
+          device="$(xcrun simctl create CinemaTVCheck "$type" "$runtime")"
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          echo "TV_TEST_DEVICE=$device" >> "$GITHUB_ENV"
+      - name: Run focused remote navigation checks
+        run: |
+          set -o pipefail
+          xcodebuild test -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_TEST_DEVICE" -only-testing:CinemaIQTVUITests/TVRedesignSmokeTests \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/tvos-test.log" | grep -E 'error:|Test Case|TEST (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST SUCCEEDED' "$RUNNER_TEMP/tvos-test.log"
+      - name: Surface failures
+        if: failure()
+        run: grep -E 'error:|failed|Assertion' "$RUNNER_TEMP/tvos-test.log" | tail -40 || true
