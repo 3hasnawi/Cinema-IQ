@@ -21,6 +21,13 @@ final class TVRedesignSmokeTests: XCTestCase {
         remote.press(.select)
         let play = app.buttons["tv.detail.play"]
         XCTAssertTrue(play.waitForExistence(timeout: 20), "Selecting a card should open the details page")
+        let playFocus = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: play)
+        XCTAssertEqual(XCTWaiter.wait(for: [playFocus], timeout: 10), .completed)
+        remote.press(.select)
+        Thread.sleep(forTimeInterval: 5)
+        XCTAssertEqual(app.state, .runningForeground, "Opening the player must not crash the app")
+        remote.press(.menu)
+        XCTAssertTrue(play.waitForExistence(timeout: 15), "Closing the player should return to details")
         remote.press(.menu)
         XCTAssertTrue(first.waitForExistence(timeout: 10), "Back should restore the home page")
         XCTAssertEqual(app.state, .runningForeground)
