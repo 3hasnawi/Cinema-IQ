@@ -1,0 +1,71 @@
+name: Publish approved Apple TV 0.4.0
+on:
+  push:
+    branches: [chatgpt/tvos-approved-publish-0.4.0]
+    paths: [.github/workflows/tvos-approved-publish-0.4.0.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: publish-tvos-0.4.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Verify approved source and wait for the requested build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          merged=$(gh api repos/3hasnawi/Cinema-IQ/pulls/115 --jq '.merged')
+          test "$merged" = true
+          test "$(gh api repos/3hasnawi/Cinema-IQ/pulls/115 --jq '.head.sha')" = de9db0c3b8b66d53e933921eb8e6f25ad4639f69
+          for attempt in $(seq 1 120); do
+            gh api repos/3hasnawi/Cinema-IQ/actions/runs/42698251011 > "$RUNNER_TEMP/build.json"
+            test "$(jq -r .head_sha "$RUNNER_TEMP/build.json")" = de9db0c3b8b66d53e933921eb8e6f25ad4639f69
+            if [ "$(jq -r .status "$RUNNER_TEMP/build.json")" = completed ]; then
+              test "$(jq -r .conclusion "$RUNNER_TEMP/build.json")" = success
+              break
+            fi
+            test "$attempt" -lt 120
+            sleep 15
+          done
+          gh run download 42698251011 --repo 3hasnawi/Cinema-IQ --pattern 'Cinema-iQ-AppleTV-unsigned-*' --dir "$RUNNER_TEMP/apple-tv"
+      - name: Validate device package
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          find "$RUNNER_TEMP/apple-tv" -name '*.ipa' -exec cp '{}' release/Cinema-iQ-AppleTV-0.4.0-unsigned.ipa \;
+          python3 - <<'PY'
+          import plistlib, zipfile
+          with zipfile.ZipFile('release/Cinema-iQ-AppleTV-0.4.0-unsigned.ipa') as z:
+              assert z.testzip() is None
+              info=plistlib.loads(z.read('Payload/CinemaIQTV.app/Info.plist'))
+              assert info['CFBundleIdentifier']=='com.cinemaplus.rebuilt.tv'
+              assert info['CFBundleShortVersionString']=='0.4.0'
+              assert info['CFBundleVersion']=='4'
+              assert info['CFBundleSupportedPlatforms']==['AppleTVOS']
+          PY
+          cd release
+          sha256sum Cinema-iQ-AppleTV-0.4.0-unsigned.ipa > SHA256SUMS.txt
+      - name: Publish the explicitly approved Apple TV version
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          Cinema iQ لأجهزة Apple TV — 0.4.0 (4)
+
+          - واجهة رئيسية سينمائية وبطاقات أفقية تتغير معها معلومات العمل، مع دعم الريموت والحركة المخففة.
+          - ترتيب جديد للتفاصيل ومعلومات العمل عند إيقاف المشاهدة مؤقتًا، وتحسين التعامل مع الطلبات الملغاة والمدد غير الصالحة وقوائم التشغيل الفارغة.
+          - قسم IPTV قادم؛ استيراد M3U واشتراكات Xtream والتشغيل غير متاحة بعد.
+          - إعدادات OMDb وTMDb مربوطة. مفتاح YouTube لم يتوفر عند الفحص، والتريلر غير متاح حاليًا.
+
+          ملف IPA لجهاز Apple TV الحقيقي، غير موقّع ويحتاج توقيعًا بأداة مناسبة مثل atvloadly. معرّف الحزمة com.cinemaplus.rebuilt.tv.
+          نجحت اختبارات الكود والتنقل على محاكي Apple TV وفحوصات البناء. لم يُختبر على جهاز Apple TV حقيقي.
+          Source: PR #114 and #115 in 3hasnawi/Cinema-IQ; build 42698251011, source de9db0c3b8b66d53e933921eb8e6f25ad4639f69.
+          NOTES
+          gh release create tvos-v0.4.0 release/Cinema-iQ-AppleTV-0.4.0-unsigned.ipa release/SHA256SUMS.txt --repo 3hasnawi/Cinema-IQ-Releases --title 'Cinema iQ Apple TV 0.4.0' --notes-file "$RUNNER_TEMP/notes.md" --latest=false
