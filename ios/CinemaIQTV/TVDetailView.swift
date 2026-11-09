@@ -26,6 +26,7 @@ struct TVDetailView: View {
     @State private var showStory = false
     @State private var trailerID: String?
     @State private var trailerUnavailable = false
+    @State private var trailerMessage = ""
     @FocusState private var focus: DetailFocus?
 
     enum DetailFocus: Hashable { case play, trailer, list, story, seasons }
@@ -98,7 +99,7 @@ struct TVDetailView: View {
         }
         .alert("التريلر غير متاح", isPresented: $trailerUnavailable) {
             Button("حسنًا", role: .cancel) { }
-        } message: { Text("تعذّر فتح التريلر. تأكد من توفر تطبيق YouTube على Apple TV.") }
+        } message: { Text(trailerMessage) }
         // Back on the season button once the season list closes.
         .onChange(of: router.popup == nil) { _, closed in
             guard closed, pickingSeason else { return }
@@ -135,19 +136,28 @@ struct TVDetailView: View {
                           systemImage: "play.fill")
                         .font(.callout.weight(.semibold)).frame(minWidth: 260)
                 }.focused($focus, equals: .play).accessibilityIdentifier("tv.detail.play")
-                if TVTrailers.client != nil {
-                    Button {
-                        guard let trailerID, let url = YouTubeTrailer.appURL(videoID: trailerID) else {
-                            trailerUnavailable = true
-                            return
-                        }
-                        openURL(url) { accepted in if !accepted { trailerUnavailable = true } }
-                    } label: {
-                        Image(systemName: "play.rectangle").font(.title3).frame(width: 70, height: 70)
+                Button {
+                    guard TVTrailers.client != nil else {
+                        trailerMessage = "التريلر غير مفعّل في هذه النسخة."
+                        trailerUnavailable = true
+                        return
                     }
-                    .accessibilityLabel("عرض التريلر على YouTube")
-                    .focused($focus, equals: .trailer)
+                    guard let trailerID, let url = YouTubeTrailer.appURL(videoID: trailerID) else {
+                        trailerMessage = "لم نعثر على تريلر مطابق لهذا العمل."
+                        trailerUnavailable = true
+                        return
+                    }
+                    openURL(url) { accepted in
+                        if !accepted {
+                            trailerMessage = "تعذّر فتح التريلر. تأكد من توفر تطبيق YouTube على Apple TV."
+                            trailerUnavailable = true
+                        }
+                    }
+                } label: {
+                    Image(systemName: "play.rectangle").font(.title3).frame(width: 70, height: 70)
                 }
+                .accessibilityLabel("عرض التريلر على YouTube")
+                .focused($focus, equals: .trailer)
                 Button { library.toggle(current) } label: {
                     Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
                         .font(.title3).frame(width: 70, height: 70)
