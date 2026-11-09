@@ -75,7 +75,7 @@ struct TVHomeView: View {
                 } : nil)
             }
         }
-        .defaultFocus($featuredFocus, featured.first?.id)
+        .defaultFocus($featuredFocus, hero?.id)
         .task(id: featured.first?.id) {
             guard !initialFocusAssigned, let first = featured.first else { return }
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
