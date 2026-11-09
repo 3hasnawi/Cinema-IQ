@@ -58,6 +58,9 @@ public actor YouTubeTrailerClient {
         request.timeoutInterval = 12
         // Keep the API key out of URLs and URL-based diagnostics.
         request.setValue(key, forHTTPHeaderField: "X-Goog-Api-Key")
+        if let bundleID = Bundle.main.bundleIdentifier, !bundleID.isEmpty {
+            request.setValue(bundleID, forHTTPHeaderField: "X-Ios-Bundle-Identifier")
+        }
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard !Task.isCancelled, (response as? HTTPURLResponse)?.statusCode == 200,
