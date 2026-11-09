@@ -27,6 +27,8 @@ struct TVDetailView: View {
     @State private var trailerID: String?
     @State private var trailerUnavailable = false
     @State private var trailerMessage = ""
+    @State private var trailerLoading = false
+    @State private var trailerTask: Task<Void, Never>?
     @FocusState private var focus: DetailFocus?
 
     enum DetailFocus: Hashable { case play, trailer, list, story, seasons }
@@ -90,13 +92,10 @@ struct TVDetailView: View {
         .defaultFocus($focus, .play)
         .fullScreenCover(isPresented: $showStory) { storyPage }
         .task { await load() }
-        .task(id: current.id) {
-            trailerID = nil
-            let name = current.enTitle.isEmpty ? current.title : current.enTitle
-            let found = await TVTrailers.client?.search(title: name, year: current.year)
-            guard !Task.isCancelled else { return }
-            trailerID = found
+        .onChange(of: current.id) { _, _ in
+            trailerTask?.cancel(); trailerTask = nil; trailerID = nil; trailerLoading = false
         }
+        .onDisappear { trailerTask?.cancel(); trailerTask = nil }
         .alert("التريلر غير متاح", isPresented: $trailerUnavailable) {
             Button("حسنًا", role: .cancel) { }
         } message: { Text(trailerMessage) }
@@ -136,27 +135,13 @@ struct TVDetailView: View {
                           systemImage: "play.fill")
                         .font(.callout.weight(.semibold)).frame(minWidth: 260)
                 }.focused($focus, equals: .play).accessibilityIdentifier("tv.detail.play")
-                Button {
-                    guard TVTrailers.client != nil else {
-                        trailerMessage = "التريلر غير مفعّل في هذه النسخة."
-                        trailerUnavailable = true
-                        return
-                    }
-                    guard let trailerID, let url = YouTubeTrailer.appURL(videoID: trailerID) else {
-                        trailerMessage = "لم نعثر على تريلر مطابق لهذا العمل."
-                        trailerUnavailable = true
-                        return
-                    }
-                    openURL(url) { accepted in
-                        if !accepted {
-                            trailerMessage = "تعذّر فتح التريلر. تأكد من توفر تطبيق YouTube على Apple TV."
-                            trailerUnavailable = true
-                        }
-                    }
-                } label: {
-                    Image(systemName: "play.rectangle").font(.title3).frame(width: 70, height: 70)
+                Button(action: requestTrailer) {
+                    Group {
+                        if trailerLoading { ProgressView() }
+                        else { Image(systemName: "play.rectangle").font(.title3) }
+                    }.frame(width: 70, height: 70)
                 }
-                .accessibilityLabel("عرض التريلر على YouTube")
+                .accessibilityLabel(trailerLoading ? "جارٍ البحث عن التريلر" : "عرض التريلر على YouTube")
                 .focused($focus, equals: .trailer)
                 Button { library.toggle(current) } label: {
                     Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
@@ -173,6 +158,44 @@ struct TVDetailView: View {
             if loading && seasons.isEmpty && current.isSeries { ProgressView() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func requestTrailer() {
+        guard let client = TVTrailers.client else {
+            trailerMessage = "التريلر غير مفعّل في هذه النسخة."
+            trailerUnavailable = true
+            return
+        }
+        if let trailerID, let url = YouTubeTrailer.appURL(videoID: trailerID) {
+            openTrailer(url)
+            return
+        }
+        guard !trailerLoading else { return }
+        let work = current
+        let name = work.enTitle.isEmpty ? work.title : work.enTitle
+        trailerLoading = true
+        trailerTask = Task { @MainActor in
+            let found = await client.search(title: name, year: work.year)
+            guard !Task.isCancelled, current.id == work.id else { return }
+            trailerLoading = false
+            trailerTask = nil
+            guard let found, let url = YouTubeTrailer.appURL(videoID: found) else {
+                trailerMessage = "لم نعثر على تريلر مطابق لهذا العمل."
+                trailerUnavailable = true
+                return
+            }
+            trailerID = found
+            openTrailer(url)
+        }
+    }
+
+    private func openTrailer(_ url: URL) {
+        openURL(url) { accepted in
+            if !accepted {
+                trailerMessage = "تعذّر فتح التريلر. تأكد من توفر تطبيق YouTube على Apple TV."
+                trailerUnavailable = true
+            }
+        }
     }
 
     @ViewBuilder private func credit(_ title: String, _ value: String) -> some View {
