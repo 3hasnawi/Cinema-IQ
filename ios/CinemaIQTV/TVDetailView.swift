@@ -95,7 +95,7 @@ struct TVDetailView: View {
         .onChange(of: current.id) { _, _ in
             trailerTask?.cancel(); trailerTask = nil; trailerID = nil; trailerLoading = false
         }
-        .onDisappear { trailerTask?.cancel(); trailerTask = nil }
+        .onDisappear { trailerTask?.cancel(); trailerTask = nil; trailerLoading = false }
         .alert("التريلر غير متاح", isPresented: $trailerUnavailable) {
             Button("حسنًا", role: .cancel) { }
         } message: { Text(trailerMessage) }
