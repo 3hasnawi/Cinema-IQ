@@ -274,13 +274,20 @@ struct TVShelf<Content: View>: View {
 struct ShowcaseBackground: View {
     let url: String
     let belowFold: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
             TVTheme.ink
             Artwork(url: url)
                 .id(url)
                 .transition(.opacity)
-            LinearGradient(colors: [.black.opacity(0.75), .black.opacity(0.25), .clear], startPoint: .bottom, endPoint: .center)
+            // Physical right edge: titles are RTL even when the device's system language is English.
+            LinearGradient(stops: [
+                .init(color: .black.opacity(0.82), location: 0),
+                .init(color: .black.opacity(0.48), location: 0.45),
+                .init(color: .clear, location: 1)
+            ], startPoint: UnitPoint(x: 1, y: 0.5), endPoint: UnitPoint(x: 0.12, y: 0.5))
+            LinearGradient(colors: [.black.opacity(0.94), .black.opacity(0.4), .clear], startPoint: .bottom, endPoint: .center)
             Rectangle()
                 .fill(.regularMaterial)
                 .mask {
@@ -290,26 +297,11 @@ struct ShowcaseBackground: View {
                         .init(color: .black.opacity(belowFold ? 1 : 0), location: 0.55)
                     ], startPoint: .bottom, endPoint: .top)
                 }
+            Color.black.opacity(belowFold ? 0.65 : 0)
         }
         .ignoresSafeArea()
-        .animation(.easeInOut(duration: 0.5), value: belowFold)
-        .animation(.easeInOut(duration: 0.6), value: url)
-    }
-}
-
-/// Scrolling snaps at the fold: any move down from the showcase lands on the shelves at the top of the screen,
-/// and any move back up past them shows the whole showcase again.
-struct FoldSnapping: ScrollTargetBehavior {
-    var aboveFold: Bool
-    var showcaseHeight: CGFloat
-    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
-        // The fold can never be past the end of the page (a short page ends before it).
-        let fold = min(showcaseHeight, max(0, context.contentSize.height - context.containerSize.height))
-        if aboveFold {
-            if target.rect.minY > 1 { target.rect.origin.y = max(target.rect.minY, fold) }
-        } else if target.rect.minY < fold - 1 {
-            target.rect.origin.y = 0
-        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: belowFold)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: url)
     }
 }
 
@@ -413,3 +405,24 @@ extension View {
     func tvGlassButton() -> some View { buttonBorderShape(.capsule) }
 }
 #endif
+
+/// No system backdrop around artwork: the card owns its single focus border and white title.
+struct TVArtworkButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.foregroundStyle(.white).opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
+/// Circular secondary actions with a visible, bounded remote focus state.
+struct TVCircleButtonStyle: ButtonStyle {
+    @Environment(\.isFocused) private var focused
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(focused ? .black : .white)
+            .background(focused ? Color.white : Color.white.opacity(0.16), in: Circle())
+            .overlay { Circle().strokeBorder(.white.opacity(focused ? 1 : 0.35), lineWidth: 2) }
+            .scaleEffect(configuration.isPressed ? 0.96 : (focused && !reduceMotion ? 1.08 : 1))
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: focused)
+    }
+}

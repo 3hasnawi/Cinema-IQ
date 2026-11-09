@@ -12,6 +12,7 @@ struct TVPauseInformation: View {
             Text(series?.title ?? media.title)
                 .font(.system(size: 58, weight: .bold))
                 .lineLimit(2)
+                .accessibilityIdentifier("tv.player.pausedTitle")
             Spacer(minLength: 0)
             if media.episode > 0 {
                 Text(["الموسم \(media.season) · الحلقة \(media.episode)", media.episodeTitle]
@@ -31,6 +32,7 @@ struct TVPauseInformation: View {
             LinearGradient(colors: [.black.opacity(0.62), .clear], startPoint: .leading, endPoint: .trailing)
                 .frame(maxWidth: 1120)
         }
-        .accessibilityElement(children: .combine)
+        .environment(\.layoutDirection, .rightToLeft)
+        .accessibilityIdentifier("tv.player.pauseInformation")
     }
 }

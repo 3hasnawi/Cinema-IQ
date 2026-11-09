@@ -56,6 +56,8 @@ jobs:
         run: |
           if [ -d "$RUNNER_TEMP/tvos-audit.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/tvos-audit.xcresult" --output-path "$RUNNER_TEMP/tvos-evidence"
+            # Keep screenshots and hierarchy evidence; omit Xcode's large automatic failure recordings.
+            find "$RUNNER_TEMP/tvos-evidence" -name '*.mp4' -delete
           fi
       - name: Upload simulator screenshots and diagnostics
         if: always()

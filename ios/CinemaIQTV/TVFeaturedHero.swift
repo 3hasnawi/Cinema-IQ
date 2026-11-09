@@ -22,6 +22,7 @@ struct TVFeaturedHero: View {
                     .lineLimit(2).minimumScaleFactor(0.7)
                     .frame(maxWidth: 960, alignment: .leading)
                     .accessibilityIdentifier("tv.home.featuredTitle")
+                    .multilineTextAlignment(.leading)
                 FactsLine(facts: DisplayFormat.facts(media, imdb: info?.imdbRating))
                 if !media.overview.isEmpty {
                     Text(media.overview).font(.callout).foregroundStyle(.white.opacity(0.8))
@@ -45,7 +46,7 @@ struct TVFeaturedHero: View {
                                             .strokeBorder(.white.opacity(focused.wrappedValue == item.id ? 1 : 0), lineWidth: 5)
                                     }
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(TVArtworkButtonStyle())
                             .focused(focused, equals: item.id)
                             .scaleEffect(focused.wrappedValue == item.id && !reduceMotion ? 1.04 : 1)
                             .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: focused.wrappedValue)

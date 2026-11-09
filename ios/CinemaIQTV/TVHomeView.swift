@@ -18,6 +18,7 @@ struct TVHomeView: View {
     @FocusState private var featuredFocus: String?
     @State private var heroInfo: OMDbInfo?
     @State private var initialFocusAssigned = false
+    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var featured: [Media] {
@@ -64,7 +65,14 @@ struct TVHomeView: View {
                 }
                 .scrollClipDisabled()
                 .scrollIndicators(.hidden)
-                .scrollTargetBehavior(FoldSnapping(aboveFold: !belowFold, showcaseHeight: showcase + 56))
+                .scrollPosition($scrollPosition)
+                .onExitCommand(perform: belowFold ? {
+                    // Menu first restores the featured area; the next Menu belongs to the native sidebar.
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                        scrollPosition.scrollTo(edge: .top)
+                        featuredFocus = hero?.id
+                    }
+                } : nil)
             }
         }
         .defaultFocus($featuredFocus, featured.first?.id)

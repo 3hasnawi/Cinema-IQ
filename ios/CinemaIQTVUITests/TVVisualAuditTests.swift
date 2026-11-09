@@ -28,18 +28,29 @@ final class TVVisualAuditTests: XCTestCase {
 
     func testHomeDetailsAndPlayback() {
         shot("01-home")
+        let title = app.staticTexts["tv.home.featuredTitle"]
+        XCTAssertTrue(title.isHittable)
+        XCTAssertTrue(app.frame.contains(title.frame), "The featured title must stay inside the screen")
         remote.press(.left); wait(1)
         shot("02-next-feature")
         remote.press(.select)
         let play = app.buttons["tv.detail.play"]
         XCTAssertTrue(play.waitForExistence(timeout: 20)); wait(2)
         shot("03-detail")
+        let detailTitle = app.staticTexts["tv.detail.title"]
+        XCTAssertTrue(app.frame.contains(detailTitle.frame))
+        XCTAssertGreaterThan(detailTitle.frame.minY, 30, "The title needs breathing room above it")
+        XCTAssertTrue(app.buttons["tv.detail.trailer"].isHittable)
+        XCTAssertTrue(app.buttons["tv.detail.list"].isHittable)
         // The default focused action on entry should be Play.
         XCTAssertTrue(play.hasFocus)
         remote.press(.select); wait(15)
         shot("04-player")
         remote.press(.playPause); wait(2)
         shot("05-paused")
+        let pausedTitle = app.staticTexts["tv.player.pausedTitle"]
+        XCTAssertTrue(pausedTitle.waitForExistence(timeout: 15), "Playback must start and show information when paused")
+        XCTAssertGreaterThan(pausedTitle.frame.midX, app.frame.midX, "Pause information must be on the right")
         XCTAssertEqual(app.state, .runningForeground)
     }
 
@@ -53,8 +64,11 @@ final class TVVisualAuditTests: XCTestCase {
         shot("13-series-detail")
         remote.press(.down); wait(2)
         shot("14-series-down")
+        XCTAssertTrue(app.buttons["tv.detail.seasons"].exists)
         remote.press(.down); wait(2)
         shot("15-episodes")
+        let episodes = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.detail.episode."))
+        XCTAssertTrue(episodes.firstMatch.isHittable, "The first episode should be reachable below the header")
         // Pop details, then open the native sidebar.
         remote.press(.menu); wait(1)
         openTab("الإعدادات")
@@ -65,15 +79,38 @@ final class TVVisualAuditTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
 
+    func testCinemanaHomeAndDetailsWhenReachable() throws {
+        app.terminate()
+        app.launchArguments = ["-ios.contentSource.v1", "cinemana"]
+        app.launch()
+        guard firstCard.waitForExistence(timeout: 35) else {
+            shot("21-cinemana-network-unavailable")
+            throw XCTSkip("Cinemana catalogue could not be reached from the simulator runner")
+        }
+        wait(2); shot("22-cinemana-home")
+        remote.press(.select)
+        XCTAssertTrue(app.buttons["tv.detail.play"].waitForExistence(timeout: 20))
+        wait(5); shot("23-cinemana-detail")
+    }
+
     private func openTab(_ title: String) {
-        remote.press(.menu); wait(1)
         let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]
-        for _ in 0..<16 {
+        func focusedLabel() -> String {
             let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
-            let label = focused.exists ? focused.label : ""
-            if label.contains(title) { remote.press(.select); wait(3); return }
-            let index = order.firstIndex(where: { label.contains($0) }) ?? 0
-            let target = order.firstIndex(of: title) ?? 0
+            return focused.exists ? focused.label : ""
+        }
+        // From a lower shelf, Menu restores the home hero before it opens the sidebar.
+        for _ in 0..<3 {
+            if order.contains(focusedLabel()) { break }
+            remote.press(.menu); wait(1)
+        }
+        XCTAssertTrue(order.contains(focusedLabel()), "Menu must return focus to the native sidebar")
+        for _ in 0..<12 {
+            let label = focusedLabel()
+            if label == title { remote.press(.select); wait(3); return }
+            guard let index = order.firstIndex(of: label), let target = order.firstIndex(of: title) else {
+                XCTFail("Focus left the sidebar: \(label)"); return
+            }
             remote.press(index < target ? .down : .up); wait(0.4)
         }
         XCTFail("Could not focus tab: \(title)")
