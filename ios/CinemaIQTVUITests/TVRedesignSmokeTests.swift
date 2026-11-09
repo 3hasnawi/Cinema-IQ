@@ -26,10 +26,17 @@ final class TVRedesignSmokeTests: XCTestCase {
         remote.press(.select)
         Thread.sleep(forTimeInterval: 5)
         XCTAssertEqual(app.state, .runningForeground, "Opening the player must not crash the app")
+        // AVKit may consume the first Menu press to hide its transport controls.
+        for _ in 0..<3 {
+            remote.press(.menu)
+            Thread.sleep(forTimeInterval: 1)
+            if play.exists && play.isHittable { break }
+        }
+        XCTAssertTrue(play.exists && play.isHittable, "Closing the player should return to details")
         remote.press(.menu)
-        XCTAssertTrue(play.waitForExistence(timeout: 15), "Closing the player should return to details")
-        remote.press(.menu)
-        XCTAssertTrue(first.waitForExistence(timeout: 10), "Back should restore the home page")
+        let homeVisible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: first)
+        XCTAssertEqual(XCTWaiter.wait(for: [homeVisible], timeout: 15), .completed,
+                       "Back should restore the home page")
         XCTAssertEqual(app.state, .runningForeground)
     }
 
