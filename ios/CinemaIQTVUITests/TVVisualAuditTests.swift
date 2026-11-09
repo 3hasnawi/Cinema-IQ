@@ -33,6 +33,9 @@ final class TVVisualAuditTests: XCTestCase {
         XCTAssertTrue(app.frame.contains(title.frame), "The featured title must stay inside the screen")
         remote.press(.left); wait(1)
         shot("02-next-feature")
+        let selectedCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND hasFocus == true", "tv.home.feature.")).firstMatch
+        XCTAssertTrue(selectedCard.exists)
+        let selectedID = selectedCard.identifier
         remote.press(.select)
         let play = app.buttons["tv.detail.play"]
         XCTAssertTrue(play.waitForExistence(timeout: 20)); wait(2)
@@ -51,6 +54,19 @@ final class TVVisualAuditTests: XCTestCase {
         let pausedTitle = app.staticTexts["tv.player.pausedTitle"]
         XCTAssertTrue(pausedTitle.waitForExistence(timeout: 15), "Playback must start and show information when paused")
         XCTAssertGreaterThan(pausedTitle.frame.midX, app.frame.midX, "Pause information must be on the right")
+        remote.press(.playPause)
+        let resumed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: pausedTitle)
+        XCTAssertEqual(XCTWaiter.wait(for: [resumed], timeout: 10), .completed)
+        for _ in 0..<3 {
+            remote.press(.menu); wait(1)
+            if play.exists && play.isHittable { break }
+        }
+        XCTAssertTrue(play.exists && play.isHittable)
+        remote.press(.menu); wait(2)
+        let restored = app.buttons[selectedID]
+        XCTAssertTrue(restored.isHittable)
+        XCTAssertTrue(restored.hasFocus, "Returning from details must restore the selected featured card")
+        shot("06-home-restored")
         XCTAssertEqual(app.state, .runningForeground)
     }
 
@@ -69,6 +85,7 @@ final class TVVisualAuditTests: XCTestCase {
         shot("15-episodes")
         let episodes = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.detail.episode."))
         XCTAssertTrue(episodes.firstMatch.isHittable, "The first episode should be reachable below the header")
+        XCTAssertTrue(episodes.firstMatch.hasFocus, "Moving down from seasons must focus the first episode")
         // Pop details, then open the native sidebar.
         remote.press(.menu); wait(1)
         openTab("الإعدادات")

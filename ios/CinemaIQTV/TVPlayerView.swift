@@ -277,6 +277,8 @@ struct SystemPlayer: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.view.backgroundColor = .black
+        // The pause overlay owns the title; avoid a duplicate AVKit title and asset creation year.
+        controller.transportBarIncludesTitleView = false
         // One subtitle button: Cinema iQ's menu (source files, embedded tracks, size and background). Allowing no
         // language hides the system's own subtitle button.
         controller.allowedSubtitleOptionLanguages = ["zxx"]

@@ -33,6 +33,5 @@ struct TVPauseInformation: View {
                 .frame(maxWidth: 1120)
         }
         .environment(\.layoutDirection, .rightToLeft)
-        .accessibilityIdentifier("tv.player.pauseInformation")
     }
 }
