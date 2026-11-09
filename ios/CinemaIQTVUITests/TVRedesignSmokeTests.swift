@@ -15,7 +15,9 @@ final class TVRedesignSmokeTests: XCTestCase {
         let cards = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.home.feature."))
         let first = cards.firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 30), "The demo home did not load a featured card")
-        XCTAssertTrue(first.hasFocus, "The first featured card should receive initial remote focus")
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: first)
+        XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 10), .completed,
+                       "The first featured card should receive initial remote focus")
         remote.press(.select)
         let play = app.buttons["tv.detail.play"]
         XCTAssertTrue(play.waitForExistence(timeout: 20), "Selecting a card should open the details page")
@@ -30,8 +32,8 @@ final class TVRedesignSmokeTests: XCTestCase {
         remote.press(.menu)
         let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]
         for _ in 0..<12 {
-            let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
-            let label = focused.exists ? focused.label : ""
+            let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).allElementsBoundByIndex
+            let label = focused.first?.label ?? ""
             if label.contains("IPTV") { remote.press(.select); break }
             let position = order.firstIndex(where: { label.contains($0) })
             remote.press((position ?? 0) < 5 ? .down : .up)

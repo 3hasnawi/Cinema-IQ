@@ -17,13 +17,15 @@ struct TVHomeView: View {
     @EnvironmentObject private var router: TVRouter
     @FocusState private var featuredFocus: String?
     @State private var heroInfo: OMDbInfo?
+    @State private var initialFocusAssigned = false
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var featured: [Media] {
         var seen = Set<String>()
         let all = shelves.flatMap(\.items).filter { seen.insert($0.id).inserted }
         let wide = all.filter { !$0.backdrop.isEmpty }
-        return Array((wide.count >= 3 ? wide : all.filter { !$0.poster.isEmpty }).prefix(8))
+        let illustrated = all.filter { !$0.poster.isEmpty || !$0.backdrop.isEmpty }
+        return Array((wide.count >= 3 ? wide : (illustrated.isEmpty ? all : illustrated)).prefix(8))
     }
     private var hero: Media? { featured.indices.contains(heroIndex) ? featured[heroIndex] : featured.first }
     private var recent: [Media] { library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source } }
@@ -66,6 +68,13 @@ struct TVHomeView: View {
             }
         }
         .defaultFocus($featuredFocus, featured.first?.id)
+        .task(id: featured.first?.id) {
+            guard !initialFocusAssigned, let first = featured.first else { return }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+            guard !Task.isCancelled, router.tab == .home, featured.first?.id == first.id else { return }
+            featuredFocus = first.id
+            initialFocusAssigned = true
+        }
         .onChange(of: featuredFocus) { _, id in
             guard let id, let index = featured.firstIndex(where: { $0.id == id }), index != heroIndex else { return }
             if reduceMotion { heroIndex = index }
@@ -73,7 +82,7 @@ struct TVHomeView: View {
         }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
-            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = nil }
+            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = nil; initialFocusAssigned = false }
             await load()
         }
         .task(id: hero?.id) {
