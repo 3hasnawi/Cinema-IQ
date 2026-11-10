@@ -177,7 +177,9 @@ final class TVVisualAuditTests: XCTestCase {
         enterSettings("subtitles")
         XCTAssertTrue(setting("language").waitForExistence(timeout: 10))
         remote.press(.down)
-        XCTAssertTrue(setting("size").hasFocus)
+        // A native tvOS List focuses its cell, while the labelled button remains inside that cell.
+        let sizeCell = app.cells.containing(.button, identifier: "tv.settings.option.size").firstMatch
+        XCTAssertTrue(sizeCell.hasFocus, "Down must focus the subtitle size row")
         remote.press(.select); wait(1)
         remote.press(.down)
         remote.press(.select)
