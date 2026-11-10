@@ -152,7 +152,7 @@ struct TVPlayerView: View {
                     }
                 }
             } else {
-                choices += streams.map { stream in
+                choices += streams.filter { !VideoQuality.isAutomaticLabel($0.quality) }.map { stream in
                     UIAction(title: stream.quality, state: !automaticQuality && stream.id == quality ? .on : .off) { _ in choose(stream) }
                 }
             }

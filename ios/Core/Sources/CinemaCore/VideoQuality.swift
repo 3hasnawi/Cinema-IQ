@@ -16,7 +16,7 @@ public enum VideoQuality: String, CaseIterable, Sendable {
     /// Prefer an adaptive/source-default endpoint. Otherwise choose the highest known rendition within the
     /// preference, or the lowest available when all renditions exceed it. Preserve provider order for ties.
     public func select(from streams: [StreamChoice]) -> StreamChoice? {
-        let automatic = streams.first { Self.automaticLabel($0.quality) }
+        let automatic = streams.first { Self.isAutomaticLabel($0.quality) }
         guard let height else {
             return automatic ?? streams.first(where: Self.looksLikeHLS) ?? streams.first
         }
@@ -49,7 +49,7 @@ public enum VideoQuality: String, CaseIterable, Sendable {
         return text == "hd" ? 720 : (text == "sd" ? 480 : nil)
     }
 
-    private static func automaticLabel(_ label: String) -> Bool {
+    public static func isAutomaticLabel(_ label: String) -> Bool {
         ["auto", "automatic", "adaptive", "تلقائي"].contains(label.lowercased().trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
