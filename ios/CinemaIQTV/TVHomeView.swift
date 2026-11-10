@@ -14,9 +14,8 @@ struct TVHomeView: View {
     @State private var belowFold = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var router: TVRouter
-    @FocusState private var featuredFocus: Bool
+    @State private var featuredFocus = false
     @State private var heroInfo: OMDbInfo?
-    @State private var initialFocusAssigned = false
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.scenePhase) private var phase
     @State private var manualRevision = 0
@@ -81,13 +80,12 @@ struct TVHomeView: View {
                 } : nil)
             }
         }
-        .defaultFocus($featuredFocus, true)
         .task(id: featured.first?.id) {
-            guard !initialFocusAssigned, let first = featured.first else { return }
+            guard let first = featured.first else { return }
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            guard !Task.isCancelled, router.tab == .home, featured.first?.id == first.id else { return }
+            guard !Task.isCancelled, router.tab == .home, (router.paths[.home] ?? []).isEmpty,
+                  !belowFold, featured.first?.id == first.id else { return }
             featuredFocus = true
-            initialFocusAssigned = true
         }
         .task(id: rotationKey) {
             guard canRotate else { return }
@@ -103,7 +101,7 @@ struct TVHomeView: View {
         }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
-            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = false; initialFocusAssigned = false }
+            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = false; belowFold = false; scrollPosition.scrollTo(edge: .top) }
             await load()
         }
         .task(id: hero?.id) {
