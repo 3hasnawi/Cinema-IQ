@@ -1,0 +1,36 @@
+name: Publish approved Apple TV IPA
+
+# Manual only. Reuses a successful main device build; never rebuilds another platform.
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Apple TV device build run ID
+        type: string
+        required: true
+      notes:
+        description: Approved release notes
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: tvos-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PUBLIC_RELEASE_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      TV_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      TV_RELEASE_NOTES: ${{ inputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify approved artifact and publish matching releases
+        run: python3 .github/scripts/publish-tvos.py
