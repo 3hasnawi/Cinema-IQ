@@ -84,14 +84,26 @@ def verify_assets(token, repo, release):
         assert hashlib.sha256((target / ipa.name).read_bytes()).hexdigest() == digest
 
 
-def stage(token, repo, target, notes_file):
+def find_release(token, repo):
+    # GitHub's by-tag endpoint excludes drafts; a draft must be found in the owner's release list.
     endpoint = f"repos/{repo}/releases/tags/{tag}"
     release = api(token, endpoint, allow_missing=True)
+    if release is not None:
+        return release
+    drafts = [r for r in api(token, f"repos/{repo}/releases?per_page=100")
+              if r["tag_name"] == tag and r["draft"]]
+    assert len(drafts) <= 1, "Multiple drafts for this tag require review before uploading"
+    return api(token, f"repos/{repo}/releases/{drafts[0]['id']}") if drafts else None
+
+
+def stage(token, repo, target, notes_file):
+    release = find_release(token, repo)
     if release is None:
         gh(token, "release", "create", tag, "--repo", repo, "--target", target,
            "--title", f"Cinema iQ Apple TV {version}", "--notes-file", str(notes_file),
            "--draft", "--latest=false")
-        release = api(token, endpoint)
+        release = find_release(token, repo)
+    assert release is not None, "The new draft is not visible yet"
     # Resume only a draft of this exact build. Published releases are verified, never overwritten.
     assert metadata["sourceCommit"] in (release["body"] or "")
     if release["draft"]:
@@ -99,7 +111,7 @@ def stage(token, repo, target, notes_file):
         assert {a["name"] for a in release["assets"]} <= expected
         gh(token, "release", "upload", tag, "--repo", repo, "--clobber",
            str(ipa), str(root / "SHA256SUMS.txt"), str(root / "build-info.json"))
-        release = api(token, endpoint)
+        release = api(token, f"repos/{repo}/releases/{release['id']}")
     verify_assets(token, repo, release)
     return release
 
