@@ -51,6 +51,7 @@ struct TVFeaturedHero: View {
                 .focusEffectDisabled()
                 .focused(focused)
                 .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(media.title)
                 .accessibilityValue("\(index + 1) من \(count)")
                 .accessibilityHint("يمين ويسار لتغيير العمل، واضغط للاطلاع على التفاصيل، وأسفل لعرض القوائم.")

@@ -23,7 +23,7 @@ final class TVVisualAuditTests: XCTestCase {
     }
 
     private var showcase: XCUIElement {
-        app.buttons["tv.home.showcase"]
+        app.descendants(matching: .any).matching(identifier: "tv.home.showcase").firstMatch
     }
 
     func testHomeDetailsAndPlayback() {

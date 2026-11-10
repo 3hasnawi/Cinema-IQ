@@ -12,7 +12,7 @@ final class TVRedesignSmokeTests: XCTestCase {
     }
 
     func testShowcaseOpensDetailsAndBackRestoresHome() {
-        let first = app.buttons["tv.home.showcase"]
+        let first = app.descendants(matching: .any).matching(identifier: "tv.home.showcase").firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 30), "The demo home did not load a featured backdrop")
         let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: first)
         XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 10), .completed,
@@ -40,7 +40,7 @@ final class TVRedesignSmokeTests: XCTestCase {
     }
 
     func testIPTVIsAComingSoonSection() {
-        let first = app.buttons["tv.home.showcase"]
+        let first = app.descendants(matching: .any).matching(identifier: "tv.home.showcase").firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 30))
         remote.press(.menu)
         let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]
