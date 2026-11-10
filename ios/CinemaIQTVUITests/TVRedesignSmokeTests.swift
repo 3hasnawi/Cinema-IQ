@@ -11,16 +11,15 @@ final class TVRedesignSmokeTests: XCTestCase {
         app.launch()
     }
 
-    func testFeaturedCardOpensDetailsAndBackRestoresHome() {
-        let cards = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.home.feature."))
-        let first = cards.firstMatch
-        XCTAssertTrue(first.waitForExistence(timeout: 30), "The demo home did not load a featured card")
+    func testShowcaseOpensDetailsAndBackRestoresHome() {
+        let first = app.buttons["tv.home.showcase"]
+        XCTAssertTrue(first.waitForExistence(timeout: 30), "The demo home did not load a featured backdrop")
         let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: first)
         XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 10), .completed,
-                       "The first featured card should receive initial remote focus")
+                       "The first featured backdrop should receive initial remote focus")
         remote.press(.select)
         let play = app.buttons["tv.detail.play"]
-        XCTAssertTrue(play.waitForExistence(timeout: 20), "Selecting a card should open the details page")
+        XCTAssertTrue(play.waitForExistence(timeout: 20), "Selecting the backdrop should open the details page")
         let playFocus = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: play)
         XCTAssertEqual(XCTWaiter.wait(for: [playFocus], timeout: 10), .completed)
         remote.press(.select)
@@ -41,7 +40,7 @@ final class TVRedesignSmokeTests: XCTestCase {
     }
 
     func testIPTVIsAComingSoonSection() {
-        let first = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.home.feature.")).firstMatch
+        let first = app.buttons["tv.home.showcase"]
         XCTAssertTrue(first.waitForExistence(timeout: 30))
         remote.press(.menu)
         let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]

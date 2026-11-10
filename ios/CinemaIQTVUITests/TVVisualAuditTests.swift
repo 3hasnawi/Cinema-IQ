@@ -9,7 +9,7 @@ final class TVVisualAuditTests: XCTestCase {
         continueAfterFailure = false
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo"]
         app.launch()
-        XCTAssertTrue(firstCard.waitForExistence(timeout: 30))
+        XCTAssertTrue(showcase.waitForExistence(timeout: 30))
         wait(2)
     }
 
@@ -22,20 +22,20 @@ final class TVVisualAuditTests: XCTestCase {
         app.terminate()
     }
 
-    private var firstCard: XCUIElement {
-        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.home.feature.")).firstMatch
+    private var showcase: XCUIElement {
+        app.buttons["tv.home.showcase"]
     }
 
     func testHomeDetailsAndPlayback() {
         shot("01-home")
-        let title = app.staticTexts["tv.home.featuredTitle"]
-        XCTAssertTrue(title.isHittable)
-        XCTAssertTrue(app.frame.contains(title.frame), "The featured title must stay inside the screen")
+        XCTAssertTrue(showcase.isHittable)
+        XCTAssertTrue(app.frame.contains(showcase.frame), "The showcase must fit the screen")
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "tv.home.feature.")).count, 0)
+        XCTAssertFalse(app.staticTexts["أعمال مختارة"].exists)
         remote.press(.left); wait(1)
         shot("02-next-feature")
-        let selectedCard = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND hasFocus == true", "tv.home.feature.")).firstMatch
-        XCTAssertTrue(selectedCard.exists)
-        let selectedID = selectedCard.identifier
+        XCTAssertTrue(showcase.hasFocus)
+        let selectedTitle = showcase.label
         remote.press(.select)
         let play = app.buttons["tv.detail.play"]
         XCTAssertTrue(play.waitForExistence(timeout: 20)); wait(2)
@@ -63,11 +63,46 @@ final class TVVisualAuditTests: XCTestCase {
         }
         XCTAssertTrue(play.exists && play.isHittable)
         remote.press(.menu); wait(2)
-        let restored = app.buttons[selectedID]
-        XCTAssertTrue(restored.isHittable)
-        XCTAssertTrue(restored.hasFocus, "Returning from details must restore the selected featured card")
+        XCTAssertTrue(showcase.isHittable)
+        XCTAssertTrue(showcase.hasFocus, "Returning from details must restore showcase focus")
+        XCTAssertEqual(showcase.label, selectedTitle, "Returning must preserve the selected featured work")
         shot("06-home-restored")
         XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    func testCarouselRemoteWrapAndAutomaticAdvance() {
+        let initial = showcase.label
+        XCTAssertEqual(initial, "Big Buck Bunny")
+        remote.press(.right)
+        expectShowcase("أفلام Blender المفتوحة")
+        remote.press(.left)
+        expectShowcase(initial)
+        remote.press(.left)
+        expectShowcase("Sintel")
+        remote.press(.right)
+        expectShowcase(initial)
+        let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label != %@", initial), object: showcase)
+        XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 12), .completed, "The backdrop should advance automatically")
+        XCTAssertTrue(showcase.hasFocus, "Rotation must not reset remote focus")
+        shot("07-automatic-backdrop")
+    }
+
+    func testCarouselStopsWhileBrowsingShelves() {
+        remote.press(.down); wait(2)
+        XCTAssertFalse(showcase.hasFocus, "Down must enter the shelves")
+        let selected = showcase.label
+        wait(10)
+        XCTAssertEqual(showcase.label, selected, "Rotation must stop while browsing shelves")
+        remote.press(.menu); wait(2)
+        XCTAssertTrue(showcase.hasFocus, "Menu should restore the full-screen backdrop")
+        XCTAssertEqual(showcase.label, selected)
+        shot("08-backdrop-after-shelves")
+    }
+
+    private func expectShowcase(_ title: String) {
+        let matches = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", title), object: showcase)
+        XCTAssertEqual(XCTWaiter.wait(for: [matches], timeout: 5), .completed)
+        XCTAssertTrue(showcase.hasFocus)
     }
 
     func testShelvesSeriesAndSettings() {
@@ -100,7 +135,7 @@ final class TVVisualAuditTests: XCTestCase {
         app.terminate()
         app.launchArguments = ["-ios.contentSource.v1", "cinemana"]
         app.launch()
-        guard firstCard.waitForExistence(timeout: 35) else {
+        guard showcase.waitForExistence(timeout: 35) else {
             shot("21-cinemana-network-unavailable")
             throw XCTSkip("Cinemana catalogue could not be reached from the simulator runner")
         }
