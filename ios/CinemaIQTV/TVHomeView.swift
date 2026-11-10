@@ -14,11 +14,15 @@ struct TVHomeView: View {
     @State private var belowFold = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var router: TVRouter
-    @State private var featuredFocus = false
+    @FocusState private var featuredFocus: Bool
     @State private var heroInfo: OMDbInfo?
+    @State private var initialFocusAssigned = false
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.scenePhase) private var phase
     @State private var manualRevision = 0
+    @State private var focusRecovery: Task<Void, Never>?
+    @Namespace private var showcaseScope
+    @Environment(\.resetFocus) private var resetFocus
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
@@ -45,7 +49,10 @@ struct TVHomeView: View {
                                        move: { step in
                                            manualRevision += 1
                                            changeFeatured(by: step)
+                                           restoreShowcaseAfterMove()
                                        })
+                            .defaultFocus($featuredFocus, true)
+                            .focusScope(showcaseScope)
                             .frame(height: showcase, alignment: .bottomLeading)
                             .onScrollVisibilityChange(threshold: 0.5) { visible in
                                 if reduceMotion { belowFold = !visible }
@@ -80,12 +87,13 @@ struct TVHomeView: View {
                 } : nil)
             }
         }
+        .defaultFocus($featuredFocus, true)
         .task(id: featured.first?.id) {
-            guard let first = featured.first else { return }
+            guard !initialFocusAssigned, let first = featured.first else { return }
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-            guard !Task.isCancelled, router.tab == .home, (router.paths[.home] ?? []).isEmpty,
-                  !belowFold, featured.first?.id == first.id else { return }
+            guard !Task.isCancelled, router.tab == .home, featured.first?.id == first.id else { return }
             featuredFocus = true
+            initialFocusAssigned = true
         }
         .task(id: rotationKey) {
             guard canRotate else { return }
@@ -101,9 +109,10 @@ struct TVHomeView: View {
         }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
-            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = false; belowFold = false; scrollPosition.scrollTo(edge: .top) }
+            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = false; initialFocusAssigned = false }
             await load()
         }
+        .onDisappear { focusRecovery?.cancel(); focusRecovery = nil }
         .task(id: hero?.id) {
             heroInfo = nil
             guard let hero else { return }
@@ -121,6 +130,22 @@ struct TVHomeView: View {
     private var rotationKey: String {
         "\(canRotate)|\(manualRevision)|\(sourceName)|" + featured.map(\.id).joined(separator: ",")
     }
+    /// Native tab navigation also reacts to Right. Restore this scope after that input transaction,
+    /// keeping a single backdrop selected rather than handing the directional press to the sidebar.
+    private func restoreShowcaseAfterMove() {
+        focusRecovery?.cancel()
+        let revision = manualRevision
+        let requestedSource = sourceName
+        focusRecovery = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled, manualRevision == revision, sourceName == requestedSource,
+                  router.tab == .home, (router.paths[.home] ?? []).isEmpty,
+                  router.popup == nil, player.selection == nil else { return }
+            featuredFocus = true
+            resetFocus(in: showcaseScope)
+        }
+    }
+
     private func changeFeatured(by step: Int) {
         guard !featured.isEmpty else { return }
         let index = (heroIndex + step + featured.count) % featured.count

@@ -7,7 +7,7 @@ struct TVFeaturedHero: View {
     let info: OMDbInfo?
     let count: Int
     let index: Int
-    @Binding var focused: Bool
+    var focused: FocusState<Bool>.Binding
     let loading: Bool
     let error: String?
     let retry: () -> Void
@@ -17,9 +17,7 @@ struct TVFeaturedHero: View {
     var body: some View {
         Group {
             if let media {
-                ZStack(alignment: .leading) {
-                    TVCarouselFocusSurface(focused: $focused, title: media.title, position: "\(index + 1) من \(count)",
-                                           activate: { open(media) }, move: move)
+                Button { open(media) } label: {
                     VStack(alignment: .leading, spacing: 22) {
                         Spacer(minLength: 0)
                         Text(media.title)
@@ -47,8 +45,23 @@ struct TVFeaturedHero: View {
                     }
                     .padding(.bottom, 64)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(TVArtworkButtonStyle())
+                .focusEffectDisabled()
+                .focused(focused)
+                .accessibilityElement(children: .ignore)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(media.title)
+                .accessibilityValue("\(index + 1) من \(count)")
+                .accessibilityHint("يمين ويسار لتغيير العمل، واضغط للاطلاع على التفاصيل، وأسفل لعرض القوائم.")
+                .accessibilityIdentifier("tv.home.showcase")
+                .onMoveCommand { direction in
+                    switch direction {
+                    case .left: move(1)
+                    case .right: move(-1)
+                    default: break
+                    }
                 }
             } else if loading {
                 ProgressView("جارٍ تحميل الأعمال…")

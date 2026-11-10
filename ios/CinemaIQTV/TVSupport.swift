@@ -406,6 +406,13 @@ extension View {
 }
 #endif
 
+/// No system backdrop around artwork: the card owns its single focus border and white title.
+struct TVArtworkButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.foregroundStyle(.white).opacity(configuration.isPressed ? 0.8 : 1)
+    }
+}
+
 /// Circular secondary actions with a visible, bounded remote focus state.
 struct TVCircleButtonStyle: ButtonStyle {
     @Environment(\.isFocused) private var focused
