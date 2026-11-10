@@ -1,0 +1,87 @@
+name: Build unsigned Apple TV IPA
+
+# Manual only: device exports require an explicit user build request.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tvos-device-ipa-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apple-tv-ipa:
+    runs-on: macos-15-intel
+    timeout-minutes: 25
+    env:
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and install project generator
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk appletvos --show-sdk-version
+          brew install xcodegen
+      - name: Test shared source parsing
+        run: swift test --package-path ios/Core
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate --spec project.yml
+      - name: Compile Apple TV Release without signing
+        run: |
+          set -euo pipefail
+          if ! xcodebuild -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -configuration Release -sdk appletvos -destination 'generic/platform=tvOS' \
+            -derivedDataPath "$RUNNER_TEMP/TVRelease" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            TMDB_API_KEY="$TMDB_API_KEY" OMDB_API_KEY="$OMDB_API_KEY" YOUTUBE_API_KEY="$YOUTUBE_API_KEY" \
+            build > "$RUNNER_TEMP/tv-release-build.log" 2>&1; then
+            grep -E 'error:|BUILD FAILED' "$RUNNER_TEMP/tv-release-build.log" | tail -40 || true
+            exit 1
+          fi
+      - name: Validate device app and export IPA
+        run: |
+          set -euo pipefail
+          tv_app="$RUNNER_TEMP/TVRelease/Build/Products/Release-appletvos/CinemaIQTV.app"
+          test -x "$tv_app/CinemaIQTV"
+          xcrun lipo "$tv_app/CinemaIQTV" -verify_arch arm64
+          tv_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$tv_app/Info.plist")"
+          mkdir -p "$RUNNER_TEMP/TVPayload/Payload" "$RUNNER_TEMP/tv-output"
+          TV_DEVICE_APP="$tv_app" python3 - <<'PY'
+          import json, os, pathlib, plistlib
+          app = pathlib.Path(os.environ['TV_DEVICE_APP'])
+          with (app / 'Info.plist').open('rb') as f:
+              info = plistlib.load(f)
+          assert info['CFBundleIdentifier'] == 'com.cinemaplus.rebuilt.tv'
+          assert info['CFBundleSupportedPlatforms'] == ['AppleTVOS']
+          version = info['CFBundleShortVersionString']
+          services = {name: bool(info.get(key)) and not str(info[key]).startswith('$(')
+                      for name, key in [('tmdb', 'TMDBAPIKey'), ('omdb', 'OMDbAPIKey'), ('youtube', 'YouTubeAPIKey')]}
+          metadata = {'version': version, 'build': info['CFBundleVersion'],
+                      'bundleIdentifier': info['CFBundleIdentifier'], 'platform': 'tvOS',
+                      'minimumOS': info['MinimumOSVersion'], 'architecture': 'arm64',
+                      'signing': 'unsigned', 'sourceCommit': os.environ['GITHUB_SHA'],
+                      'configuredServices': services}
+          output = pathlib.Path(os.environ['RUNNER_TEMP']) / 'tv-output'
+          (output / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')
+          print(json.dumps(metadata))
+          PY
+          ditto "$tv_app" "$RUNNER_TEMP/TVPayload/Payload/CinemaIQTV.app"
+          ditto -c -k --keepParent "$RUNNER_TEMP/TVPayload/Payload" "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-$tv_version-unsigned.ipa"
+          unzip -t "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-$tv_version-unsigned.ipa" > /dev/null
+          cd "$RUNNER_TEMP/tv-output"
+          shasum -a 256 "Cinema-iQ-AppleTV-$tv_version-unsigned.ipa" > SHA256SUMS.txt
+      - name: Upload Apple TV device package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinema-iQ-AppleTV-${{ github.run_id }}
+          path: ${{ runner.temp }}/tv-output/
+          if-no-files-found: error
+          retention-days: 1
