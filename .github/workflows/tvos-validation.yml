@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           if ! xcrun simctl list runtimes | grep -q tvOS; then xcodebuild -downloadPlatform tvOS; fi
           runtime="$(xcrun simctl list runtimes | grep tvOS | tail -1 | sed -E 's/.* - (com\.apple\.CoreSimulator\.SimRuntime\.[^ ]+).*/\1/')"
-          type="$(xcrun simctl list devicetypes | grep -m1 'Apple TV 4K' | sed -E 's/.*\((com\.apple\.[^)]+)\).*/\1/')"
+          type="$(xcrun simctl list devicetypes | awk '/Apple TV 4K.*\(at 1080p\)/ && !found { print; found=1 }' | sed -E 's/.*\((com\.apple\.[^)]+)\).*/\1/')"
           device="$(xcrun simctl create CinemaTVCheck "$type" "$runtime")"
           xcrun simctl boot "$device"
           xcrun simctl bootstatus "$device" -b

@@ -15,6 +15,9 @@ struct TVPlayerView: View {
     @State private var fetchedQueue: [Media] = []
     @State private var streams: [StreamChoice] = []
     @State private var quality: String?
+    @State private var qualityMode = VideoQuality.automatic
+    @State private var automaticQuality = true
+    @AppStorage(TVPlaybackPreference.qualityKey) private var preferredQuality = VideoQuality.automatic.rawValue
     @State private var externalTracks: [SubtitleTrack] = []
     @State private var loading = false
     @State private var resolutionError: String?
@@ -123,6 +126,8 @@ struct TVPlayerView: View {
         var parts: [String] = []
         parts.append(streams.map(\.id).joined(separator: ","))
         parts.append(quality ?? "")
+        parts.append(qualityMode.rawValue)
+        parts.append(String(automaticQuality))
         parts.append(controller.subtitleID ?? "")
         parts.append(externalTracks.map(\.id).joined(separator: ","))
         parts.append(controller.embeddedSubtitles.map(\.id).joined(separator: ","))
@@ -136,10 +141,22 @@ struct TVPlayerView: View {
 
     private var menus: [UIMenuElement] {
         var items: [UIMenuElement] = []
-        if streams.count > 1 {
-            items.append(UIMenu(title: "الجودة", image: UIImage(systemName: "slider.horizontal.3"), children: streams.map { stream in
-                UIAction(title: stream.quality, state: stream.id == quality ? .on : .off) { _ in choose(stream) }
-            }))
+        if !streams.isEmpty {
+            var choices: [UIMenuElement] = [UIAction(title: "تلقائي", state: automaticQuality ? .on : .off) { _ in
+                chooseQuality(.automatic)
+            }]
+            if streams.contains(where: VideoQuality.looksLikeHLS) {
+                choices += VideoQuality.allCases.filter { $0 != .automatic }.map { mode in
+                    UIAction(title: mode.title, state: !automaticQuality && qualityMode == mode ? .on : .off) { _ in
+                        chooseQuality(mode)
+                    }
+                }
+            } else {
+                choices += streams.map { stream in
+                    UIAction(title: stream.quality, state: !automaticQuality && stream.id == quality ? .on : .off) { _ in choose(stream) }
+                }
+            }
+            items.append(UIMenu(title: "الجودة", image: UIImage(systemName: "slider.horizontal.3"), children: choices))
         }
         var subtitleItems: [UIMenuElement] = [
             UIAction(title: "بدون ترجمة", state: controller.subtitleID == nil ? .on : .off) { _ in
@@ -198,15 +215,40 @@ struct TVPlayerView: View {
 
     // MARK: Playback
 
+    private func chooseQuality(_ mode: VideoQuality) {
+        guard let stream = mode.select(from: streams) else { return }
+        qualityMode = mode
+        automaticQuality = mode == .automatic
+        select(stream)
+    }
+
     private func choose(_ stream: StreamChoice) {
+        automaticQuality = false
+        qualityMode = VideoQuality.allCases.first { $0.height == VideoQuality.resolution(stream.quality) } ?? .automatic
+        select(stream)
+    }
+
+    private func select(_ stream: StreamChoice) {
+        let sameStream = quality == stream.id && controller.error == nil && controller.player.currentItem != nil
         quality = stream.id
-        open(current, stream: stream, resume: controller.position)
+        if sameStream { applyQualityHint() }
+        else { open(current, stream: stream, resume: controller.position) }
+    }
+
+    private func applyQualityHint() {
+        guard let item = controller.player.currentItem else { return }
+        // Zero removes our cap and leaves HLS adaptation to AVPlayer. Fixed files cannot gain extra renditions.
+        item.preferredMaximumResolution = qualityMode.height.map {
+            CGSize(width: Double($0) * 16 / 9, height: Double($0))
+        } ?? .zero
+        item.preferredPeakBitRate = 0
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
         controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
+        applyQualityHint()
     }
 
     /// IntroDB timings for what plays (optional: a miss changes nothing).
@@ -233,7 +275,9 @@ struct TVPlayerView: View {
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()
-            guard let first = result.first else { throw CinemaError.noStreams }
+            qualityMode = VideoQuality(rawValue: preferredQuality) ?? .automatic
+            automaticQuality = qualityMode == .automatic
+            guard let first = qualityMode.select(from: result) else { throw CinemaError.noStreams }
             streams = result
             quality = first.id
             let prior = library.progress[media.id]

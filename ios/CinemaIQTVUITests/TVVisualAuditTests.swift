@@ -125,8 +125,11 @@ final class TVVisualAuditTests: XCTestCase {
         remote.press(.menu); wait(1)
         openTab("الإعدادات")
         shot("16-settings")
+        remote.press(.select); wait(1)
+        XCTAssertTrue(setting("source").waitForExistence(timeout: 10))
         remote.press(.select); wait(2)
         shot("17-settings-popup")
+        XCTAssertTrue(element("tv.popup.option.ext:demo").exists)
         remote.press(.menu); wait(1)
         XCTAssertEqual(app.state, .runningForeground)
     }
@@ -143,6 +146,79 @@ final class TVVisualAuditTests: XCTestCase {
         remote.press(.select)
         XCTAssertTrue(app.buttons["tv.detail.play"].waitForExistence(timeout: 20))
         wait(5); shot("23-cinemana-detail")
+    }
+
+    func testSettingsQualityPreferencePersists() {
+        openTab("الإعدادات")
+        enterSettings("playback")
+        let quality = setting("quality")
+        XCTAssertTrue(quality.waitForExistence(timeout: 10))
+        remote.press(.select); wait(1)
+        XCTAssertTrue(element("tv.popup.option.auto").exists)
+        for _ in 0..<3 { remote.press(.down) }
+        XCTAssertTrue(element("tv.popup.option.720").hasFocus)
+        remote.press(.select)
+        expectValue(quality, "720p")
+        shot("30-settings-quality")
+        app.terminate(); app.launch()
+        XCTAssertTrue(showcase.waitForExistence(timeout: 30))
+        openTab("الإعدادات")
+        enterSettings("playback")
+        expectValue(setting("quality"), "720p")
+        remote.press(.select); wait(1)
+        for _ in 0..<3 { remote.press(.up) }
+        remote.press(.select)
+        expectValue(setting("quality"), "تلقائي")
+        shot("31-settings-automatic")
+    }
+
+    func testSubtitleSettingsPreview() {
+        openTab("الإعدادات")
+        enterSettings("subtitles")
+        XCTAssertTrue(setting("language").waitForExistence(timeout: 10))
+        remote.press(.down)
+        XCTAssertTrue(setting("size").hasFocus)
+        remote.press(.select); wait(1)
+        remote.press(.down)
+        remote.press(.select)
+        expectValue(setting("size"), "كبير")
+        remote.press(.down)
+        remote.press(.select); wait(1)
+        remote.press(.down)
+        remote.press(.select)
+        expectValue(setting("background"), "داكنة")
+        XCTAssertTrue(element("tv.settings.subtitle.preview").exists)
+        shot("32-settings-subtitle-preview")
+        remote.press(.up); remote.press(.up)
+        remote.press(.select); wait(1)
+        remote.press(.down); remote.press(.down)
+        remote.press(.select)
+        expectValue(setting("language"), "بدون ترجمة")
+        shot("33-settings-subtitles-off")
+    }
+
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+    private func setting(_ key: String) -> XCUIElement { element("tv.settings.option." + key) }
+    private func enterSettings(_ section: String) {
+        let order = ["source", "account", "playback", "subtitles", "about"]
+        let target = element("tv.settings.category." + section)
+        XCTAssertTrue(target.waitForExistence(timeout: 15))
+        for _ in 0..<8 {
+            if target.hasFocus { remote.press(.select); wait(1); return }
+            let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+            let key = focused.identifier.replacingOccurrences(of: "tv.settings.category.", with: "")
+            guard let current = order.firstIndex(of: key), let requested = order.firstIndex(of: section) else {
+                XCTFail("Settings category did not receive focus: \(focused.identifier)"); return
+            }
+            remote.press(current < requested ? .down : .up)
+        }
+        XCTFail("Settings category could not be reached")
+    }
+    private func expectValue(_ control: XCUIElement, _ value: String) {
+        let expected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", value), object: control)
+        XCTAssertEqual(XCTWaiter.wait(for: [expected], timeout: 10), .completed)
     }
 
     private func openTab(_ title: String) {

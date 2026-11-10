@@ -353,6 +353,8 @@ struct TVOptionsPopup: View {
                                 .frame(maxWidth: .infinity)
                             }
                             .focused($focused, equals: option.id)
+                            .accessibilityLabel(option.title)
+                            .accessibilityIdentifier("tv.popup.option.\(option.id)")
                         }
                     }
                     .padding(.vertical, 14).padding(.horizontal, 24)
