@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   simulator:
-    runs-on: macos-15
+    # Use the supported Intel pool; the default ARM pool has suffered hosted-runner acquisition failures.
+    runs-on: macos-15-intel
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
