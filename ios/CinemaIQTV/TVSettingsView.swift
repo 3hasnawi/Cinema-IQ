@@ -80,7 +80,6 @@ struct TVSettingsView: View {
                     Text(selected.title).font(.title2.weight(.semibold))
                     Text(selected.summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     List { settingsRows }
-                        .scrollContentBackground(.hidden)
                         .id(selected)
                         .focusScope(contentScope)
                 }
