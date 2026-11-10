@@ -12,6 +12,8 @@ final class VideoQualityTests: XCTestCase {
         XCTAssertEqual(VideoQuality.p720.select(from: [high, low, medium]), medium)
         XCTAssertEqual(VideoQuality.p2160.select(from: [medium, high, low]), high)
         XCTAssertEqual(VideoQuality.p360.select(from: [high, medium, low]), low)
+        let fixedDefault = try stream("تلقائي", "source-default.mp4")
+        XCTAssertEqual(VideoQuality.p720.select(from: [fixedDefault, high, medium]), medium)
     }
     func testAutomaticPrefersHLSEndpointAndSourceDefault() throws {
         let fixed = try stream("1080p", "movie.mp4")

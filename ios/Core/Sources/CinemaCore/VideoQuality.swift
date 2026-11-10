@@ -20,7 +20,10 @@ public enum VideoQuality: String, CaseIterable, Sendable {
         guard let height else {
             return automatic ?? streams.first(where: Self.looksLikeHLS) ?? streams.first
         }
-        if let automatic { return automatic }
+        // A source can label a fixed MP4 "Automatic" too; prefer a known manual rendition in that case.
+        if let adaptive = streams.first(where: { Self.isAutomaticLabel($0.quality) && Self.looksLikeHLS($0) }) {
+            return adaptive
+        }
         let known = streams.compactMap { stream in Self.resolution(stream.quality).map { (stream, $0) } }
         if let best = known.filter({ $0.1 <= height }).max(by: { $0.1 < $1.1 }) { return best.0 }
         return known.min(by: { $0.1 < $1.1 })?.0 ?? streams.first(where: Self.looksLikeHLS) ?? streams.first
