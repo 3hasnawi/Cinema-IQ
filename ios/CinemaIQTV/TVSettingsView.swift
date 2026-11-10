@@ -89,7 +89,7 @@ struct TVSettingsView: View {
         }
         .padding(.horizontal, 24).padding(.top, 30).padding(.bottom, 24)
         .background(TVTheme.ink.ignoresSafeArea())
-        .defaultFocus($category, .source)
+        .defaultFocus($category, selected)
         .onChange(of: category) { _, value in
             if let value { selected = value }
         }
