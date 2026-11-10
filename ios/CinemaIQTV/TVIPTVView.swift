@@ -2,6 +2,9 @@ import SwiftUI
 
 /// Entry point for a future IPTV library; no provider account or playlist is stored yet.
 struct TVIPTVView: View {
+    @EnvironmentObject private var router: TVRouter
+    @FocusState private var returnFocused: Bool
+
     var body: some View {
         GeometryReader { size in
             ZStack(alignment: .topLeading) {
@@ -25,6 +28,12 @@ struct TVIPTVView: View {
                     Text("قريبًا")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.7))
+                    Button { router.tab = .home } label: {
+                        Label("العودة إلى الرئيسية", systemImage: "house")
+                    }
+                    .buttonBorderShape(.capsule)
+                    .focused($returnFocused)
+                    .accessibilityIdentifier("tv.iptv.return")
                 }
                 .frame(maxWidth: min(size.size.width * 0.72, 1100), alignment: .leading)
                 .padding(.horizontal, 76)
@@ -32,6 +41,9 @@ struct TVIPTVView: View {
             }
         }
         .environment(\.layoutDirection, .rightToLeft)
+        .defaultFocus($returnFocused, true)
+        // Static placeholder content previously left the tab without a remote focus destination.
+        .onExitCommand { router.tab = .home }
     }
 
     private func option(_ title: String, icon: String) -> some View {

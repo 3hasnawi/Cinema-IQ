@@ -1,8 +1,7 @@
 import SwiftUI
 import CinemaCore
 
-/// Home in the Apple TV app's style: the featured title fills the screen above the fold (its artwork is the page's
-/// background), continue watching peeks at the bottom, and scrolling down snaps to the shelves over the blurred art.
+/// A full-screen featured backdrop cycles automatically or with the remote; down reveals the library shelves.
 struct TVHomeView: View {
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
@@ -15,9 +14,16 @@ struct TVHomeView: View {
     @State private var belowFold = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var router: TVRouter
-    @FocusState private var featuredFocus: String?
+    @FocusState private var featuredFocus: Bool
     @State private var heroInfo: OMDbInfo?
     @State private var initialFocusAssigned = false
+    @EnvironmentObject private var player: PlayerPresenter
+    @Environment(\.scenePhase) private var phase
+    @State private var manualRevision = 0
+    @State private var focusRecovery: Task<Void, Never>?
+    @Namespace private var showcaseScope
+    @Environment(\.resetFocus) private var resetFocus
+    @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var featured: [Media] {
@@ -32,14 +38,21 @@ struct TVHomeView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let showcase = max(440, proxy.size.height * 0.88)
+            let showcase = proxy.size.height
             ZStack {
                 ShowcaseBackground(url: hero.map { $0.backdrop.isEmpty ? $0.poster : $0.backdrop } ?? "", belowFold: belowFold)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 56) {
-                        TVFeaturedHero(media: hero, info: heroInfo, featured: featured,
+                        TVFeaturedHero(media: hero, info: heroInfo, count: featured.count, index: heroIndex,
                                        focused: $featuredFocus, loading: loading, error: shelves.isEmpty ? error : nil,
-                                       retry: { Task { await load() } }, open: { router.open($0) })
+                                       retry: { Task { await load() } }, open: { router.open($0) },
+                                       move: { step in
+                                           manualRevision += 1
+                                           changeFeatured(by: step)
+                                           restoreShowcaseAfterMove()
+                                       })
+                            .defaultFocus($featuredFocus, true)
+                            .focusScope(showcaseScope)
                             .frame(height: showcase, alignment: .bottomLeading)
                             .onScrollVisibilityChange(threshold: 0.5) { visible in
                                 if reduceMotion { belowFold = !visible }
@@ -64,27 +77,44 @@ struct TVHomeView: View {
                 }
                 .scrollClipDisabled()
                 .scrollIndicators(.hidden)
-                .scrollTargetBehavior(FoldSnapping(aboveFold: !belowFold, showcaseHeight: showcase + 56))
+                .scrollPosition($scrollPosition)
+                .onExitCommand(perform: belowFold ? {
+                    // Menu first restores the featured area; the next Menu belongs to the native sidebar.
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                        scrollPosition.scrollTo(edge: .top)
+                        featuredFocus = true
+                    }
+                } : nil)
             }
         }
-        .defaultFocus($featuredFocus, featured.first?.id)
+        .defaultFocus($featuredFocus, true)
         .task(id: featured.first?.id) {
             guard !initialFocusAssigned, let first = featured.first else { return }
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             guard !Task.isCancelled, router.tab == .home, featured.first?.id == first.id else { return }
-            featuredFocus = first.id
+            featuredFocus = true
             initialFocusAssigned = true
         }
-        .onChange(of: featuredFocus) { _, id in
-            guard let id, let index = featured.firstIndex(where: { $0.id == id }), index != heroIndex else { return }
-            if reduceMotion { heroIndex = index }
-            else { withAnimation(.easeInOut(duration: 0.35)) { heroIndex = index } }
+        .task(id: rotationKey) {
+            guard canRotate else { return }
+            let revision = manualRevision
+            do {
+                while !Task.isCancelled {
+                    try await Task.sleep(for: .seconds(8))
+                    try Task.checkCancellation()
+                    // A remote input can arrive as sleep finishes, before SwiftUI cancels the old task.
+                    guard canRotate, manualRevision == revision else { return }
+                    changeFeatured(by: 1)
+                }
+            } catch is CancellationError {
+            } catch { }
         }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
-            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = nil; initialFocusAssigned = false }
+            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = false; initialFocusAssigned = false }
             await load()
         }
+        .onDisappear { focusRecovery?.cancel(); focusRecovery = nil }
         .task(id: hero?.id) {
             heroInfo = nil
             guard let hero else { return }
@@ -92,6 +122,37 @@ struct TVHomeView: View {
             guard !Task.isCancelled else { return }
             heroInfo = info
         }
+    }
+
+    // Rotation stops in shelves, navigation, popups, playback and the background. Reduce Motion disables it.
+    private var canRotate: Bool {
+        featured.count > 1 && featuredFocus && !belowFold && !reduceMotion && phase == .active &&
+        router.tab == .home && (router.paths[.home] ?? []).isEmpty && router.popup == nil && player.selection == nil
+    }
+    private var rotationKey: String {
+        "\(canRotate)|\(manualRevision)|\(sourceName)|" + featured.map(\.id).joined(separator: ",")
+    }
+    /// Native tab navigation also reacts to Right. Restore this scope after that input transaction,
+    /// keeping a single backdrop selected rather than handing the directional press to the sidebar.
+    private func restoreShowcaseAfterMove() {
+        focusRecovery?.cancel()
+        let revision = manualRevision
+        let requestedSource = sourceName
+        focusRecovery = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled, manualRevision == revision, sourceName == requestedSource,
+                  router.tab == .home, (router.paths[.home] ?? []).isEmpty,
+                  router.popup == nil, player.selection == nil else { return }
+            featuredFocus = true
+            resetFocus(in: showcaseScope)
+        }
+    }
+
+    private func changeFeatured(by step: Int) {
+        guard !featured.isEmpty else { return }
+        let index = (heroIndex + step + featured.count) % featured.count
+        if reduceMotion { heroIndex = index }
+        else { withAnimation(.easeInOut(duration: 0.35)) { heroIndex = index } }
     }
 
     private func load() async {

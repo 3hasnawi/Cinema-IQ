@@ -89,8 +89,9 @@ struct TVDetailView: View {
                 .scrollIndicators(.hidden)
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .defaultFocus($focus, .play)
-        .fullScreenCover(isPresented: $showStory) { storyPage }
+        .fullScreenCover(isPresented: $showStory) { storyPage.environment(\.layoutDirection, .rightToLeft) }
         .task { await load() }
         .onChange(of: current.id) { _, _ in
             trailerTask?.cancel(); trailerTask = nil; trailerID = nil; trailerLoading = false
@@ -118,6 +119,7 @@ struct TVDetailView: View {
                 .font(.system(size: 76, weight: .bold))
                 .lineLimit(2).minimumScaleFactor(0.7)
                 .frame(maxWidth: 1250, alignment: .leading)
+                .accessibilityIdentifier("tv.detail.title")
             Spacer(minLength: 0)
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
             FactsLine(facts: facts)
@@ -142,12 +144,16 @@ struct TVDetailView: View {
                     }.frame(width: 70, height: 70)
                 }
                 .accessibilityLabel(trailerLoading ? "جارٍ البحث عن التريلر" : "عرض التريلر على YouTube")
+                .buttonStyle(TVCircleButtonStyle())
+                .accessibilityIdentifier("tv.detail.trailer")
                 .focused($focus, equals: .trailer)
                 Button { library.toggle(current) } label: {
                     Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
                         .font(.title3).frame(width: 70, height: 70)
                 }
                 .accessibilityLabel(library.isFavorite(current) ? "إزالة من قائمتي" : "أضف إلى قائمتي")
+                .buttonStyle(TVCircleButtonStyle())
+                .accessibilityIdentifier("tv.detail.list")
                 .focused($focus, equals: .list)
             }.focusSection()
             HStack(alignment: .top, spacing: 32) {
@@ -158,6 +164,7 @@ struct TVDetailView: View {
             if loading && seasons.isEmpty && current.isSeries { ProgressView() }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 48)
     }
 
     private func requestTrailer() {
@@ -236,6 +243,7 @@ struct TVDetailView: View {
                 }
                 .tvGlassButton()
                 .focused($focus, equals: .seasons)
+                .accessibilityIdentifier("tv.detail.seasons")
                 Text(episodes.count == 1 ? "حلقة واحدة" : "\(episodes.count) حلقات")
                     .font(.caption).foregroundStyle(.white.opacity(0.6))
                 Spacer(minLength: 0)
@@ -396,5 +404,6 @@ struct EpisodeLockup: View {
             .containerRelativeFrame(.horizontal, count: 4, spacing: 40, alignment: .leading)
         }
         .buttonStyle(.borderless)
+        .accessibilityIdentifier("tv.detail.episode.\(episode.id)")
     }
 }

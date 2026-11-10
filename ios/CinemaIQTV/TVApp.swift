@@ -64,6 +64,7 @@ struct TVRootView: View {
         .disabled(router.popup != nil)
         .fullScreenCover(item: $player.selection) { selection in
             TVPlayerView(selection: selection)
+                .environment(\.layoutDirection, .rightToLeft)
         }
             if let popup = router.popup {
                 TVOptionsPopup(popup: popup) { withAnimation(.easeOut(duration: 0.2)) { router.popup = nil } }
