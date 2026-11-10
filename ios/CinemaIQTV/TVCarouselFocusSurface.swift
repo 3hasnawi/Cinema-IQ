@@ -49,14 +49,15 @@ struct TVCarouselFocusSurface: UIViewRepresentable {
 
         override init(frame: CGRect) {
             super.init(frame: frame)
-            for direction: UISwipeGestureRecognizer.Direction in [.left, .right] {
+            let directions: [UISwipeGestureRecognizer.Direction] = [.left, .right]
+            for direction in directions {
                 let swipe = UISwipeGestureRecognizer(target: self, action: #selector(swiped(_:)))
                 swipe.direction = direction
                 swipe.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
                 addGestureRecognizer(swipe)
             }
         }
-        required init?(coder: NSCoder) { nil }
+        required init?(coder: NSCoder) { return nil }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -86,6 +87,7 @@ struct TVCarouselFocusSurface: UIViewRepresentable {
             guard context.previouslyFocusedView === self || context.nextFocusedView === self else { return }
             let active = context.nextFocusedView === self
             wantsFocus = active
+            if !active { selecting = false }
             focusChanged?(active)
         }
         override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
