@@ -97,11 +97,13 @@ struct TVHomeView: View {
         }
         .task(id: rotationKey) {
             guard canRotate else { return }
+            let revision = manualRevision
             do {
                 while !Task.isCancelled {
                     try await Task.sleep(for: .seconds(8))
                     try Task.checkCancellation()
-                    guard canRotate else { return }
+                    // A remote input can arrive as sleep finishes, before SwiftUI cancels the old task.
+                    guard canRotate, manualRevision == revision else { return }
                     changeFeatured(by: 1)
                 }
             } catch is CancellationError {

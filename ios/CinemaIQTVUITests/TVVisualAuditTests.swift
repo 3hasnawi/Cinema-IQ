@@ -71,6 +71,12 @@ final class TVVisualAuditTests: XCTestCase {
     }
 
     func testCarouselRemoteWrapAndAutomaticAdvance() {
+        // Launch/snapshot work can span an automatic dwell. Start the manual checks immediately after
+        // a real remote input rather than assuming the initial backdrop remains still during setup.
+        for _ in 0..<6 {
+            remote.press(.left)
+            if showcase.label == "Big Buck Bunny" { break }
+        }
         let initial = showcase.label
         XCTAssertEqual(initial, "Big Buck Bunny")
         remote.press(.right)
