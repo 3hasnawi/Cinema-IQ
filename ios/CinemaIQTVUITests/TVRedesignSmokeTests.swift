@@ -42,6 +42,25 @@ final class TVRedesignSmokeTests: XCTestCase {
     func testIPTVIsAComingSoonSection() {
         let first = app.descendants(matching: .any).matching(identifier: "tv.home.showcase").firstMatch
         XCTAssertTrue(first.waitForExistence(timeout: 30))
+        openIPTV()
+        let back = app.buttons["tv.iptv.return"]
+        expectFocus(back)
+        screenshot("iptv-focused-return")
+        remote.press(.menu)
+        expectFocus(first)
+        XCTAssertTrue(first.isHittable, "Menu must leave IPTV and restore the home backdrop")
+
+        // Re-enter to catch stale focus after the first visit, then leave with the visible action too.
+        openIPTV()
+        expectFocus(back)
+        remote.press(.select)
+        expectFocus(first)
+        XCTAssertTrue(first.isHittable, "The return action must restore the home backdrop")
+        screenshot("iptv-returned-home")
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    private func openIPTV() {
         remote.press(.menu)
         let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]
         for _ in 0..<12 {
@@ -55,5 +74,18 @@ final class TVRedesignSmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["tv.iptv.heading"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["قريبًا"].exists)
         XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    private func expectFocus(_ element: XCUIElement) {
+        XCTAssertTrue(element.waitForExistence(timeout: 15))
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: element)
+        XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 10), .completed)
+    }
+
+    private func screenshot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 }
