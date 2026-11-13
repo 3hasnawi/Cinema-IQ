@@ -57,6 +57,9 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertTrue(saved.waitForExistence(timeout: 10))
         inside(saved)
         screenshot("library")
+    }
+
+    func testSettingsAndSearch() {
         tab("الإعدادات")
         XCTAssertTrue(element("ios.settings").waitForExistence(timeout: 10))
         screenshot("settings")
