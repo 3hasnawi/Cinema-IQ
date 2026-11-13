@@ -86,6 +86,22 @@ struct BrowseView: View {
             .id(sourceName)
             .background(Theme.ink)
             .navigationTitle("تصفّح")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                NavigationLink { IPTVView() } label: {
+                    HStack(spacing: 12) {
+                        Label("IPTV", systemImage: "dot.radiowaves.left.and.right").font(.headline)
+                        Spacer()
+                        Text("القنوات المباشرة").font(.subheadline).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.forward").font(.caption)
+                    }
+                    .padding(16)
+                    .glass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("ios.browse.iptv")
+                .padding(.horizontal, 18).padding(.vertical, 8)
+                .background(Theme.ink)
+            }
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SourceMenu() } }
     }
 }

@@ -80,7 +80,8 @@ final class IPTVTests: XCTestCase {
         XCTAssertEqual(catalog.channels.count, 1)
         XCTAssertEqual(catalog.channels[0].group, "أخبار")
         XCTAssertEqual(catalog.channels[0].url.path, "/live/demo/fixture/101.m3u8")
-        XCTAssertEqual(await mock.requested.count, 3)
+        let requested = await mock.requested
+        XCTAssertEqual(requested.count, 3)
     }
     func testNetworkErrorsRemainTypedWithoutRevealingURL() async throws {
         let mock = IPTVMock(failure: .http(429))
