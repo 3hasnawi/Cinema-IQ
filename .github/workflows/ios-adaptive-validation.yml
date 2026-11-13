@@ -24,11 +24,17 @@ jobs:
       IOS_TEST_KIND: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode and generate project
+      - name: Select compatible Xcode and generate project
         run: |
           set -euo pipefail
-          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
-          sudo xcode-select -s "$newest/Contents/Developer"
+          # Match the hosted iOS 18.5 runtime to its XCTest driver. Latest-SDK
+          # Release compilation is covered by ios-app-compile.yml separately.
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            chosen=/Applications/Xcode_16.4.app
+          else
+            chosen="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          fi
+          sudo xcode-select -s "$chosen/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
           cd ios
@@ -80,6 +86,23 @@ jobs:
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/ios-build.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)|TEST BUILD (SUCCEEDED|FAILED)' || true
           grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/ios-build.log"
+      - name: Install deterministic Debug playback fixture
+        run: |
+          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
+            "$RUNNER_TEMP/iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/UIPlayerFixture.mp4"
+      - name: Validate universal device and orientation metadata
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, plistlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP'])/'iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/Info.plist'
+          with path.open('rb') as file:
+              info = plistlib.load(file)
+          assert info['UIDeviceFamily'] == [1,2]
+          assert info['CFBundleIdentifier'] == 'com.cinemaplus.rebuilt.ios'
+          assert len(info['UISupportedInterfaceOrientations~ipad']) == 4
+          assert not info.get('UIRequiresFullScreen',False)
+          print('Universal iPhone/iPad app; all tablet orientations; resizable-window eligibility verified')
+          PY
       - name: Boot Simulator with a display
         timeout-minutes: 10
         run: |
@@ -101,19 +124,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/ios-layout.log" | grep -E 'error:|Test Case|TEST (SUCCEEDED|FAILED)' || true
           grep -q 'TEST SUCCEEDED' "$RUNNER_TEMP/ios-layout.log"
-      - name: Validate universal device and orientation metadata
-        run: |
-          python3 - <<'PY'
-          import os, pathlib, plistlib
-          path = pathlib.Path(os.environ['RUNNER_TEMP'])/'iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/Info.plist'
-          with path.open('rb') as file:
-              info = plistlib.load(file)
-          assert info['UIDeviceFamily'] == [1,2]
-          assert info['CFBundleIdentifier'] == 'com.cinemaplus.rebuilt.ios'
-          assert len(info['UISupportedInterfaceOrientations~ipad']) == 4
-          assert not info.get('UIRequiresFullScreen',False)
-          print('Universal iPhone/iPad app; all tablet orientations; resizable-window eligibility verified')
-          PY
       - name: Export simulator evidence
         if: always()
         run: |

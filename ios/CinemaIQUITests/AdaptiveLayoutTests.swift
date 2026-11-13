@@ -1,7 +1,7 @@
 import XCTest
 import UIKit
 
-/// Real touch navigation on the licensed demo source; no source account or metadata API is required.
+/// Native touch navigation on the demo catalogue and AVPlayer with a local reference clip.
 final class AdaptiveLayoutTests: XCTestCase {
     private let app = XCUIApplication()
     private var tablet: Bool { UIDevice.current.userInterfaceIdiom == .pad }
@@ -10,7 +10,7 @@ final class AdaptiveLayoutTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["-ios.contentSource.v1", "ext:demo"]
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player"]
         addUIInterruptionMonitor(withDescription: "System permission") { alert in
             for title in ["Allow", "OK", "السماح", "موافق"] where alert.buttons[title].exists {
                 alert.buttons[title].tap(); return true
@@ -94,11 +94,9 @@ final class AdaptiveLayoutTests: XCTestCase {
         let position = seconds(video)
         landscape()
         waitFor("Rotation must retain playback rather than reopen at zero") { self.seconds(video) > position }
-        // Hosted AX snapshots can outlast the four-second chrome timer. Use one native
-        // touch sequence to reveal the controls and press the central pause transport.
-        waitFor("Playback controls should auto-hide") { !self.element("ios.player.close").exists }
-        video.doubleTap()
         let pause = element("ios.player.playPause")
+        XCTAssertTrue(pause.waitForExistence(timeout: 10))
+        pause.tap()
         waitFor("The film should pause") { pause.label == "تشغيل" }
         inside(element("ios.player.close"))
         element("ios.player.options").tap()

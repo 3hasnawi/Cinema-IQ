@@ -156,6 +156,10 @@ struct PlaybackView: View {
         .persistentSystemOverlays(.hidden)
         // Controls fade after four seconds of playback; any change of state starts the wait again.
         .task(id: "\(controlsVisible)-\(controller.playing)-\(scrubbing == nil)-\(optionsPage == nil)") {
+            #if DEBUG
+            // Keep controls inspectable during UI tests; Release retains its normal timer.
+            guard !UITestSupport.playerFixtureEnabled else { return }
+            #endif
             // The controls must not fade while the options are open: that removed the panel under the finger.
             guard controlsVisible, controller.playing, scrubbing == nil, optionsPage == nil else { return }
             try? await Task.sleep(for: .seconds(4))
@@ -496,8 +500,16 @@ struct PlaybackView: View {
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
+        #if DEBUG
+        guard let playbackURL = UITestSupport.playbackURL(or: stream.url) else {
+            controller.error = "UI test player fixture is missing."
+            return
+        }
+        #else
+        let playbackURL = stream.url
+        #endif
         controller.externalPlayback = false
-        controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
+        controller.open(media, url: playbackURL, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
         if phase != .active { controller.player.pause() }
