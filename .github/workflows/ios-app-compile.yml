@@ -1,6 +1,6 @@
 name: iOS App Compile Check
 
-# Compiles the SwiftUI app for a physical iPhone without signing and without uploading anything (no IPA export).
+# Compiles the universal iPhone/iPad app without signing or exporting an IPA.
 # Runs only for pushes to iOS work branches, so ordinary Android work never uses macOS minutes.
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   compile:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
@@ -50,7 +50,7 @@ jobs:
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate --spec project.yml
-      - name: Compile for physical iPhone without signing
+      - name: Compile for physical iPhone and iPad without signing
         run: |
           set -euo pipefail
           xcodebuild \
