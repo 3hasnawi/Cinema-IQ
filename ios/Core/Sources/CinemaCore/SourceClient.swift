@@ -61,10 +61,10 @@ public struct StreamChoice: Identifiable, Hashable, Sendable {
 }
 public struct SourceClient: Sendable {
     public init() {}
-    public func home(_ source: ContentSource) async throws -> [Shelf] {
+    public func home(_ source: ContentSource, prioritizeFeaturedMovies: Bool = false) async throws -> [Shelf] {
         switch source {
         case .dawwirli: return try await DawwirliClient().home()
-        case .cinemana: return try await CinemanaClient().home()
+        case .cinemana: return try await CinemanaClient().home(prioritizeFeaturedMovies: prioritizeFeaturedMovies)
         case .vodu:
             async let movies = VoduClient().catalog(series: false, query: "", page: 1)
             async let series = VoduClient().catalog(series: true, query: "", page: 1)

@@ -80,7 +80,7 @@ final class TVVisualAuditTests: XCTestCase {
         let initial = showcase.label
         XCTAssertEqual(initial, "Big Buck Bunny")
         remote.press(.right)
-        expectShowcase("أفلام Blender المفتوحة")
+        expectShowcase("Elephants Dream")
         remote.press(.left)
         expectShowcase(initial)
         remote.press(.left)
