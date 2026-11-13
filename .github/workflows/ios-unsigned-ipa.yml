@@ -1,8 +1,14 @@
-name: Build unsigned iPhone IPA
+name: Build unsigned iPhone and iPad IPA
 
 # Manual only: exporting an app requires an explicit user build request.
 on:
   workflow_dispatch:
+    inputs:
+      include_apple_tv:
+        description: Also export the unchanged Apple TV app
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: read
@@ -13,7 +19,7 @@ concurrency:
 
 jobs:
   iphone-ipa:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     env:
       TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
       OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
@@ -43,7 +49,7 @@ jobs:
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate --spec project.yml
-      - name: Compile Release for physical iPhone without signing
+      - name: Compile Release for physical iPhone and iPad without signing
         run: |
           set -euo pipefail
           xcodebuild \
@@ -64,12 +70,23 @@ jobs:
           test -d "$device_app"
           test -x "$device_app/CinemaIQ"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$device_app/Info.plist"
+          python3 - "$device_app/Info.plist" <<'PY'
+          import plistlib, sys
+          with open(sys.argv[1], 'rb') as source:
+              info = plistlib.load(source)
+          assert info['CFBundleIdentifier'] == 'com.cinemaplus.rebuilt.ios'
+          assert info['UIDeviceFamily'] == [1, 2], 'Universal iPhone/iPad device families required'
+          assert len(info['UISupportedInterfaceOrientations~ipad']) == 4
+          assert not info.get('UIRequiresFullScreen', False)
+          print('Validated universal iOS app:', info['CFBundleShortVersionString'], info['CFBundleVersion'])
+          PY
           xcrun lipo "$device_app/CinemaIQ" -verify_arch arm64
           mkdir -p "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output"
           ditto "$device_app" "$IPA_STAGING/Payload/CinemaIQ.app"
           ditto -c -k --keepParent "$IPA_STAGING/Payload" "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
           unzip -t "$RUNNER_TEMP/ipa-output/Cinema-iQ-iPhone-unsigned.ipa"
       - name: Compile Release for Apple TV without signing
+        if: inputs.include_apple_tv
         run: |
           set -euo pipefail
           xcodebuild \
@@ -84,6 +101,7 @@ jobs:
             CODE_SIGN_IDENTITY= \
             build
       - name: Package unsigned Apple TV app
+        if: inputs.include_apple_tv
         run: |
           set -euo pipefail
           tv_app="$DERIVED_DATA/Build/Products/Release-appletvos/CinemaIQTV.app"
@@ -96,6 +114,7 @@ jobs:
           ditto -c -k --keepParent "$RUNNER_TEMP/TVIPA/Payload" "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-unsigned.ipa"
           unzip -t "$RUNNER_TEMP/tv-output/Cinema-iQ-AppleTV-unsigned.ipa"
       - name: Upload Apple TV IPA for atvloadly
+        if: inputs.include_apple_tv
         uses: actions/upload-artifact@v4
         with:
           name: Cinema-iQ-AppleTV-unsigned-${{ github.run_number }}
@@ -112,10 +131,10 @@ jobs:
       - name: Explain installation
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMMARY'
-          ## iPhone preview for Windows testing
-          Download the artifact ZIP, extract it, and select **Cinema-iQ-iPhone-unsigned.ipa** in Sideloadly on Windows. This is an arm64 iPhone app, not a simulator build.
+          ## Universal iPhone and iPad preview for Windows testing
+          Download the artifact ZIP, extract it, and select **Cinema-iQ-iPhone-unsigned.ipa** in Sideloadly on Windows. This single arm64 device app supports both iPhone and iPad.
 
           Install and use Sideloadly from https://sideloadly.io/. Connect and trust the iPhone, sign with your own Apple account, and enable Developer Mode on the phone if requested. Free-account signing normally expires after 7 days and must be renewed. Do not send Apple credentials, verification codes or signing certificates to the repository or chat.
 
-          No Apple developer certificate or GitHub signing secret is required for this unsigned artifact. The download expires after 3 days. No public release or TestFlight upload is performed. See `ios/WINDOWS-TESTING.md` for steps and preview limitations.
+          No Apple developer certificate or GitHub signing secret is required for this unsigned artifact. The iOS artifact expires after one day. This workflow does not publish releases or upload to TestFlight. See `ios/WINDOWS-TESTING.md` for installation steps.
           SUMMARY
