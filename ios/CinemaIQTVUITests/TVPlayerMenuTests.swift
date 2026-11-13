@@ -36,71 +36,64 @@ final class TVPlayerMenuTests: XCTestCase {
 
     func testQualityAndSpeedMenusSupportRemoteSelection() {
         openMenu("الجودة")
-        let automatic = menuItem("تلقائي")
-        expectNativeOption(automatic)
+        expectNativeOption("تلقائي")
         shot("quality-menu")
         remote.press(.menu)
         openMenu("السرعة")
-        let normal = menuItem("عادية")
-        expectNativeOption(normal)
+        expectNativeOption("عادية")
         shot("speed-menu")
-        focus(normal)
         remote.press(.select)
         closePlayerAndExpectDetails()
     }
 
     func testSubtitleMenuAndNestedAppearanceOptionsSupportRemoteSelection() {
         openMenu("الترجمة")
-        expectNativeOption(menuItem("بدون ترجمة"))
-        expectNativeOption(menuItem("الحجم"))
-        expectNativeOption(menuItem("الخلفية"))
+        expectNativeOption("بدون ترجمة")
+        expectNativeOption("الحجم")
+        expectNativeOption("الخلفية")
         shot("subtitle-menu")
-        focus(menuItem("الحجم"))
+        focus("الحجم")
         remote.press(.select)
-        let large = menuItem("كبير")
-        expectNativeOption(large)
+        expectNativeOption("كبير")
         shot("subtitle-size-menu")
-        focus(large)
         remote.press(.select)
         openMenu("الترجمة")
-        focus(menuItem("الخلفية"))
+        focus("الخلفية")
         remote.press(.select)
-        let dark = menuItem("داكنة")
-        expectNativeOption(dark)
+        expectNativeOption("داكنة")
         shot("subtitle-background-menu")
-        focus(dark)
         remote.press(.select)
         openMenu("الترجمة")
-        focus(menuItem("بدون ترجمة"))
+        focus("بدون ترجمة")
         remote.press(.select)
         closePlayerAndExpectDetails()
     }
 
-    private func menuItem(_ label: String) -> XCUIElement {
-        // Liquid Glass menus expose a sizing collection followed by the actual focus collection.
-        // The selected row's label includes its checkmark. Use the last cell, not the sizing copy.
-        let matches = app.cells.matching(NSPredicate(format: "label == %@ OR label == %@", label, "selected, " + label))
-        return matches.allElementsBoundByIndex.last ?? matches.firstMatch
+    private func menuItems(_ label: String) -> XCUIElementQuery {
+        // Liquid Glass exposes both sizing and interactive collections. Their order can change.
+        // Query focus across both copies; never bind interaction to a guessed collection index.
+        app.cells.matching(NSPredicate(format: "label == %@ OR label == %@", label, "selected, " + label))
     }
 
     private func openMenu(_ title: String) {
-        let target = menuItem(title)
+        let target = menuItems(title).firstMatch
         XCTAssertTrue(target.waitForExistence(timeout: 10), "Missing native transport menu: \(title)")
         XCTAssertTrue(app.frame.insetBy(dx: 24, dy: 24).contains(target.frame),
                       "The transport menu anchor must fit the screen")
-        focus(target)
+        focus(title)
         remote.press(.select)
     }
 
-    private func focus(_ target: XCUIElement) {
-        XCTAssertTrue(target.waitForExistence(timeout: 10))
+    private func focus(_ label: String) {
+        let matches = menuItems(label)
+        XCTAssertTrue(matches.firstMatch.waitForExistence(timeout: 10))
+        let focusedTarget = matches.matching(NSPredicate(format: "hasFocus == true")).firstMatch
         for _ in 0..<12 {
-            if target.hasFocus { return }
+            if focusedTarget.exists { return }
             let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
             if !focused.exists { remote.press(.up); continue }
-            let source = focused.frame, destination = target.frame
+            let source = focused.frame, destination = matches.firstMatch.frame
             // AVKit reports its full-screen scrubbing focus proxy, rather than the timeline's frame.
-            // Up leaves that proxy and enters the row of transport cells above the timeline.
             if source.height > app.frame.height * 0.8 {
                 remote.press(.up)
             } else if abs(source.midY - destination.midY) > 35 {
@@ -109,7 +102,7 @@ final class TVPlayerMenuTests: XCTestCase {
                 remote.press(destination.midX < source.midX ? .left : .right)
             }
         }
-        XCTAssertTrue(target.hasFocus, "The remote could not focus \(target.label)")
+        XCTAssertTrue(focusedTarget.exists, "The remote could not focus \(label)")
     }
 
     private func expectFocus(_ target: XCUIElement) {
@@ -117,12 +110,11 @@ final class TVPlayerMenuTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 10), .completed)
     }
 
-    private func expectNativeOption(_ target: XCUIElement) {
-        XCTAssertTrue(target.waitForExistence(timeout: 10))
+    private func expectNativeOption(_ label: String) {
+        XCTAssertTrue(menuItems(label).firstMatch.waitForExistence(timeout: 10))
         // tvOS 26 exposes menu-local AX frames (e.g. x=5) for a popup drawn at x=1200.
-        // Hittability/global-bounds queries therefore misreport native rows. Real remote focus
-        // and selection are asserted; screenshot attachments verify the actual screen geometry.
-        focus(target)
+        // Real remote focus/selection are asserted; screenshots verify actual screen geometry.
+        focus(label)
     }
 
     private func closePlayerAndExpectDetails() {
