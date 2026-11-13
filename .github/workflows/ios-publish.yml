@@ -1,0 +1,41 @@
+name: Publish verified universal iOS IPA
+
+# Manual only: reuses an approved successful build without rebuilding any platform.
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful main iOS device build run ID
+        type: string
+        required: true
+      expected_sha256:
+        description: Independently verified IPA SHA-256
+        type: string
+        required: true
+      notes:
+        description: Approved release notes including source commit and device-test limitations
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: ios-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PUBLIC_RELEASE_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      IOS_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      IOS_EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+      IOS_RELEASE_NOTES: ${{ inputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish the verified existing IPA as an iOS preview
+        run: python3 .github/scripts/publish-ios.py
