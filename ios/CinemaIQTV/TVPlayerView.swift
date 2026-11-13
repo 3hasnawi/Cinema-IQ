@@ -58,6 +58,10 @@ struct TVPlayerView: View {
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
                          episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
+                // AVKit positions its transport popovers in playback coordinates. Mirroring that
+                // controller with the surrounding Arabic UI can put a menu beyond the screen edge.
+                // Arabic labels retain their natural text direction; only the system chrome is LTR.
+                .environment(\.layoutDirection, .leftToRight)
                 .ignoresSafeArea()
             }
             if !controller.playing && !controller.buffering && !loading && !controller.ended &&
@@ -321,6 +325,7 @@ struct SystemPlayer: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.view.backgroundColor = .black
+        controller.view.semanticContentAttribute = .playback
         // The pause overlay owns the title; avoid a duplicate AVKit title and asset creation year.
         controller.transportBarIncludesTitleView = false
         // One subtitle button: Cinema iQ's menu (source files, embedded tracks, size and background). Allowing no
