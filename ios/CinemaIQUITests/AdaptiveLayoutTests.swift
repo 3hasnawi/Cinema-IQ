@@ -68,6 +68,12 @@ final class AdaptiveLayoutTests: XCTestCase {
         if !tablet { XCTAssertTrue(app.tabBars.firstMatch.exists, "iPhone must retain its tab bar") }
         tab("البحث")
         let search = app.searchFields.firstMatch
+        // iPad's native navigation bar initially presents search as a toolbar button.
+        if !search.exists {
+            let activate = app.navigationBars.buttons.matching(NSPredicate(format: "label IN %@", ["Search", "بحث", "البحث"])).firstMatch
+            XCTAssertTrue(activate.waitForExistence(timeout: 10))
+            activate.tap()
+        }
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap()
         search.typeText("Big")

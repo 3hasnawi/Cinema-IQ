@@ -141,7 +141,6 @@ struct PlaybackView: View {
                 .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             }
         }
-        .accessibilityIdentifier("ios.player")
         .sheet(isPresented: $cast.showControls) { CastControls(cast: cast) }
         .onAppear {
             cast.didLoad = { controller.persist(); controller.externalPlayback = true; controller.player.pause() }
