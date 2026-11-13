@@ -77,7 +77,8 @@ final class TVPlayerMenuTests: XCTestCase {
     }
 
     private func button(_ label: String) -> XCUIElement {
-        app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
+        // AVKit's transport items are UICollectionView cells; popup actions may be buttons.
+        app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
     }
 
     private func openMenu(_ title: String) {
@@ -94,7 +95,11 @@ final class TVPlayerMenuTests: XCTestCase {
             let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
             if !focused.exists { remote.press(.up); continue }
             let source = focused.frame, destination = target.frame
-            if abs(source.midY - destination.midY) > 35 {
+            // AVKit reports its full-screen scrubbing focus proxy, rather than the timeline's frame.
+            // Up leaves that proxy and enters the row of transport cells above the timeline.
+            if source.height > app.frame.height * 0.8 {
+                remote.press(.up)
+            } else if abs(source.midY - destination.midY) > 35 {
                 remote.press(destination.midY < source.midY ? .up : .down)
             } else {
                 remote.press(destination.midX < source.midX ? .left : .right)
