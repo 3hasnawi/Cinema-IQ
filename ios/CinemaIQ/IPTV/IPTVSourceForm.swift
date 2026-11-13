@@ -24,7 +24,7 @@ struct IPTVSourceForm: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("المصدر") {
+                Section {
                     TextField("اسم المصدر", text: $name)
                         .focused($field, equals: .name).submitLabel(.next)
                         .onSubmit { field = .address }.accessibilityIdentifier("ios.iptv.form.name")
@@ -50,7 +50,7 @@ struct IPTVSourceForm: View {
                             Text("MPEG-TS (ts)").tag(IPTVSource.Output.transportStream)
                         }
                     }
-                } footer: {
+                } header: { Text("المصدر") } footer: {
                     Text(kind == .playlist ? "أدخل رابط قائمة القنوات من مزوّدك. يدعم القسم قوائم M3U وروابط HLS المباشرة."
                          : "أدخل عنوان الخادم فقط، ثم اسم المستخدم وكلمة المرور. يُفضّل HLS لتوافق أفضل مع iPhone وiPad؛ بعض بثوث TS غير مدعومة.")
                 }
@@ -86,6 +86,9 @@ struct IPTVSourceForm: View {
                 username = existing.username; password = existing.password; output = existing.output; allowHTTP = existing.allowHTTP
             }
             .onDisappear { submission?.cancel() }
+            .onChange(of: kind) { _, value in
+                if value == .playlist { username = ""; password = "" }
+            }
         }
     }
     private func connect() {
@@ -100,7 +103,8 @@ struct IPTVSourceForm: View {
         }
         do {
             let source = try IPTVSource(id: existing?.id ?? UUID().uuidString, name: name, kind: kind, address: url,
-                username: username.trimmingCharacters(in: .whitespacesAndNewlines), password: password,
+                username: kind == .xtream ? username.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+                password: kind == .xtream ? password : "",
                 output: output, allowHTTP: IPTVConnectionPolicy.supportsHTTP && allowHTTP)
             submitting = true
             submission = Task { @MainActor in

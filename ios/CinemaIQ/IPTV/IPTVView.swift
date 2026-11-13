@@ -12,7 +12,8 @@ struct IPTVView: View {
         case source(IPTVSource?), manage, groups
         var id: String { switch self { case .source(let source): return source?.id ?? "add"; case .manage: return "manage"; case .groups: return "groups" } }
     }
-    private var filterKey: String { store.loadKey + "|" + store.catalogRevision.uuidString + "|" + query + "|" + (group ?? "") }
+    private struct FilterKey: Hashable { let revision: UUID; let query: String; let group: String? }
+    private var filterKey: FilterKey { FilterKey(revision: store.catalogRevision, query: query, group: group) }
     var body: some View {
         List {
             if !store.storageAvailable {
