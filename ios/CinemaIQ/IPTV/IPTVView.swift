@@ -67,7 +67,7 @@ struct IPTVView: View {
             }
         }
         .navigationTitle("IPTV")
-        .searchable(text: $query, prompt: "ابحث عن قناة")
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "ابحث عن قناة")
         .scrollDismissesKeyboard(.interactively)
         .refreshable { await store.reload(force: true) }
         .toolbar {

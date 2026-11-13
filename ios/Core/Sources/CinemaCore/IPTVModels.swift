@@ -84,15 +84,17 @@ public enum IPTVURLPolicy {
         return url
     }
     public static func stream(_ raw: String, relativeTo base: URL, allowHTTP: Bool) -> URL? {
-        guard !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        let raw = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty,
               let url = URL(string: raw, relativeTo: base)?.absoluteURL else { return nil }
         return try? validate(url, allowHTTP: allowHTTP)
     }
     static func sameOrigin(_ from: URL, _ to: URL) -> Bool {
         guard from.host?.lowercased() == to.host?.lowercased() else { return false }
-        let a = from.port ?? (from.scheme == "https" ? 443 : 80)
-        let b = to.port ?? (to.scheme == "https" ? 443 : 80)
-        return (from.scheme == to.scheme && a == b) || (from.scheme == "http" && to.scheme == "https" && b == 443)
+        let origin = from.scheme?.lowercased(), destination = to.scheme?.lowercased()
+        let a = from.port ?? (origin == "https" ? 443 : 80)
+        let b = to.port ?? (destination == "https" ? 443 : 80)
+        return (origin == destination && a == b) || (origin == "http" && destination == "https" && b == 443)
     }
     /// Stable, opaque IDs from public channel metadata, never from credential-bearing stream URLs.
     static func identifier(source: String, metadata: String) -> String {

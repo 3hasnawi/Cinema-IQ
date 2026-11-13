@@ -2,11 +2,12 @@ import Foundation
 
 public enum IPTVParser {
     public static let maximumChannels = 50_000
+    private static let attributeRegex = try? NSRegularExpression(pattern: #"([A-Za-z0-9_-]+)\s*=\s*(?:"((?:\\.|[^"])*)"|'([^']*)'|([^\s,]+))"#)
     public static func playlist(_ data: Data, source: IPTVSource) throws -> IPTVCatalog {
         guard data.count <= 20 * 1024 * 1024 else { throw IPTVError.tooLarge }
         guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) else { throw IPTVError.invalidPlaylist }
         let lines = text.replacingOccurrences(of: "\u{feff}", with: "").split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard let first = lines.first, first.uppercased().hasPrefix("#EXTM3U") else { throw IPTVError.invalidPlaylist }
         // A channel's HLS manifest is one channel, not a list of its media segments/renditions.
         if lines.prefix(40).contains(where: { $0.uppercased().hasPrefix("#EXT-X-") }) {
@@ -98,8 +99,7 @@ public enum IPTVParser {
         return (line, "")
     }
     private static func attributes(_ text: String) -> [String: String] {
-        let pattern = #"([A-Za-z0-9_-]+)\s*=\s*(?:"((?:\\.|[^"])*)"|'([^']*)'|([^\s,]+))"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [:] }
+        guard let regex = attributeRegex else { return [:] }
         let string = text as NSString
         var result: [String: String] = [:]
         for match in regex.matches(in: text, range: NSRange(location: 0, length: string.length)) {

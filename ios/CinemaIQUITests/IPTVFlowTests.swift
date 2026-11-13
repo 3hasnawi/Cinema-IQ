@@ -60,8 +60,8 @@ final class IPTVFlowTests: XCTestCase {
         let password = app.secureTextFields["ios.iptv.form.password"]
         XCTAssertTrue(password.waitForExistence(timeout: 10)); password.tap(); password.typeText("demo\n")
         connect()
-        XCTAssertTrue(app.buttons["أخبار Xtream"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.buttons["رياضة Xtream"].exists)
+        XCTAssertTrue(app.buttons["Xtream News"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["Xtream Sport"].exists)
         screenshot("xtream-channels")
         var search = app.searchFields.firstMatch
         if !search.exists {
@@ -70,8 +70,8 @@ final class IPTVFlowTests: XCTestCase {
             search = app.searchFields.firstMatch
         }
         XCTAssertTrue(search.waitForExistence(timeout: 10))
-        search.tap(); search.typeText("Xtream")
-        XCTAssertTrue(app.buttons["أخبار Xtream"].exists)
+        search.tap(); search.typeText("News")
+        waitFor { self.app.buttons["Xtream News"].exists && !self.app.buttons["Xtream Sport"].exists }
         screenshot("xtream-search")
         XCTAssertEqual(app.state, .runningForeground)
     }
