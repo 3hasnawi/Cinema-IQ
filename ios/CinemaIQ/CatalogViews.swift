@@ -81,11 +81,18 @@ struct CatalogGrid: View {
 
 struct BrowseView: View {
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
+    @State private var fixtureIPTV = false
     var body: some View {
         CatalogGrid(source: SourcePreference.source(sourceName), query: "")
             .id(sourceName)
             .background(Theme.ink)
             .navigationTitle("تصفّح")
+            .navigationDestination(isPresented: $fixtureIPTV) { IPTVView() }
+            .task {
+#if DEBUG
+                if IPTVFixtureSupport.snapshot { fixtureIPTV = true }
+#endif
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 NavigationLink { IPTVView() } label: {
                     HStack(spacing: 12) {

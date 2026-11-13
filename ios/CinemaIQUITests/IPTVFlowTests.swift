@@ -1,9 +1,10 @@
 import XCTest
+import UIKit
 
 /// Fixture hosts/accounts, isolated real Keychain storage and the real AVPlayer reference clip.
 final class IPTVFlowTests: XCTestCase {
     private let app = XCUIApplication()
-    private var tablet: Bool { ProcessInfo.processInfo.environment["IPTV_TEST_KIND"] == "ipad" }
+    private var tablet: Bool { UIDevice.current.userInterfaceIdiom == .pad }
     private let baseArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-iptv", "--cinema-ui-testing-player"]
     override func setUp() {
         continueAfterFailure = false

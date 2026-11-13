@@ -113,6 +113,24 @@ jobs:
           open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$IOS_TEST_DEVICE"
           xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
+      - name: Capture the real channel screen before XCTest initialization
+        run: |
+          set -euo pipefail
+          # Native app screenshot; no WebView, mock-up renderer or XCTest Accessibility dependency.
+          # The DEBUG-only arguments seed the isolated fixture Keychain and navigate the real Browse stack.
+          xcrun simctl install "$IOS_TEST_DEVICE" "$RUNNER_TEMP/iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app"
+          xcrun simctl launch "$IOS_TEST_DEVICE" com.cinemaplus.rebuilt.ios \
+            -ios.contentSource.v1 ext:demo --cinema-ui-testing-iptv \
+            --cinema-ui-testing-iptv-reset --cinema-ui-testing-iptv-snapshot
+          sleep 15
+          xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/iptv-channels.png"
+          xcrun simctl terminate "$IOS_TEST_DEVICE" com.cinemaplus.rebuilt.ios
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-iptv-screen-${{ matrix.device }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/iptv-channels.png
+          retention-days: 1
+          if-no-files-found: error
       - name: Test M3U, Xtream, Keychain persistence and internal playback
         timeout-minutes: 25
         run: |
@@ -143,5 +161,6 @@ jobs:
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
             ${{ runner.temp }}/simulator-ready.png
+            ${{ runner.temp }}/iptv-channels.png
           retention-days: 1
           if-no-files-found: warn

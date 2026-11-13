@@ -8,7 +8,12 @@ struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
     @StateObject private var player = PlayerPresenter()
     @StateObject private var iptv = IPTVStore()
-    @State private var tab: AppTab = .home
+    @State private var tab: AppTab = {
+#if DEBUG
+        if IPTVFixtureSupport.snapshot { return .browse }
+#endif
+        return .home
+    }()
     var body: some View {
         TabView(selection: $tab) {
             Tab("الرئيسية", systemImage: "house.fill", value: AppTab.home) {

@@ -74,6 +74,13 @@ struct IPTVKeychainVault {
         selectionKey = testing ? "ios.iptv.uitests.selected.v1" : "ios.iptv.selected.v1"
         client = testing ? IPTVClient(transport: IPTVFixtureTransport()) : IPTVClient()
         if testing && ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-iptv-reset") { try? vault.write([]) }
+        if IPTVFixtureSupport.snapshot,
+           let source = try? IPTVSource(id: "iptv-snapshot-playlist", name: "قنوات تجريبية", kind: .playlist,
+                                        address: URL(string: "https://iptv.example/channels.m3u")!) {
+            // Only the isolated UI-test Keychain service is populated, never the user's real sources.
+            try? vault.write([source])
+            defaults.set(source.id, forKey: selectionKey)
+        }
 #else
         vault = IPTVKeychainVault(service: "com.cinemaplus.rebuilt.ios.iptv")
         selectionKey = "ios.iptv.selected.v1"

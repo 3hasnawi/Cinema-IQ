@@ -2,6 +2,13 @@
 import Foundation
 import CinemaCore
 
+enum IPTVFixtureSupport {
+    static var snapshot: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("--cinema-ui-testing-iptv") && arguments.contains("--cinema-ui-testing-iptv-snapshot")
+    }
+}
+
 /// Dummy hosts/accounts only. A separate Keychain service is used by IPTVStore in this mode.
 struct IPTVFixtureTransport: IPTVTransport {
     func data(from url: URL) async throws -> Data {
@@ -14,6 +21,14 @@ struct IPTVFixtureTransport: IPTVTransport {
             https://media.example/news.m3u8
             #EXTINF:-1 tvg-id=sport group-title="رياضة",قناة الرياضة
             https://media.example/sport.m3u8
+            #EXTINF:-1 tvg-id=documentary group-title="وثائقيات",قناة الوثائقيات
+            https://media.example/documentary.m3u8
+            #EXTINF:-1 tvg-id=kids group-title="أطفال",قناة الأطفال
+            https://media.example/kids.m3u8
+            #EXTINF:-1 tvg-id=entertainment group-title="ترفيه",قناة الترفيه
+            https://media.example/entertainment.m3u8
+            #EXTINF:-1 tvg-id=culture group-title="ثقافة",قناة الثقافة
+            https://media.example/culture.m3u8
             """.utf8)
         }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
