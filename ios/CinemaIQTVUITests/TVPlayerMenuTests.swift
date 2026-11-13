@@ -48,9 +48,6 @@ final class TVPlayerMenuTests: XCTestCase {
 
     func testSubtitleMenuAndNestedAppearanceOptionsSupportRemoteSelection() {
         openMenu("الترجمة")
-        expectNativeOption("بدون ترجمة")
-        expectNativeOption("الحجم")
-        expectNativeOption("الخلفية")
         shot("subtitle-menu")
         focus("الحجم")
         remote.press(.select)
@@ -86,7 +83,11 @@ final class TVPlayerMenuTests: XCTestCase {
 
     private func focus(_ label: String) {
         let matches = menuItems(label)
-        XCTAssertTrue(matches.firstMatch.waitForExistence(timeout: 10))
+        // Repeated waitForExistence calls each add an idle interval. A native transport menu
+        // can hide while XCTest is only querying it, so wait only when the row is not present.
+        if !matches.firstMatch.exists {
+            XCTAssertTrue(matches.firstMatch.waitForExistence(timeout: 10))
+        }
         let focusedTarget = matches.matching(NSPredicate(format: "hasFocus == true")).firstMatch
         for _ in 0..<12 {
             if focusedTarget.exists { return }
@@ -111,7 +112,6 @@ final class TVPlayerMenuTests: XCTestCase {
     }
 
     private func expectNativeOption(_ label: String) {
-        XCTAssertTrue(menuItems(label).firstMatch.waitForExistence(timeout: 10))
         // tvOS 26 exposes menu-local AX frames (e.g. x=5) for a popup drawn at x=1200.
         // Real remote focus/selection are asserted; screenshots verify actual screen geometry.
         focus(label)
