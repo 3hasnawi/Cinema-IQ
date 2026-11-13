@@ -1,0 +1,142 @@
+name: iPhone and iPad layout checks
+on:
+  # Hosted XCTest accessibility/launch services can time out independently of app assertions.
+  # Keep visual evidence collection available on demand; deterministic compile/Core checks stay automatic.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: ios-adaptive-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulator:
+    runs-on: macos-15-intel
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iphone, ipad]
+    env:
+      IOS_TEST_KIND: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select compatible Xcode and generate project
+        run: |
+          set -euo pipefail
+          # Match the hosted iOS 18.5 runtime to its XCTest driver. Latest-SDK
+          # Release compilation is covered by ios-app-compile.yml separately.
+          if [ -d /Applications/Xcode_16.4.app ]; then
+            chosen=/Applications/Xcode_16.4.app
+          else
+            chosen="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          fi
+          sudo xcode-select -s "$chosen/Contents/Developer"
+          xcodebuild -version
+          brew install xcodegen
+          cd ios
+          xcodegen generate --spec project.yml
+          # Test the licensed fixture without metadata keys or external catalogue accounts.
+          python3 - <<'PY'
+          import pathlib, plistlib
+          path = pathlib.Path('Generated/Info.plist')
+          with path.open('rb') as file:
+              info = plistlib.load(file)
+          info['OMDbAPIKey'] = ''
+          info['TMDBAPIKey'] = ''
+          with path.open('wb') as file:
+              plistlib.dump(info, file)
+          PY
+      - name: Create simulator
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if ! xcrun simctl list runtimes | grep -q 'iOS'; then xcodebuild -downloadPlatform iOS; fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          def sim(*args):
+              return subprocess.check_output(['xcrun','simctl',*args], text=True)
+          runtimes = [r for r in json.loads(sim('list','runtimes','--json'))['runtimes']
+                      if r['isAvailable'] and '.iOS-' in r['identifier'] and int(r['version'].split('.')[0]) >= 18]
+          # Exercise backward compatibility on the oldest installed supported runtime.
+          # The device compile check separately uses the newest Xcode/SDK.
+          runtime = min(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
+          print('UI test runtime:', runtime, flush=True)
+          types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
+          tablet = os.environ['IOS_TEST_KIND'] == 'ipad'
+          if tablet:
+              device_type = next(t['identifier'] for t in types if 'iPad Pro 11-inch' in t['name'] and 'M4' in t['name'])
+          else:
+              device_type = next(t['identifier'] for t in types if t['name'] == 'iPhone 16 Pro')
+          device = sim('create','CinemaLayoutCheck',device_type,runtime).strip()
+          with open(os.environ['GITHUB_ENV'],'a') as file:
+              file.write('IOS_TEST_DEVICE='+device+'\n')
+          PY
+      - name: Compile app and UI tests before booting
+        timeout-minutes: 12
+        run: |
+          set -o pipefail
+          # Keep the compiler from competing with first-boot migration/accessibility services.
+          xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
+            -destination "id=$IOS_TEST_DEVICE" \
+            -derivedDataPath "$RUNNER_TEMP/iOSDerived" \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/ios-build.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)|TEST BUILD (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/ios-build.log"
+      - name: Install deterministic Debug playback fixture
+        run: |
+          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
+            "$RUNNER_TEMP/iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/UIPlayerFixture.mp4"
+      - name: Validate universal device and orientation metadata
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, plistlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP'])/'iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/Info.plist'
+          with path.open('rb') as file:
+              info = plistlib.load(file)
+          assert info['UIDeviceFamily'] == [1,2]
+          assert info['CFBundleIdentifier'] == 'com.cinemaplus.rebuilt.ios'
+          assert len(info['UISupportedInterfaceOrientations~ipad']) == 4
+          assert not info.get('UIRequiresFullScreen',False)
+          print('Universal iPhone/iPad app; all tablet orientations; resizable-window eligibility verified')
+          PY
+      - name: Boot Simulator with a display
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$IOS_TEST_DEVICE"
+          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$IOS_TEST_DEVICE"
+          xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
+          xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
+      - name: Test touch navigation and playback rotation
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
+            -destination "id=$IOS_TEST_DEVICE" \
+            -only-testing:CinemaIQUITests/AdaptiveLayoutTests \
+            -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
+            -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/ios-layout.log" | grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' || true
+          grep -Eq '\*\* TEST( EXECUTE)? SUCCEEDED \*\*' "$RUNNER_TEMP/ios-layout.log"
+      - name: Export simulator evidence
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
+            find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
+          fi
+          grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-adaptive-${{ matrix.device }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ios-build.log
+            ${{ runner.temp }}/ios-layout.log
+            ${{ runner.temp }}/ios-evidence
+            ${{ runner.temp }}/simulator-ready.png
+          retention-days: 1
+          if-no-files-found: warn

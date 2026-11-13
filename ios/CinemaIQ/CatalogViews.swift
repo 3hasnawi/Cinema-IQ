@@ -3,6 +3,7 @@ import CinemaCore
 
 /// Paged poster grid of one source, movies or series, optionally filtered by a search query.
 struct CatalogGrid: View {
+    @Environment(\.contentLayout) private var layout
     let source: ContentSource
     let query: String
     @State private var series = false
@@ -13,7 +14,6 @@ struct CatalogGrid: View {
     @State private var message: String?
     /// The tab (movies or series) whose items are loaded.
     @State private var loadedSeries: Bool?
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 12)]
 
     var body: some View {
         ScrollView {
@@ -23,14 +23,14 @@ struct CatalogGrid: View {
                     Text("مسلسلات").tag(true)
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, 18)
-                LazyVGrid(columns: columns, spacing: 18) {
+                .padding(.horizontal, layout.sideInset)
+                LazyVGrid(columns: layout.gridColumns, spacing: 18) {
                     ForEach(items) { media in
                         PosterCard(media: media, routeKey: "grid-\(media.id)", width: nil)
                             .onAppear { if media.id == items.last?.id { Task { await load() } } }
                     }
                 }
-                .padding(.horizontal, 18)
+                .padding(.horizontal, layout.sideInset)
                 if loading {
                     ProgressView().padding()
                 } else if let message {
@@ -43,6 +43,7 @@ struct CatalogGrid: View {
             .padding(.vertical, 8)
         }
         .scrollDismissesKeyboard(.immediately)
+        .accessibilityIdentifier("ios.catalog")
         .task(id: series) {
             // Returning from a title page re-runs this task: keep the loaded grid and its scroll position.
             if loadedSeries == series && !items.isEmpty { return }
@@ -90,6 +91,7 @@ struct BrowseView: View {
 }
 
 struct SearchView: View {
+    @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @State private var query = ""
@@ -124,7 +126,7 @@ struct SearchView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, layout.sideInset)
                 }
             }
         }
@@ -137,13 +139,13 @@ struct SearchView: View {
 }
 
 struct LibraryView: View {
+    @Environment(\.contentLayout) private var layout
     enum Part: String, CaseIterable, Identifiable {
         case list = "قائمتي", recent = "تابع المشاهدة", watched = "شوهد"
         var id: String { rawValue }
     }
     @EnvironmentObject private var library: LibraryStore
     @State private var part: Part = .list
-    private let columns = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 12)]
     private var items: [Media] {
         switch part {
         case .list: return library.favorites
@@ -160,18 +162,18 @@ struct LibraryView: View {
                     ForEach(Part.allCases) { part in Text(part.rawValue).tag(part) }
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, layout.sideInset)
                 if items.isEmpty {
                     ContentUnavailableView(emptyTitle, systemImage: part == .list ? "bookmark" : "play.rectangle",
                                            description: Text(emptyText))
                         .padding(.top, 60)
                 } else {
-                    LazyVGrid(columns: columns, spacing: 18) {
+                    LazyVGrid(columns: layout.gridColumns, spacing: 18) {
                         ForEach(items) { media in
                             PosterCard(media: media, routeKey: "library-\(part.id)-\(media.id)", width: nil)
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(.horizontal, layout.sideInset)
                 }
             }
             .padding(.vertical, 8)
@@ -192,6 +194,7 @@ enum SubtitlePreference {
 }
 
 struct SettingsView: View {
+    @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var providers: ProviderStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
@@ -268,7 +271,10 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .frame(maxWidth: layout.formWidth)
+        .frame(maxWidth: .infinity)
         .background(Theme.ink)
+        .accessibilityIdentifier("ios.settings")
         .navigationTitle("الإعدادات")
         .navigationBarTitleDisplayMode(.inline)
     }

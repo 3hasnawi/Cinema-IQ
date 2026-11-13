@@ -20,16 +20,17 @@ struct RootView: View {
                 RoutedStack { LibraryView() }
             }
             Tab("الإعدادات", systemImage: "gearshape.fill", value: AppTab.settings) {
-                NavigationStack { SettingsView() }
+                ResponsiveContainer { NavigationStack { SettingsView() } }
             }
             Tab("البحث", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
                 RoutedStack { SearchView() }
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
         .minimizingTabBar()
         .environmentObject(player)
         .fullScreenCover(item: $player.selection) { selection in
-            PlaybackView(selection: selection).environmentObject(library)
+            ResponsiveContainer { PlaybackView(selection: selection).environmentObject(library) }
         }
     }
 }
