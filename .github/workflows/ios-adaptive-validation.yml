@@ -15,7 +15,13 @@ concurrency:
 jobs:
   simulator:
     runs-on: macos-15-intel
-    timeout-minutes: 35
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iphone, ipad]
+    env:
+      IOS_TEST_KIND: ${{ matrix.device }}
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode and generate project
@@ -38,7 +44,7 @@ jobs:
           with path.open('wb') as file:
               plistlib.dump(info, file)
           PY
-      - name: Prepare iPhone and iPad simulators
+      - name: Prepare simulator
         run: |
           set -euo pipefail
           if ! xcrun simctl list runtimes | grep -q 'iOS'; then xcodebuild -downloadPlatform iOS; fi
@@ -50,22 +56,22 @@ jobs:
                       if r['isAvailable'] and '.iOS-' in r['identifier']]
           runtime = max(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
           types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
-          phone = next(t['identifier'] for t in types if t['name'] == 'iPhone 16 Pro')
-          tablet = next(t['identifier'] for t in types if 'iPad Pro 11-inch' in t['name'] and 'M4' in t['name'])
-          devices = [('IOS_PHONE',sim('create','CinemaPhoneCheck',phone,runtime).strip()),
-                     ('IOS_TABLET',sim('create','CinemaPadCheck',tablet,runtime).strip())]
-          for _, device in devices:
-              subprocess.run(['xcrun','simctl','boot',device], check=True)
-          for key, device in devices:
-              subprocess.run(['xcrun','simctl','bootstatus',device,'-b'], check=True)
-              with open(os.environ['GITHUB_ENV'],'a') as file:
-                  file.write(key+'='+device+'\n')
+          tablet = os.environ['IOS_TEST_KIND'] == 'ipad'
+          if tablet:
+              device_type = next(t['identifier'] for t in types if 'iPad Pro 11-inch' in t['name'] and 'M4' in t['name'])
+          else:
+              device_type = next(t['identifier'] for t in types if t['name'] == 'iPhone 16 Pro')
+          device = sim('create','CinemaLayoutCheck',device_type,runtime).strip()
+          subprocess.run(['xcrun','simctl','boot',device], check=True)
+          subprocess.run(['xcrun','simctl','bootstatus',device,'-b'], check=True)
+          with open(os.environ['GITHUB_ENV'],'a') as file:
+              file.write('IOS_TEST_DEVICE='+device+'\n')
           PY
-      - name: Test touch navigation and playback rotation on both devices
+      - name: Test touch navigation and playback rotation
         run: |
           set -o pipefail
           xcodebuild test -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
-            -destination "id=$IOS_PHONE" -destination "id=$IOS_TABLET" \
+            -destination "id=$IOS_TEST_DEVICE" \
             -only-testing:CinemaIQUITests/AdaptiveLayoutTests \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
@@ -96,7 +102,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ios-adaptive-${{ github.run_id }}
+          name: ios-adaptive-${{ matrix.device }}-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
