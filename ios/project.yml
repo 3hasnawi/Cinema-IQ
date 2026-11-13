@@ -24,6 +24,9 @@ targets:
       - package: CinemaCore
       - framework: .build/cast/GoogleCastSDK-ios-4.8.6_dynamic_xcframework/GoogleCast.xcframework
         embed: true
+    scheme:
+      testTargets:
+        - CinemaIQUITests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.ios
@@ -143,6 +146,20 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSExceptionMinimumTLSVersion: TLSv1.0
               NSExceptionRequiresForwardSecrecy: false
+  CinemaIQUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: CinemaIQUITests
+    dependencies:
+      - target: CinemaIQ
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.ios.uitests
+        TARGETED_DEVICE_FAMILY: "1,2"
+        TEST_TARGET_NAME: CinemaIQ
   # Screenshot tour of the Apple TV app in the simulator (the "Apple TV screenshots" workflow).
   CinemaIQTVUITests:
     type: bundle.ui-testing

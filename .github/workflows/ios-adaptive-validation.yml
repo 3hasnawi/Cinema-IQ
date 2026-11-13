@@ -1,0 +1,104 @@
+name: iPhone and iPad layout checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-adaptive-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: ios-adaptive-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulator:
+    runs-on: macos-15-intel
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and generate project
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          brew install xcodegen
+          cd ios
+          xcodegen generate --spec project.yml
+          # Test the licensed fixture without metadata keys or external catalogue accounts.
+          python3 - <<'PY'
+          import pathlib, plistlib
+          path = pathlib.Path('Generated/Info.plist')
+          with path.open('rb') as file:
+              info = plistlib.load(file)
+          info['OMDbAPIKey'] = ''
+          info['TMDBAPIKey'] = ''
+          with path.open('wb') as file:
+              plistlib.dump(info, file)
+          PY
+      - name: Prepare iPhone and iPad simulators
+        run: |
+          set -euo pipefail
+          if ! xcrun simctl list runtimes | grep -q 'iOS'; then xcodebuild -downloadPlatform iOS; fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          def sim(*args):
+              return subprocess.check_output(['xcrun','simctl',*args], text=True)
+          runtimes = [r for r in json.loads(sim('list','runtimes','--json'))['runtimes']
+                      if r['isAvailable'] and '.iOS-' in r['identifier']]
+          runtime = max(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
+          types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
+          phone = next(t['identifier'] for t in types if t['name'] == 'iPhone 16 Pro')
+          tablet = next(t['identifier'] for t in types if 'iPad Pro 11-inch' in t['name'] and 'M4' in t['name'])
+          devices = [('IOS_PHONE',sim('create','CinemaPhoneCheck',phone,runtime).strip()),
+                     ('IOS_TABLET',sim('create','CinemaPadCheck',tablet,runtime).strip())]
+          for _, device in devices:
+              subprocess.run(['xcrun','simctl','boot',device], check=True)
+          for key, device in devices:
+              subprocess.run(['xcrun','simctl','bootstatus',device,'-b'], check=True)
+              with open(os.environ['GITHUB_ENV'],'a') as file:
+                  file.write(key+'='+device+'\n')
+          PY
+      - name: Test touch navigation and playback rotation on both devices
+        run: |
+          set -o pipefail
+          xcodebuild test -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
+            -destination "id=$IOS_PHONE" -destination "id=$IOS_TABLET" \
+            -only-testing:CinemaIQUITests/AdaptiveLayoutTests \
+            -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
+            -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/ios-layout.log" | grep -E 'error:|Test Case|TEST (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST SUCCEEDED' "$RUNNER_TEMP/ios-layout.log"
+      - name: Validate universal device and orientation metadata
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, plistlib
+          path = pathlib.Path(os.environ['RUNNER_TEMP'])/'iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/Info.plist'
+          with path.open('rb') as file:
+              info = plistlib.load(file)
+          assert info['UIDeviceFamily'] == [1,2]
+          assert info['CFBundleIdentifier'] == 'com.cinemaplus.rebuilt.ios'
+          assert len(info['UISupportedInterfaceOrientations~ipad']) == 4
+          assert not info.get('UIRequiresFullScreen',False)
+          print('Universal iPhone/iPad app; all tablet orientations; resizable-window eligibility verified')
+          PY
+      - name: Export simulator evidence
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
+            find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-adaptive-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/ios-layout.log
+            ${{ runner.temp }}/ios-evidence
+          retention-days: 1
+          if-no-files-found: warn

@@ -33,9 +33,11 @@ struct RoutedStack<Root: View>: View {
     private let root: Root
     init(@ViewBuilder root: () -> Root) { self.root = root() }
     var body: some View {
-        NavigationStack {
-            root.navigationDestination(for: DetailRoute.self) { route in
-                DetailView(initial: route.media).navigationTransition(.zoom(sourceID: route.key, in: zoom))
+        ResponsiveContainer {
+            NavigationStack {
+                root.navigationDestination(for: DetailRoute.self) { route in
+                    DetailView(initial: route.media).navigationTransition(.zoom(sourceID: route.key, in: zoom))
+                }
             }
         }
         .environment(\.zoomNamespace, zoom)
@@ -137,6 +139,8 @@ struct PosterCard: View {
             .frame(width: width)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ios.poster.\(routeKey)")
+        .accessibilityValue(media.isSeries ? "مسلسل" : "فيلم")
     }
 }
 
@@ -155,6 +159,7 @@ struct ProgressBar: View {
 
 /// Continue-watching card: wide artwork with the title, the season and episode in a light line, and progress.
 struct ContinueCard: View {
+    @Environment(\.contentLayout) private var layout
     let media: Media
     let fraction: Double
     let action: () -> Void
@@ -178,7 +183,7 @@ struct ContinueCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
                 }
-                .frame(width: 250)
+                .frame(width: layout.continueWidth)
         }
         .buttonStyle(.plain)
         .contextMenu {
@@ -189,8 +194,9 @@ struct ContinueCard: View {
 
 struct SectionHeader: View {
     let title: String
+    @Environment(\.contentLayout) private var layout
     var body: some View {
-        Text(title).font(.title3.bold()).padding(.horizontal, 18)
+        Text(title).font(.title3.bold()).padding(.horizontal, layout.sideInset)
     }
 }
 

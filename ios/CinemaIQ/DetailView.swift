@@ -5,6 +5,7 @@ import CinemaCore
 /// the story and, for a series, its episodes by season.
 struct DetailView: View {
     let initial: Media
+    @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
     @State private var media: Media?
@@ -51,7 +52,7 @@ struct DetailView: View {
             VStack(alignment: .leading, spacing: 18) {
                 header
                 VStack(alignment: .leading, spacing: 18) {
-                    actions
+                    actions.frame(maxWidth: layout.spacious ? 520 : .infinity, alignment: .leading)
                     if let omdb { OMDbSummary(info: omdb, showActors: tmdb?.cast.isEmpty ?? true) }
                     if !storyText.isEmpty { overview }
                     if let tmdb, !tmdb.cast.isEmpty { castRow(tmdb) }
@@ -59,11 +60,14 @@ struct DetailView: View {
                     if let error { ErrorState(message: error) { Task { await load() } } }
                     if !seasons.isEmpty { episodeSection }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, layout.detailInset)
+                .frame(maxWidth: layout.readableWidth, alignment: .leading)
+                .frame(maxWidth: .infinity)
             }
             .padding(.bottom, 30)
         }
         .background(Theme.ink)
+        .accessibilityIdentifier("ios.detail")
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -86,13 +90,14 @@ struct DetailView: View {
             .frame(width: geometry.size.width, height: geometry.size.height + stretch)
             .offset(y: -stretch)
         }
-        .frame(height: 430)
+        .frame(height: layout.detailHeroHeight)
         .overlay(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 10) {
                 Text(current.title)
                     .font(.largeTitle.bold())
                     .lineLimit(3)
                     .minimumScaleFactor(0.7)
+                    .accessibilityIdentifier("ios.detail.title")
                 ScrollView(.horizontal) {
                     HStack(spacing: 6) {
                         ForEach(chips, id: \.self) { chip in
@@ -105,13 +110,18 @@ struct DetailView: View {
                 }
                 .scrollIndicators(.hidden)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, layout.detailInset)
+            .frame(maxWidth: layout.readableWidth, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
     }
 
     /// OMDb's large poster when the work was found there, the source's artwork otherwise.
     private var headerImage: String {
+        if layout.spacious {
+            if !current.backdrop.isEmpty { return current.backdrop }
+            if let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
+        }
         if let poster = omdb?.largePoster, !poster.isEmpty { return poster }
         if current.backdrop.isEmpty, let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
         return current.backdrop.isEmpty ? current.poster : current.backdrop
@@ -147,12 +157,14 @@ struct DetailView: View {
             }
             .primaryAction()
             .disabled(target == nil || !current.isSupported)
+            .accessibilityIdentifier("ios.detail.play")
             Button { library.toggle(current) } label: {
                 Image(systemName: library.isFavorite(current) ? "checkmark" : "plus").font(.headline)
             }
             .secondaryAction()
             .buttonBorderShape(.circle)
             .accessibilityLabel(library.isFavorite(current) ? "إزالة من قائمتي" : "إضافة إلى قائمتي")
+            .accessibilityIdentifier("ios.detail.favorite")
         }
         .controlSize(.large)
     }
@@ -292,6 +304,7 @@ struct DetailView: View {
 }
 
 private struct EpisodeRow: View {
+    @Environment(\.contentLayout) private var layout
     let episode: Media
     let seriesTitle: String
     let rating: String?
@@ -313,7 +326,7 @@ private struct EpisodeRow: View {
         Button(action: action) {
             HStack(alignment: .top, spacing: 12) {
                 ArtworkTile(url: episode.poster.isEmpty ? episode.backdrop : episode.poster, aspect: 16.0 / 9.0, corner: 12)
-                    .frame(width: 150)
+                    .frame(width: layout.episodeImageWidth)
                     .overlay {
                         Image(systemName: "play.fill")
                             .font(.subheadline)
@@ -338,6 +351,7 @@ private struct EpisodeRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ios.detail.episode.\(episode.id)")
     }
 }
 

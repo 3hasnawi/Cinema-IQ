@@ -34,6 +34,7 @@ struct RoutePicker: UIViewRepresentable {
 
 struct PlaybackView: View {
     let selection: PlaybackSelection
+    @Environment(\.contentLayout) private var layout
     @State private var active: Media?
     /// The season list when playback started without one (from continue watching).
     @State private var fetchedQueue: [Media] = []
@@ -55,6 +56,7 @@ struct PlaybackView: View {
     @State private var scrubbing: Double?
     /// The options panel: nil closed, otherwise the page shown in it.
     @State private var optionsPage: OptionsPage?
+    @State private var optionsHeight: CGFloat = 0
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
@@ -79,6 +81,10 @@ struct PlaybackView: View {
             Color.black.ignoresSafeArea()
             VideoSurface(player: controller.player)
                 .ignoresSafeArea()
+                .accessibilityElement(children: .ignore)
+                .accessibilityIdentifier("ios.player.video")
+                .accessibilityLabel("الفيديو")
+                .accessibilityValue(clock(controller.position))
                 .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() } }
             if !cast.active { subtitleLayer }
             if controlsVisible && !cast.active { controls.transition(.opacity) }
@@ -135,6 +141,7 @@ struct PlaybackView: View {
                 .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             }
         }
+        .accessibilityIdentifier("ios.player")
         .sheet(isPresented: $cast.showControls) { CastControls(cast: cast) }
         .onAppear {
             cast.didLoad = { controller.persist(); controller.externalPlayback = true; controller.player.pause() }
@@ -240,6 +247,7 @@ struct PlaybackView: View {
             .secondaryAction()
             .buttonBorderShape(.circle)
             .accessibilityLabel("إغلاق المشغل")
+            .accessibilityIdentifier("ios.player.close")
             VStack(alignment: .leading, spacing: 0) {
                 Text(current.title).font(.subheadline.bold())
                 if current.episode > 0 {
@@ -268,6 +276,7 @@ struct PlaybackView: View {
         .secondaryAction()
         .buttonBorderShape(.circle)
         .accessibilityLabel("خيارات التشغيل")
+        .accessibilityIdentifier("ios.player.options")
     }
 
     enum OptionsPage { case root, quality, subtitles, audio, speed }
@@ -279,6 +288,25 @@ struct PlaybackView: View {
     }
 
     @ViewBuilder private func optionsPanel(_ page: OptionsPage) -> some View {
+        Group {
+            if layout.isTablet {
+                ScrollView {
+                    optionContents(page)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { optionsHeight = $0 }
+                }
+                .frame(height: min(optionsHeight > 0 ? optionsHeight : 180, layout.panelHeight))
+            } else {
+                optionContents(page)
+            }
+        }
+        .padding(8)
+        .frame(width: layout.panelWidth)
+        .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .animation(.easeInOut(duration: 0.2), value: page)
+        .accessibilityIdentifier("ios.player.options.panel")
+    }
+
+    @ViewBuilder private func optionContents(_ page: OptionsPage) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             switch page {
             case .root:
@@ -307,31 +335,31 @@ struct PlaybackView: View {
                 }
             case .subtitles:
                 panelHeader("الترجمة")
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 2) {
-                        choiceRow("بدون ترجمة", selected: controller.subtitleID == nil) { subtitleBinding.wrappedValue = nil }
-                        ForEach(externalTracks) { track in
-                            choiceRow(track.title, selected: controller.subtitleID == "ext:" + track.id) { subtitleBinding.wrappedValue = "ext:" + track.id }
-                        }
-                        ForEach(controller.embeddedSubtitles) { option in
-                            choiceRow("\(option.title) (مدمجة)", selected: controller.subtitleID == option.id) { subtitleBinding.wrappedValue = option.id }
-                        }
-                        // Size and background of the subtitles, saved like in Settings and applied at once.
-                        Text("الحجم").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
-                            .padding(.horizontal, 14).padding(.top, 10)
-                        chips(SubtitlePreference.sizes, selected: subtitleSize) { subtitleSize = $0 }
-                        Text("الخلفية").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
-                            .padding(.horizontal, 14).padding(.top, 6)
-                        chips(SubtitlePreference.backgrounds, selected: subtitleBackground) { subtitleBackground = $0 }
-                    }
+                if layout.isTablet {
+                    subtitleChoices
+                } else {
+                    ScrollView { subtitleChoices }.frame(maxHeight: 230)
                 }
-                .frame(maxHeight: 230)
             }
         }
-        .padding(8)
-        .frame(width: 300)
-        .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .animation(.easeInOut(duration: 0.2), value: page)
+    }
+
+    private var subtitleChoices: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            choiceRow("بدون ترجمة", selected: controller.subtitleID == nil) { subtitleBinding.wrappedValue = nil }
+            ForEach(externalTracks) { track in
+                choiceRow(track.title, selected: controller.subtitleID == "ext:" + track.id) { subtitleBinding.wrappedValue = "ext:" + track.id }
+            }
+            ForEach(controller.embeddedSubtitles) { option in
+                choiceRow("\(option.title) (مدمجة)", selected: controller.subtitleID == option.id) { subtitleBinding.wrappedValue = option.id }
+            }
+            Text("الحجم").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+                .padding(.horizontal, 14).padding(.top, 10)
+            chips(SubtitlePreference.sizes, selected: subtitleSize) { subtitleSize = $0 }
+            Text("الخلفية").font(.caption.weight(.semibold)).foregroundStyle(.white.opacity(0.6))
+                .padding(.horizontal, 14).padding(.top, 6)
+            chips(SubtitlePreference.backgrounds, selected: subtitleBackground) { subtitleBackground = $0 }
+        }
     }
 
     private func optionRow(_ title: String, icon: String, value: String?, action: @escaping () -> Void) -> some View {
@@ -403,6 +431,7 @@ struct PlaybackView: View {
             roundButton("gobackward.10", size: 24, diameter: 60, label: "رجوع 10 ثوانٍ") { controller.skip(-10) }
             roundButton(controller.playing ? "pause.fill" : "play.fill", size: 32, diameter: 78,
                         label: controller.playing ? "إيقاف مؤقت" : "تشغيل") { controller.togglePlay() }
+                .accessibilityIdentifier("ios.player.playPause")
             roundButton("goforward.10", size: 24, diameter: 60, label: "تقديم 10 ثوانٍ") { controller.skip(10) }
         }
         .environment(\.layoutDirection, .leftToRight)
