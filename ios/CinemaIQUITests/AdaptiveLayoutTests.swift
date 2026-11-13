@@ -94,9 +94,11 @@ final class AdaptiveLayoutTests: XCTestCase {
         let position = seconds(video)
         landscape()
         waitFor("Rotation must retain playback rather than reopen at zero") { self.seconds(video) > position }
-        revealControls()
+        // Hosted AX snapshots can outlast the four-second chrome timer. Use one native
+        // touch sequence to reveal the controls and press the central pause transport.
+        waitFor("Playback controls should auto-hide") { !self.element("ios.player.close").exists }
+        video.doubleTap()
         let pause = element("ios.player.playPause")
-        pause.tap()
         waitFor("The film should pause") { pause.label == "تشغيل" }
         inside(element("ios.player.close"))
         element("ios.player.options").tap()
@@ -164,11 +166,6 @@ final class AdaptiveLayoutTests: XCTestCase {
     private func landscape() {
         XCUIDevice.shared.orientation = .landscapeLeft
         waitFor("The window should rotate") { self.app.frame.width > self.app.frame.height }
-    }
-    private func revealControls() {
-        let close = element("ios.player.close")
-        if !close.exists || !close.isHittable { element("ios.player.video").tap() }
-        XCTAssertTrue(close.waitForExistence(timeout: 10))
     }
     private func seconds(_ video: XCUIElement) -> Int {
         guard video.exists, let value = video.value as? String else { return 0 }
