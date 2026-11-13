@@ -11,7 +11,11 @@ public enum FeaturedMovies {
         // Providers without a featured group fall back to their movie rows, never series/episodes.
         let chosen = best > 0 ? eligible.filter { priority(id: $0.id, title: $0.title) == best } : eligible
         var seen = Set<String>()
-        return Array(chosen.flatMap(\.items).filter { isMovie($0) && seen.insert($0.id).inserted }.prefix(limit))
+        let movies = chosen.flatMap(\.items).filter { isMovie($0) && seen.insert($0.id).inserted }
+        let illustrated = movies.filter { !$0.backdrop.isEmpty || !$0.poster.isEmpty }
+        // Artwork never displaces curated movies. Only an uncurated fallback skips blank cards
+        // when illustrated movies are available (for example, the demo's unillustrated HLS probe).
+        return Array((best > 0 || illustrated.isEmpty ? movies : illustrated).prefix(limit))
     }
 
     /// Prefer an explicit featured-movies group to mixed highlights. Numeric group IDs stay opaque.

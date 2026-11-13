@@ -20,7 +20,8 @@ final class FeaturedMoviesTests: XCTestCase {
         let result = FeaturedMovies.select(from: shelves)
         XCTAssertEqual(result.map(\.id), ["301", "302"])
         XCTAssertFalse(result[0].poster.isEmpty)
-        XCTAssertTrue(result[0].backdrop.isEmpty, "A curated poster must not be replaced by an unrelated wide image")
+        XCTAssertEqual(result[0].poster, "https://cnth2.shabakaty.cc/posters/featured.jpg")
+        XCTAssertEqual(result[0].backdrop, result[0].poster, "Keep the curated poster fallback rather than an unrelated wide image")
     }
 
     func testFeaturedMoviesArePreferredToMixedHighlightsAndKeepOrder() {
@@ -34,6 +35,11 @@ final class FeaturedMoviesTests: XCTestCase {
         let shelves = [Shelf(id: "latest", title: "أحدث الأفلام", items: [media("1")]),
                        Shelf(id: "featured", title: "مميز على دورلي", items: [media("2", series: true), media("3"), media("4", episode: 1)])]
         XCTAssertEqual(FeaturedMovies.select(from: shelves).map(\.id), ["3"])
+    }
+
+    func testUncuratedFallbackSkipsBlankCardsWhenMovieArtworkExists() {
+        let shelves = [Shelf(id: "films", title: "الأفلام", items: [media("1", wide: true), media("2")])]
+        XCTAssertEqual(FeaturedMovies.select(from: shelves).map(\.id), ["1"])
     }
 
     func testProvidersWithoutHighlightsFallBackToMoviesOnly() {
