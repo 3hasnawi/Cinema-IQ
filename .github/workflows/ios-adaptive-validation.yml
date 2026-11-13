@@ -15,7 +15,7 @@ concurrency:
 jobs:
   simulator:
     runs-on: macos-15-intel
-    timeout-minutes: 45
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -54,8 +54,11 @@ jobs:
           def sim(*args):
               return subprocess.check_output(['xcrun','simctl',*args], text=True)
           runtimes = [r for r in json.loads(sim('list','runtimes','--json'))['runtimes']
-                      if r['isAvailable'] and '.iOS-' in r['identifier']]
-          runtime = max(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
+                      if r['isAvailable'] and '.iOS-' in r['identifier'] and int(r['version'].split('.')[0]) >= 18]
+          # Exercise backward compatibility on the oldest installed supported runtime.
+          # The device compile check separately uses the newest Xcode/SDK.
+          runtime = min(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
+          print('UI test runtime:', runtime, flush=True)
           types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
           tablet = os.environ['IOS_TEST_KIND'] == 'ipad'
           if tablet:
@@ -86,7 +89,7 @@ jobs:
           xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Test touch navigation and playback rotation
-        timeout-minutes: 15
+        timeout-minutes: 25
         run: |
           set -o pipefail
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \

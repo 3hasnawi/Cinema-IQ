@@ -27,6 +27,8 @@ final class AdaptiveLayoutTests: XCTestCase {
         tree.name = deviceName + "-hierarchy"
         tree.lifetime = .keepAlways
         add(tree)
+        // Keep the hierarchy readable even if XCTest fails to finalize its result bundle.
+        print("CINEMA_UI_HIERARCHY \(deviceName):\n\(app.debugDescription)")
         app.terminate()
         XCUIDevice.shared.orientation = .portrait
     }
