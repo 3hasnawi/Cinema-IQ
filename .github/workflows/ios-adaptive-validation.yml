@@ -122,8 +122,8 @@ jobs:
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
-            2>&1 | tee "$RUNNER_TEMP/ios-layout.log" | grep -E 'error:|Test Case|TEST (SUCCEEDED|FAILED)' || true
-          grep -q 'TEST SUCCEEDED' "$RUNNER_TEMP/ios-layout.log"
+            2>&1 | tee "$RUNNER_TEMP/ios-layout.log" | grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' || true
+          grep -Eq '\*\* TEST( EXECUTE)? SUCCEEDED \*\*' "$RUNNER_TEMP/ios-layout.log"
       - name: Export simulator evidence
         if: always()
         run: |

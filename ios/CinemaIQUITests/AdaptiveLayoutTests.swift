@@ -123,7 +123,9 @@ final class AdaptiveLayoutTests: XCTestCase {
         tab("تصفّح")
         let series = app.segmentedControls.buttons["مسلسلات"]
         XCTAssertTrue(series.waitForExistence(timeout: 10))
-        series.tap()
+        // Use the segment's visible centre, not UIKit's mirrored RTL activation point.
+        series.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        waitFor("The series segment should be selected") { series.isSelected }
         waitFor("The series catalogue should replace the movies") {
             let first = self.app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.poster.grid-")).firstMatch
             return first.exists && (first.value as? String) == "مسلسل"
@@ -151,8 +153,8 @@ final class AdaptiveLayoutTests: XCTestCase {
     }
     private func tab(_ title: String) {
         func visibleTab() -> XCUIElement? {
-            app.buttons.matching(NSPredicate(format: "label == %@", title))
-                .allElementsBoundByIndex.first { $0.isHittable }
+            let button = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
+            return button.exists && button.isHittable ? button : nil
         }
         if visibleTab() == nil {
             let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
