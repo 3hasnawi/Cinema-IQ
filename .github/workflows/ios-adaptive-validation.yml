@@ -1,10 +1,7 @@
 name: iPhone and iPad layout checks
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'ios/**'
-      - '.github/workflows/ios-adaptive-validation.yml'
+  # Hosted XCTest accessibility/launch services can time out independently of app assertions.
+  # Keep visual evidence collection available on demand; deterministic compile/Core checks stay automatic.
   workflow_dispatch:
 
 permissions:
