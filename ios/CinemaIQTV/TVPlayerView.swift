@@ -249,7 +249,15 @@ struct TVPlayerView: View {
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
-        controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
+#if DEBUG
+        guard let playbackURL = UITestSupport.playbackURL(or: stream.url) else {
+            resolutionError = "تعذّر العثور على فيديو الاختبار المحلي."
+            return
+        }
+#else
+        let playbackURL = stream.url
+#endif
+        controller.open(media, url: playbackURL, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
         applyQualityHint()
