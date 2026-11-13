@@ -40,8 +40,11 @@ public enum FeaturedMovies {
     }
 
     private static func normalized(_ text: String) -> String {
-        text.replacingOccurrences(of: "([a-z0-9])([A-Z])", with: "$1 $2", options: .regularExpression)
+        let folded = text.replacingOccurrences(of: "([a-z0-9])([A-Z])", with: "$1 $2", options: .regularExpression)
             .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "ar"))
+            .decomposedStringWithCanonicalMapping
+        // Foundation's diacritic folding differs across platforms for Arabic vowel marks.
+        return String(String.UnicodeScalarView(folded.unicodeScalars.filter { !CharacterSet.nonBaseCharacters.contains($0) }))
             .lowercased()
             .replacingOccurrences(of: "ـ", with: "")
             .replacingOccurrences(of: "[أإآٱ]", with: "ا", options: .regularExpression)

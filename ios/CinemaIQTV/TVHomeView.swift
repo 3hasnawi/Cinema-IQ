@@ -6,6 +6,7 @@ struct TVHomeView: View {
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @State private var shelves: [Shelf] = []
+    @State private var featured: [Media] = []
     @State private var loading = false
     @State private var error: String?
     @State private var heroIndex = 0
@@ -26,7 +27,6 @@ struct TVHomeView: View {
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
-    private var featured: [Media] { FeaturedMovies.select(from: shelves) }
     private var hero: Media? { featured.indices.contains(heroIndex) ? featured[heroIndex] : featured.first }
     private var recent: [Media] { library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source } }
 
@@ -105,7 +105,7 @@ struct TVHomeView: View {
         }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
-            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = false; initialFocusAssigned = false }
+            if loadedSource != sourceName { shelves = []; featured = []; heroIndex = 0; featuredFocus = false; initialFocusAssigned = false }
             await load()
         }
         .onDisappear { focusRecovery?.cancel(); focusRecovery = nil }
@@ -158,7 +158,9 @@ struct TVHomeView: View {
             let result = try await SourceClient().home(SourcePreference.source(requestedSource), prioritizeFeaturedMovies: true)
             try Task.checkCancellation()
             guard loadID == request, sourceName == requestedSource else { return }
-            heroIndex = min(heroIndex, max(0, FeaturedMovies.select(from: result).count - 1))
+            let highlights = FeaturedMovies.select(from: result)
+            heroIndex = min(heroIndex, max(0, highlights.count - 1))
+            featured = highlights
             shelves = result
             loadedSource = requestedSource
         } catch is CancellationError {
