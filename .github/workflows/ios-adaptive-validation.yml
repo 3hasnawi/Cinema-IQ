@@ -15,7 +15,7 @@ concurrency:
 jobs:
   simulator:
     runs-on: macos-15-intel
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,8 @@ jobs:
           with path.open('wb') as file:
               plistlib.dump(info, file)
           PY
-      - name: Prepare simulator
+      - name: Create simulator
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           if ! xcrun simctl list runtimes | grep -q 'iOS'; then xcodebuild -downloadPlatform iOS; fi
@@ -62,15 +63,33 @@ jobs:
           else:
               device_type = next(t['identifier'] for t in types if t['name'] == 'iPhone 16 Pro')
           device = sim('create','CinemaLayoutCheck',device_type,runtime).strip()
-          subprocess.run(['xcrun','simctl','boot',device], check=True)
-          subprocess.run(['xcrun','simctl','bootstatus',device,'-b'], check=True)
           with open(os.environ['GITHUB_ENV'],'a') as file:
               file.write('IOS_TEST_DEVICE='+device+'\n')
           PY
-      - name: Test touch navigation and playback rotation
+      - name: Compile app and UI tests before booting
+        timeout-minutes: 12
         run: |
           set -o pipefail
-          xcodebuild test -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
+          # Keep the compiler from competing with first-boot migration/accessibility services.
+          xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
+            -destination "id=$IOS_TEST_DEVICE" \
+            -derivedDataPath "$RUNNER_TEMP/iOSDerived" \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/ios-build.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)|TEST BUILD (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/ios-build.log"
+      - name: Boot Simulator with a display
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$IOS_TEST_DEVICE"
+          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$IOS_TEST_DEVICE"
+          xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
+          xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
+      - name: Test touch navigation and playback rotation
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
             -only-testing:CinemaIQUITests/AdaptiveLayoutTests \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
@@ -99,12 +118,15 @@ jobs:
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
             find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
           fi
+          grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ios-adaptive-${{ matrix.device }}-${{ github.run_id }}
           path: |
+            ${{ runner.temp }}/ios-build.log
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
+            ${{ runner.temp }}/simulator-ready.png
           retention-days: 1
           if-no-files-found: warn
