@@ -23,9 +23,10 @@ import Combine
     private var cache: [String: (Date, IPTVCatalog)] = [:]
     private var requestID = UUID()
     private var inFlightSourceID: String?
+    private var loadTask: Task<IPTVCatalog, Error>?
     private var storageTask: Task<Void, Never>?
     public var selected: IPTVSource? { sources.first { $0.id == selectedID } }
-    public var loadKey: String { (selectedID ?? "") + sourceRevision.uuidString }
+    public var loadKey: String { storageLoading ? "storage-loading" : (selectedID ?? "") + sourceRevision.uuidString }
 
     private let prepareStorage: (@Sendable (IPTVKeychainVault) throws -> Void)?
     public init(service: String, selectionKey: String, client: IPTVClient = IPTVClient(),
@@ -60,18 +61,31 @@ import Combine
         }
     }
     public func reload(force: Bool = false) async {
-        guard let source = selected else { catalog = IPTVCatalog(channels: []); loading = false; return }
-        guard !(loading && inFlightSourceID == source.id) else { return }
-        let request = UUID(); requestID = request
+        guard !storageLoading else { return }
+        guard let source = selected else {
+            loadTask?.cancel(); loadTask = nil; inFlightSourceID = nil; requestID = UUID()
+            catalog = IPTVCatalog(channels: []); loading = false; return
+        }
         cache = cache.filter { Date().timeIntervalSince($0.value.0) < 300 }
-        if !force, let cached = cache[source.id], Date().timeIntervalSince(cached.0) < 300 {
+        if loadTask == nil, !force, let cached = cache[source.id], Date().timeIntervalSince(cached.0) < 300 {
             catalog = cached.1; message = nil; loading = false; return
         }
-        catalog = IPTVCatalog(channels: []); loading = true; message = nil
-        inFlightSourceID = source.id
-        defer { if requestID == request { loading = false; inFlightSourceID = nil } }
+        let request: UUID
+        let task: Task<IPTVCatalog, Error>
+        if let existing = loadTask, inFlightSourceID == source.id {
+            // Join the result even if the previous SwiftUI task was cancelled during source hydration.
+            request = requestID; task = existing
+        } else {
+            loadTask?.cancel()
+            request = UUID(); requestID = request
+            let client = self.client
+            task = Task { try await client.load(source) }; loadTask = task
+            catalog = IPTVCatalog(channels: []); loading = true; message = nil
+            inFlightSourceID = source.id
+        }
+        defer { if requestID == request { loading = false; inFlightSourceID = nil; loadTask = nil } }
         do {
-            let result = try await client.load(source)
+            let result = try await task.value
             try Task.checkCancellation()
             guard requestID == request, selectedID == source.id else { return }
             cacheResult(result, for: source.id); catalog = result
@@ -87,7 +101,7 @@ import Combine
         var updated = sources.filter { $0.id != source.id }; updated.append(source)
         guard updated.count <= 20 else { throw IPTVKeychainVault.VaultError.sourceLimit }
         try vault.write(updated)
-        requestID = UUID(); loading = false; inFlightSourceID = nil
+        requestID = UUID(); loadTask?.cancel(); loadTask = nil; loading = false; inFlightSourceID = nil
         sources = updated; cacheResult(result, for: source.id); selectedID = source.id; sourceRevision = UUID()
         catalog = result; message = nil
     }
@@ -97,7 +111,10 @@ import Combine
             let updated = sources.filter { $0.id != source.id }
             try vault.write(updated)
             sources = updated; cache[source.id] = nil; sourceRevision = UUID()
-            if selectedID == source.id { requestID = UUID(); selectedID = updated.first?.id; catalog = IPTVCatalog(channels: []) }
+            if selectedID == source.id {
+                requestID = UUID(); loadTask?.cancel(); loadTask = nil; inFlightSourceID = nil; loading = false
+                selectedID = updated.first?.id; catalog = IPTVCatalog(channels: [])
+            }
             message = nil
         } catch { message = safeMessage(error) }
     }

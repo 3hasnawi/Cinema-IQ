@@ -113,7 +113,7 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(element("tv.iptv.form.save").exists)
     }
     private func openIPTV() {
-        XCTAssertTrue(element("tv.home.showcase").waitForExistence(timeout: 30))
+        expectFocus(element("tv.home.showcase"))
         remote.press(.menu)
         let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]
         for _ in 0..<14 {
