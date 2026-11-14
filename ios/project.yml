@@ -101,6 +101,7 @@ targets:
       - path: CinemaIQ/PlaybackController.swift
       - path: CinemaIQ/ProviderStore.swift
       - path: CinemaIQ/MetadataServices.swift
+      - path: CinemaIQ/UITestSupport.swift
       - path: CinemaIQ/Resources/GoogleService-Info.plist
         buildPhase: resources
     dependencies:

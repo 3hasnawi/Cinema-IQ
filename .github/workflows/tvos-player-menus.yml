@@ -1,0 +1,94 @@
+name: Apple TV player menu checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/CinemaIQTV/TVPlayerView.swift'
+      - 'ios/CinemaIQTV/TVPauseInformation.swift'
+      - 'ios/CinemaIQTVUITests/TVPlayerMenuTests.swift'
+      - '.github/workflows/tvos-player-menus.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tvos-player-menus-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulator:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and generate project
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          brew install xcodegen
+          cd ios
+          xcodegen generate --spec project.yml
+      - name: Create Apple TV simulator
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          def sim(*args):
+              return subprocess.check_output(['xcrun','simctl',*args], text=True)
+          runtimes = [r for r in json.loads(sim('list','runtimes','--json'))['runtimes']
+                      if r['isAvailable'] and '.tvOS-' in r['identifier']]
+          runtime = max(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
+          types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
+          device_type = next(t['identifier'] for t in types if 'Apple TV 4K' in t['name'] and '1080p' in t['name'])
+          device = sim('create','CinemaPlayerMenus',device_type,runtime).strip()
+          print('Player menu runtime:', runtime)
+          with open(os.environ['GITHUB_ENV'],'a') as file:
+              file.write('TV_MENU_DEVICE='+device+'\n')
+          PY
+      - name: Compile real app and UI tests
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/build.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)|TEST BUILD (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/build.log"
+      - name: Install reference clip and boot simulator
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
+            "$RUNNER_TEMP/TVMenus/Build/Products/Debug-appletvsimulator/CinemaIQTV.app/UIPlayerFixture.mp4"
+          xcrun simctl boot "$TV_MENU_DEVICE"
+          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$TV_MENU_DEVICE"
+          xcrun simctl bootstatus "$TV_MENU_DEVICE" -b
+      - name: Test native menus and remote focus
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
+            -only-testing:CinemaIQTVUITests/TVPlayerMenuTests \
+            -resultBundlePath "$RUNNER_TEMP/player-menus.xcresult" \
+            -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/player-menus.log" | grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' || true
+          grep -Eq '\*\* TEST( EXECUTE)? SUCCEEDED \*\*' "$RUNNER_TEMP/player-menus.log"
+      - name: Export screenshots and hierarchy
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/player-menus.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/player-menus.xcresult" --output-path "$RUNNER_TEMP/evidence"
+            find "$RUNNER_TEMP/evidence" -name '*.mp4' -delete
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tvos-player-menus-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/evidence
+            ${{ runner.temp }}/build.log
+            ${{ runner.temp }}/player-menus.log
+          retention-days: 1
+          if-no-files-found: warn
