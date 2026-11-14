@@ -1,0 +1,25 @@
+# Live IPTV player controls
+
+The IPTV player keeps the same AVPlayer/Media3 instance while browsing the guide. Sources remain device-local; live channels never create movie watch-progress entries.
+
+## TV remote
+
+- Up/down while the full-screen video surface is focused: previous/next channel in the selected category, wrapping at either end.
+- OK/Select on the video: open the floating channel guide over the continuing stream. Within the guide, arrows browse and OK tunes the highlighted channel.
+- The guide contains category and channel panes plus search. Reopening highlights the playing channel; changing category starts at its first result.
+- Left/right from the video: reach playback options. Play/Pause uses the hardware button or the toolbar.
+- Back/Menu closes the open guide/settings panel first; another press exits playback and restores the last tuned channel in the catalogue.
+
+## iPhone/iPad and Android phones
+
+Open IPTV under Browse/Explore (iPad also has an IPTV tab/sidebar item). Tap the video to show controls. Previous/next buttons and a vertical swipe on the video switch channels. The Channels button opens the floating guide with categories/search without stopping playback. Rotating the iPhone reveals controls again. Backgrounding pauses playback.
+
+Quality options come from the stream. Apple HLS choices are preferred maximum resolution/bit-rate caps that keep alternate audio in the master manifest; Auto removes caps. Media3 selects supported video tracks or automatic adaptation. A fixed single-quality stream cannot offer additional renditions. Audio/subtitle options depend on tracks supplied by the provider.
+
+The existing M3U/Xtream source forms and encrypted source storage stay compatible. Source URLs must contain their scheme once, and HTTP requires source-level consent.
+
+## Design references
+
+The design is informed by quick-guide and remote-navigation patterns in [Channels remote documentation](https://getchannels.com/docs/apps/remote-control/general/), [Channels settings](https://getchannels.com/docs/apps/usage/settings/) and [iMPlayer's official product page](https://implayer.tv/). The specific up/down/OK mapping follows the requested Cinema iQ behavior rather than copying another app's default mapping.
+
+Simulator screenshots and account/catalogue fixtures do not establish real-provider playback. Record actual validation in the PR. No version bump, APK/IPA export, merge or publication is included in this implementation task.

@@ -46,6 +46,10 @@ final class IPTVFlowTests: XCTestCase {
         app.buttons["قناة الأخبار"].tap()
         XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 20))
         waitFor { self.element("ios.iptv.player.status").label == "بث مباشر" }
+        // Exercise the real production timer and tap-to-reveal gesture before using the controls.
+        waitFor { !self.element("ios.iptv.player.close").exists }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        waitFor { self.element("ios.iptv.player.close").exists }
         showPlayerControls(); element("ios.iptv.player.next").tap()
         waitFor { self.element("ios.iptv.player.title").label == "قناة الرياضة" }
         showPlayerControls(); element("ios.iptv.player.previous").tap()
