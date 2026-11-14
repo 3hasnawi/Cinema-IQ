@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   simulator:
-    runs-on: macos-15-intel
+    runs-on: macos-15
     timeout-minutes: 35
     strategy:
       fail-fast: false
@@ -92,6 +92,26 @@ jobs:
         run: |
           cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
             "$RUNNER_TEMP/iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/UIPlayerFixture.mp4"
+      - name: Ad-hoc sign simulator apps for actual Keychain access
+        run: |
+          # Simulator-only identities; no certificate, team account, provisioning profile or IPA export.
+          python3 - <<'PY'
+          import os, pathlib, plistlib, subprocess
+          products = pathlib.Path(os.environ['RUNNER_TEMP'])/'iOSDerived/Build/Products/Debug-iphonesimulator'
+          for app in products.glob('*.app'):
+              with (app/'Info.plist').open('rb') as file:
+                  identifier = plistlib.load(file)['CFBundleIdentifier']
+              # Sign inner code first; app entitlements belong only to the app executable.
+              inner = list(app.rglob('*.framework')) + list(app.rglob('*.dylib')) + list(app.rglob('*.xctest'))
+              for code in sorted(inner, key=lambda p: len(p.parts), reverse=True):
+                  subprocess.run(['codesign','--force','--sign','-',str(code)], check=True)
+              entitlements = products/(app.stem+'-simulator-entitlements.plist')
+              identity = 'CINEMAUI00.'+identifier
+              with entitlements.open('wb') as file:
+                  plistlib.dump({'application-identifier':identity, 'com.apple.developer.team-identifier':'CINEMAUI00',
+                                'keychain-access-groups':[identity], 'get-task-allow':True}, file)
+              subprocess.run(['codesign','--force','--sign','-','--entitlements',str(entitlements),str(app)], check=True)
+          PY
       - name: Validate universal device and orientation metadata
         run: |
           python3 - <<'PY'
@@ -114,18 +134,31 @@ jobs:
           xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Capture the real channel screen before XCTest initialization
+        timeout-minutes: 4
         run: |
           set -euo pipefail
           # Native app screenshot; no WebView, mock-up renderer or XCTest Accessibility dependency.
           # The DEBUG-only arguments seed the isolated fixture Keychain and navigate the real Browse stack.
           xcrun simctl install "$IOS_TEST_DEVICE" "$RUNNER_TEMP/iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app"
-          xcrun simctl launch "$IOS_TEST_DEVICE" com.cinemaplus.rebuilt.ios \
-            -ios.contentSource.v1 ext:demo --cinema-ui-testing-iptv \
-            --cinema-ui-testing-iptv-reset --cinema-ui-testing-iptv-snapshot
-          sleep 15
-          xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/iptv-channels.png"
-          xcrun simctl terminate "$IOS_TEST_DEVICE" com.cinemaplus.rebuilt.ios
+          python3 - <<'PY'
+          import os, pathlib, subprocess, time
+          device = os.environ['IOS_TEST_DEVICE']
+          subprocess.run(['xcrun','simctl','launch',device,'com.cinemaplus.rebuilt.ios',
+                          '-ios.contentSource.v1','ext:demo','--cinema-ui-testing-iptv',
+                          '--cinema-ui-testing-iptv-reset','--cinema-ui-testing-iptv-snapshot'], check=True, timeout=60)
+          container = pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',device,
+                                                           'com.cinemaplus.rebuilt.ios','data'], text=True).strip())
+          marker = container/'Documents/iptv-fixture-ready.txt'
+          deadline = time.monotonic()+90
+          while not marker.exists() and time.monotonic() < deadline:
+              time.sleep(2)
+          time.sleep(3)
+          subprocess.run(['xcrun','simctl','io',device,'screenshot',os.environ['RUNNER_TEMP']+'/iptv-channels.png'], check=True, timeout=30)
+          assert marker.exists(), 'The real channel catalogue did not become ready; inspect the captured screen'
+          print(marker.read_text())
+          PY
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ios-iptv-screen-${{ matrix.device }}-${{ github.run_id }}
           path: ${{ runner.temp }}/iptv-channels.png
@@ -135,6 +168,14 @@ jobs:
         timeout-minutes: 25
         run: |
           set -o pipefail
+          python3 - <<'PY'
+          import os, subprocess
+          try:
+              subprocess.run(['xcrun','simctl','terminate',os.environ['IOS_TEST_DEVICE'],
+                              'com.cinemaplus.rebuilt.ios'], timeout=20)
+          except subprocess.TimeoutExpired:
+              print('Simulator termination timed out; XCTest will relaunch the fixture app')
+          PY
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
             -only-testing:CinemaIQUITests/IPTVFlowTests \

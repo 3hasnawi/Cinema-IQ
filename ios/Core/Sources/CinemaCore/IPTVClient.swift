@@ -31,6 +31,8 @@ public struct IPTVClient: Sendable {
         guard var parts = URLComponents(url: base, resolvingAgainstBaseURL: false) else { throw IPTVError.invalidServer }
         parts.queryItems = [URLQueryItem(name: "username", value: source.username), URLQueryItem(name: "password", value: source.password)]
         if let action { parts.queryItems?.append(URLQueryItem(name: "action", value: action)) }
+        // PHP's query decoder treats a literal '+' as a space; account values must preserve it.
+        parts.percentEncodedQuery = parts.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
         guard let url = parts.url else { throw IPTVError.invalidServer }
         return try IPTVURLPolicy.validate(url, allowHTTP: source.allowHTTP)
     }

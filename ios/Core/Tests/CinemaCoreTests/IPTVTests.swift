@@ -72,6 +72,10 @@ final class IPTVTests: XCTestCase {
                        "/base/live/a%2Fb%3F/p%26%2F%3F%23/42.m3u8")
         XCTAssertFalse(value.description.contains("p&"))
         XCTAssertThrowsError(try IPTVClient.liveURL(source: value, streamID: "../42"))
+        let plus = try IPTVSource(name: "Plus", kind: .xtream, address: URL(string: "https://provider.example")!,
+                                  username: "user+name", password: "p+word")
+        let encoded = try XCTUnwrap(URLComponents(url: IPTVClient.apiURL(source: plus), resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+        XCTAssertEqual(encoded, "username=user%2Bname&password=p%2Bword")
     }
     func testXtreamClientUsesAuthCategoriesAndLiveChannels() async throws {
         let mock = IPTVMock()

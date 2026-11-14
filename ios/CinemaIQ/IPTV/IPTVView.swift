@@ -86,6 +86,9 @@ struct IPTVView: View {
             }.value
             guard !Task.isCancelled else { return }
             visible = result
+#if DEBUG
+            IPTVFixtureSupport.markReady(channelCount: result.count)
+#endif
         }
         .onChange(of: store.selectedID) { _, _ in group = nil; query = "" }
         .sheet(item: $sheet) { item in
