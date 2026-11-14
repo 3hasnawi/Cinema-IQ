@@ -28,10 +28,6 @@ struct TVPauseInformation: View {
         .frame(maxWidth: 920, maxHeight: .infinity, alignment: .leading)
         .padding(.top, 75).padding(.bottom, 220).padding(.horizontal, 85)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .background(alignment: .leading) {
-            LinearGradient(colors: [.black.opacity(0.62), .clear], startPoint: .leading, endPoint: .trailing)
-                .frame(maxWidth: 1120)
-        }
         .environment(\.layoutDirection, .rightToLeft)
     }
 }

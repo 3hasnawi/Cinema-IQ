@@ -58,6 +58,10 @@ struct TVPlayerView: View {
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
                          episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
+                // AVKit positions its transport popovers in playback coordinates. Mirroring that
+                // controller with the surrounding Arabic UI can put a menu beyond the screen edge.
+                // Arabic labels retain their natural text direction; only the system chrome is LTR.
+                .environment(\.layoutDirection, .leftToRight)
                 .ignoresSafeArea()
             }
             if !controller.playing && !controller.buffering && !loading && !controller.ended &&
@@ -245,7 +249,15 @@ struct TVPlayerView: View {
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
-        controller.open(media, url: stream.url, resume: resume) { seconds, duration, completed in
+#if DEBUG
+        guard let playbackURL = UITestSupport.playbackURL(or: stream.url) else {
+            resolutionError = "تعذّر العثور على فيديو الاختبار المحلي."
+            return
+        }
+#else
+        let playbackURL = stream.url
+#endif
+        controller.open(media, url: playbackURL, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
         applyQualityHint()
@@ -321,6 +333,7 @@ struct SystemPlayer: UIViewControllerRepresentable {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.view.backgroundColor = .black
+        controller.view.semanticContentAttribute = .playback
         // The pause overlay owns the title; avoid a duplicate AVKit title and asset creation year.
         controller.transportBarIncludesTitleView = false
         // One subtitle button: Cinema iQ's menu (source files, embedded tracks, size and background). Allowing no
