@@ -14,7 +14,9 @@ struct TVIPTVPlayerView: View {
     @FocusState private var focus: String?
     let onReturn: (IPTVChannel, String?) -> Void
     init(initial: IPTVChannel, group: String? = nil, onReturn: @escaping (IPTVChannel, String?) -> Void = { _, _ in }) {
-        self.onReturn = onReturn; _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group))
+        self.onReturn = onReturn
+        let preference = VideoQuality(rawValue: UserDefaults.standard.string(forKey: TVPlaybackPreference.qualityKey) ?? "auto") ?? .automatic
+        _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group, preferredMaximumHeight: preference.height))
     }
     private func close() { onReturn(session.channel, session.group == session.channel.group ? session.group : nil); dismiss() }
     private func closePanel() { guide = false; pane = nil; controls = true; interaction += 1; focus = "surface" }
@@ -110,9 +112,12 @@ struct TVIPTVPlayerView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     if value == "quality" {
-                        trackButton("تلقائي", id: "track.first", selected: session.quality == nil) { session.chooseQuality(nil) }
+                        trackButton("تلقائي", id: "track.first", selected: session.quality == nil && session.maximumHeight == nil) { session.chooseQuality(nil) }
                         ForEach(session.qualities) { quality in
                             trackButton(quality.title, id: quality.id, selected: session.quality?.id == quality.id) { session.chooseQuality(quality) }
+                        }
+                        if let height = session.maximumHeight {
+                            Text("الحد الأقصى الحالي: \(height)p").font(.system(size: 22))
                         }
                         Text("الجودات المتاحة من البث فقط؛ الاختيار يحدد الحد الأقصى، والتلقائي يتكيّف مع الشبكة.").font(.system(size: 22)).foregroundStyle(.secondary)
                     } else if value == "audio" {

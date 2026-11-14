@@ -101,8 +101,9 @@ struct IPTVPlaybackView: View {
     @ViewBuilder private func trackOptions(_ value: Panel) -> some View {
         List {
             if value == .quality {
-                Button { session.chooseQuality(nil); panel = nil } label: { choice("تلقائي", selected: session.quality == nil) }
+                Button { session.chooseQuality(nil); panel = nil } label: { choice("تلقائي", selected: session.quality == nil && session.maximumHeight == nil) }
                 ForEach(session.qualities) { quality in Button { session.chooseQuality(quality); panel = nil } label: { choice(quality.title, selected: session.quality?.id == quality.id) } }
+                if let height = session.maximumHeight { Text("الحد الأقصى الحالي: \(height)p").font(.footnote) }
                 Text("تُعرض الجودات التي يعلنها البث فقط. الاختيار يحدد الحد الأقصى ويحافظ على الصوت والترجمة؛ التلقائي يتكيّف مع الشبكة.").font(.footnote).foregroundStyle(.secondary)
             } else if value == .audio {
                 ForEach(session.audio) { option in Button { session.chooseAudio(option.id); panel = nil } label: { choice(option.title, selected: session.audioID == option.id) } }

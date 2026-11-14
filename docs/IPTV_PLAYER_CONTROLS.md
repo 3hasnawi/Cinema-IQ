@@ -14,7 +14,7 @@ The IPTV player keeps the same AVPlayer/Media3 instance while browsing the guide
 
 Open IPTV under Browse/Explore (iPad also has an IPTV tab/sidebar item). Tap the video to show controls. Previous/next buttons and a vertical swipe on the video switch channels. The Channels button opens the floating guide with categories/search without stopping playback. Rotating the iPhone reveals controls again. Backgrounding pauses playback.
 
-Quality options come from the stream. Apple HLS choices are preferred maximum resolution/bit-rate caps that keep alternate audio in the master manifest; Auto removes caps. Media3 selects supported video tracks or automatic adaptation. A fixed single-quality stream cannot offer additional renditions. Audio/subtitle options depend on tracks supplied by the provider.
+Quality options come from the stream. Apple HLS choices are preferred maximum resolution/bit-rate caps that keep alternate audio in the master manifest; Auto removes caps. Apple TV retains the existing default quality setting on entry. Resolution caps chosen in the session survive channel changes, while rendition-specific bit-rate overrides are cleared for the new channel. Media3 selects supported video tracks or automatic adaptation. A fixed single-quality stream cannot offer additional renditions. Audio/subtitle options depend on tracks supplied by the provider.
 
 The existing M3U/Xtream source forms and encrypted source storage stay compatible. Source URLs must contain their scheme once, and HTTP requires source-level consent.
 

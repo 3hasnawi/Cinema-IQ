@@ -19,6 +19,7 @@ import CinemaCore
     @Published private(set) var problem: String?
     @Published private(set) var qualities: [IPTVStreamQuality] = []
     @Published private(set) var quality: IPTVStreamQuality?
+    @Published private(set) var maximumHeight: Int?
     @Published private(set) var audio: [MediaOption] = []
     @Published private(set) var subtitles: [MediaOption] = []
     @Published private(set) var audioID: String?
@@ -35,8 +36,9 @@ import CinemaCore
     var status: String { tuning || buffering || retrying ? "جارٍ التحميل…" : ended ? "انتهى البث" : playing ? "بث مباشر" : "متوقف مؤقتًا" }
     var queue: [IPTVChannel] { IPTVNavigation.channels(channels, sourceID: sourceID, group: group) }
     var groups: [String] { Array(Set(channels.map(\.group))).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
-    init(initial: IPTVChannel, group: String?) {
+    init(initial: IPTVChannel, group: String?, preferredMaximumHeight: Int? = nil) {
         channel = initial; sourceID = initial.sourceID; self.group = group
+        maximumHeight = preferredMaximumHeight
         controller.$playing.removeDuplicates().sink { [weak self] in self?.playing = $0 }.store(in: &observers)
         controller.$buffering.removeDuplicates().sink { [weak self] in self?.buffering = $0 }.store(in: &observers)
         controller.$ended.removeDuplicates().sink { [weak self] in self?.ended = $0 }.store(in: &observers)
@@ -87,6 +89,11 @@ import CinemaCore
         let language = UserDefaults.standard.string(forKey: "ios.subtitle.language.v1") ?? "ar"
         controller.resetSubtitles(preferred: language == "off" ? nil : language)
         controller.open(media, url: url, resume: 0) { _, _, _ in }
+        // Retain the existing TV default and the user's session choice across channel changes.
+        controller.player.currentItem?.preferredMaximumResolution = maximumHeight.map {
+            CGSize(width: Double($0) * 16 / 9, height: Double($0))
+        } ?? .zero
+        controller.player.currentItem?.preferredPeakBitRate = 0
         tuning = false
         guard url.scheme == "https" || url.scheme == "http", (url.pathExtension.lowercased() == "m3u8" || (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).contains { ["ext", "format", "type", "mime"].contains($0.name.lowercased()) && ($0.value?.lowercased().contains("m3u8") == true || $0.value?.lowercased().contains("mpegurl") == true) }) else { return }
         let allowHTTP = store?.sources.first(where: { $0.id == sourceID })?.allowHTTP ?? false
@@ -102,6 +109,7 @@ import CinemaCore
     }
     func chooseQuality(_ value: IPTVStreamQuality?) {
         quality = value
+        maximumHeight = value.flatMap { $0.height > 0 ? $0.height : nil }
         // AVPlayer's public rendition controls are caps: keep the master so alternate audio remains available.
         controller.player.currentItem?.preferredMaximumResolution = value.map { CGSize(width: Double($0.width), height: Double($0.height)) } ?? .zero
         controller.player.currentItem?.preferredPeakBitRate = value?.bandwidth ?? 0
