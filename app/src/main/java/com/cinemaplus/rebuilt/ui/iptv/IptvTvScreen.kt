@@ -70,7 +70,10 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     Box(Modifier.fillMaxSize().background(Ink)) {
         if (playing != null) {
             val channel = playing!!
-            IptvTvPlayer(channel, state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback) { playing = null; returnId = channel.id; returnEpoch++ }
+            IptvTvPlayer(channel, state.channels, state.group, true,
+                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback) { last, selectedGroup ->
+                playing = null; vm.returnFromPlayer(selectedGroup); returnId = last.id; returnEpoch++
+            }
         } else Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Label("IPTV", 30, bold = true)

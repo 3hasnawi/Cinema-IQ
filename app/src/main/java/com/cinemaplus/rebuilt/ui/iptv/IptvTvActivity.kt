@@ -34,9 +34,10 @@ import com.cinemaplus.rebuilt.ui.*
 class IptvTvActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        val television = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(this)
+        requestedOrientation = if (television) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         WindowCompat.getInsetsController(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
+            if (television) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         setContent {
@@ -45,12 +46,15 @@ class IptvTvActivity : ComponentActivity() {
                 bodySmall = t.bodySmall.copy(fontFamily = Cairo), titleMedium = t.titleMedium.copy(fontFamily = Cairo)) }
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel), typography = type) {
-                    androidx.tv.material3.MaterialTheme { TvScaled { IptvTvScreen(onExit = { finish() }) } }
+                    androidx.tv.material3.MaterialTheme {
+                        if (television) TvScaled { IptvTvScreen(onExit = { finish() }) }
+                        else IptvMobileScreen(onExit = { finish() })
+                    }
                 }
             }
         }
     }
-    companion object { fun open(context: Context) { context.startActivity(Intent(context, IptvTvActivity::class.java)) } }
+    companion object { fun open(context: Context) { context.startActivity(Intent(context, IptvTvActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)) } }
 }
 
 /** A single persistent focus node, matching the existing expanded/collapsed sidebar rows. */

@@ -186,6 +186,7 @@ private fun MobileBrowse(vm: CinemaViewModel) {
                 if (vm.page == Page.Library) PText(vm.librarySection.description, 13.sp, Brand.TextTertiary, modifier = Modifier.padding(horizontal = 20.dp))
             }
         }
+        if (vm.page == Page.Explore) item(key = "iptv") { com.cinemaplus.rebuilt.ui.iptv.IptvMobileEntry() }
         if (vm.page == Page.Library) item(key = "sections") {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 LibrarySection.entries.forEach { section -> PhoneFilterChip(section.label, vm.librarySection == section) { vm.chooseLibrarySection(section) } }
@@ -653,6 +654,7 @@ private fun MobileExplore(vm: CinemaViewModel) {
     val mood = vm.exploreMood
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 120.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { PhoneTopBar(vm) }
+        item { com.cinemaplus.rebuilt.ui.iptv.IptvMobileEntry() }
         item { PageHeader(mood?.title ?: "استكشاف", mood?.subtitle ?: pageSubtitle(Page.Explore), Modifier.padding(horizontal = 16.dp)) }
         if (mood == null) {
             items(com.cinemaplus.rebuilt.data.Moods.all.chunked(2), key = { it.first().id }) { row ->

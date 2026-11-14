@@ -42,7 +42,7 @@ import com.cinemaplus.rebuilt.ui.*
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Surface(Modifier.fillMaxWidth(.67f).heightIn(max = maxHeight * .88f), color = Panel.copy(alpha = .98f),
+            Surface(Modifier.fillMaxWidth(if (com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(androidx.compose.ui.platform.LocalContext.current)) .67f else .96f).heightIn(max = maxHeight * .88f), color = Panel.copy(alpha = .98f),
                 shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Brand.BorderStrong)) {
                 Column(Modifier.padding(28.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(15.dp)) {
                     Label(title, 22, bold = true)

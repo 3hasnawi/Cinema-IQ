@@ -40,6 +40,10 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
         mutable.value = mutable.value.copy(selectedId = source.id, group = null, query = "", channels = emptyList(), visible = emptyList())
         reload()
     }
+    fun returnFromPlayer(group: String?) {
+        mutable.value = mutable.value.copy(group = group, query = "")
+        applyFilter(false)
+    }
     fun query(value: String) { mutable.value = mutable.value.copy(query = value.take(200)); applyFilter(false) }
     fun group(value: String?) { mutable.value = mutable.value.copy(group = value); applyFilter(true) }
     fun reload(force: Boolean = false) {
