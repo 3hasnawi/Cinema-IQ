@@ -1,0 +1,89 @@
+name: Apple TV IPTV checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tvos-iptv-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and generate the test project
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          brew install xcodegen
+          # Include the licensed local clip before Xcode seals and signs the simulator app.
+          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
+          cd ios
+          xcodegen generate --spec project.yml
+      - name: Create a TV simulator
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if ! xcrun simctl list runtimes | grep -q tvOS; then xcodebuild -downloadPlatform tvOS; fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          def sim(*args):
+              return subprocess.check_output(['xcrun','simctl',*args],text=True)
+          runtimes = [r for r in json.loads(sim('list','runtimes','--json'))['runtimes']
+                      if r['isAvailable'] and '.tvOS-' in r['identifier']]
+          runtime = max(runtimes,key=lambda r:tuple(map(int,r['version'].split('.'))))['identifier']
+          types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
+          kind = next(t['identifier'] for t in types if 'Apple TV 4K' in t['name'] and 'at 1080p' in t['name'])
+          device = sim('create','CinemaTVIPTVCheck',kind,runtime).strip()
+          with open(os.environ['GITHUB_ENV'],'a') as file:
+              file.write('TV_TEST_DEVICE='+device+'\n')
+          PY
+      - name: Compile app and remote tests
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/tvos-iptv-build.log" | grep -E 'error:|TEST BUILD (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/tvos-iptv-build.log"
+      - name: Boot TV simulator with a display
+        timeout-minutes: 7
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$TV_TEST_DEVICE"
+          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$TV_TEST_DEVICE"
+          xcrun simctl bootstatus "$TV_TEST_DEVICE" -b
+      - name: Test M3U entry, Xtream, Keychain persistence and remote playback
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
+            -only-testing:CinemaIQTVUITests/TVIPTVFlowTests \
+            -resultBundlePath "$RUNNER_TEMP/tvos-iptv.xcresult" -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/tvos-iptv.log" | grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' || true
+          grep -Eq '\*\* TEST( EXECUTE)? SUCCEEDED \*\*' "$RUNNER_TEMP/tvos-iptv.log"
+      - name: Export screenshots and diagnostics
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/tvos-iptv.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/tvos-iptv.xcresult" --output-path "$RUNNER_TEMP/tvos-iptv-evidence"
+            find "$RUNNER_TEMP/tvos-iptv-evidence" -name '*.mp4' -delete
+          fi
+          grep -E 'error:|failed|Timed out|Test Case' "$RUNNER_TEMP/tvos-iptv.log" | tail -30 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tvos-iptv-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/tvos-iptv-build.log
+            ${{ runner.temp }}/tvos-iptv.log
+            ${{ runner.temp }}/tvos-iptv-evidence
+          retention-days: 1
+          if-no-files-found: warn

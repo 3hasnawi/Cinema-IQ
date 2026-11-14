@@ -1,0 +1,9 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="news.ar" tvg-logo="https://images.example/news.png" group-title="أخبار",قناة الأخبار
+https://media.example/news/master.m3u8
+#EXTINF:-1 tvg-id='sports.en' group-title="Sports, live",Sports, HD
+../sports/live.m3u8?token=fixture-token
+#EXTINF:-1 group-title="Invalid",Invalid local file
+file:///etc/passwd
+#EXTINF:-1 tvg-id="news.ar" group-title="أخبار",قناة الأخبار
+https://media.example/news/backup.m3u8

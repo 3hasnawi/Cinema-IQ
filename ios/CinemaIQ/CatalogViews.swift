@@ -81,11 +81,34 @@ struct CatalogGrid: View {
 
 struct BrowseView: View {
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
+    @State private var fixtureIPTV = false
     var body: some View {
         CatalogGrid(source: SourcePreference.source(sourceName), query: "")
             .id(sourceName)
             .background(Theme.ink)
             .navigationTitle("تصفّح")
+            .navigationDestination(isPresented: $fixtureIPTV) { IPTVView() }
+            .task {
+#if DEBUG
+                if IPTVFixtureSupport.snapshot { fixtureIPTV = true }
+#endif
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                NavigationLink { IPTVView() } label: {
+                    HStack(spacing: 12) {
+                        Label("IPTV", systemImage: "dot.radiowaves.left.and.right").font(.headline)
+                        Spacer()
+                        Text("القنوات المباشرة").font(.subheadline).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.forward").font(.caption)
+                    }
+                    .padding(16)
+                    .glass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("ios.browse.iptv")
+                .padding(.horizontal, 18).padding(.vertical, 8)
+                .background(Theme.ink)
+            }
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SourceMenu() } }
     }
 }
