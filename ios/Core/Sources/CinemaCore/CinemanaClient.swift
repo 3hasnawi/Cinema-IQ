@@ -17,10 +17,11 @@ public struct CinemanaClient: Sendable {
         if !Self.rows(data).isEmpty && result.isEmpty { throw CinemaError.invalidResponse }
         return result
     }
-    public func home() async throws -> [Shelf] {
-        let groups = Self.rows(try await get("videoGroups/lang/ar/level/1"))
+    public func home(prioritizeFeaturedMovies: Bool = false) async throws -> [Shelf] {
+        let groups = Self.homeGroups(Self.rows(try await get("videoGroups/lang/ar/level/1")),
+                                     prioritizeFeaturedMovies: prioritizeFeaturedMovies)
         var result: [Shelf] = []
-        for group in groups.prefix(8) {
+        for group in groups {
             try Task.checkCancellation()
             let id = DawwirliClient.text(group, "groupsID", "groupID", "nb", "id")
             guard id.range(of: "^[0-9]+$", options: .regularExpression) != nil else { continue }
@@ -36,6 +37,22 @@ public struct CinemanaClient: Sendable {
         }
         if result.isEmpty { return [Shelf(id: "latest", title: "أضيف حديثاً", items: try await catalog(series: false, query: "", page: 1))] }
         return result
+    }
+
+    /// Keep the normal row order and request budget, with at most two extra curated movie groups
+    /// for the TV showcase. A featured group may be beyond the first eight catalogue rows.
+    static func homeGroups(_ groups: [[String: Any]], prioritizeFeaturedMovies: Bool) -> [[String: Any]] {
+        guard prioritizeFeaturedMovies else { return Array(groups.prefix(8)) }
+        let priorities = groups.map {
+            FeaturedMovies.priority(id: DawwirliClient.text($0, "groupsID", "groupID", "nb", "id"),
+                                    title: DawwirliClient.text($0, "ar_title", "ar_name", "title", "name"))
+        }
+        let best = priorities.max() ?? 0
+        var indices = Set(groups.indices.prefix(8))
+        if best > 0 {
+            indices.formUnion(groups.indices.filter { priorities[$0] == best }.prefix(2))
+        }
+        return indices.sorted().map { groups[$0] }
     }
     public func detail(_ media: Media) async throws -> (Media, [Season]) {
         guard try ContentSource.owner(of: media.id) == .cinemana else { throw CinemaError.invalidID }
