@@ -40,6 +40,8 @@ jobs:
           xcodebuild -version
           brew install xcodegen
           cd ios
+          # Include the local clip before resource sealing and simulator signing.
+          cp CinemaIQUITests/Fixtures/player-pattern.mp4 CinemaIQ/Resources/UIPlayerFixture.mp4
           xcodegen generate --spec project.yml
           # Test the licensed fixture without metadata keys or external catalogue accounts.
           python3 - <<'PY'
@@ -85,33 +87,9 @@ jobs:
           xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/ios-build.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)|TEST BUILD (SUCCEEDED|FAILED)' || true
           grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/ios-build.log"
-      - name: Install deterministic Debug playback fixture
-        run: |
-          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
-            "$RUNNER_TEMP/iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/UIPlayerFixture.mp4"
-      - name: Ad-hoc sign simulator apps for actual Keychain access
-        run: |
-          # Simulator-only identities; no certificate, team account, provisioning profile or IPA export.
-          python3 - <<'PY'
-          import os, pathlib, plistlib, subprocess
-          products = pathlib.Path(os.environ['RUNNER_TEMP'])/'iOSDerived/Build/Products/Debug-iphonesimulator'
-          for app in products.glob('*.app'):
-              with (app/'Info.plist').open('rb') as file:
-                  identifier = plistlib.load(file)['CFBundleIdentifier']
-              # Sign inner code first; app entitlements belong only to the app executable.
-              inner = list(app.rglob('*.framework')) + list(app.rglob('*.dylib')) + list(app.rglob('*.xctest'))
-              for code in sorted(inner, key=lambda p: len(p.parts), reverse=True):
-                  subprocess.run(['codesign','--force','--sign','-',str(code)], check=True)
-              entitlements = products/(app.stem+'-simulator-entitlements.plist')
-              identity = 'CINEMAUI00.'+identifier
-              with entitlements.open('wb') as file:
-                  plistlib.dump({'application-identifier':identity, 'com.apple.developer.team-identifier':'CINEMAUI00',
-                                'keychain-access-groups':[identity], 'get-task-allow':True}, file)
-              subprocess.run(['codesign','--force','--sign','-','--entitlements',str(entitlements),str(app)], check=True)
-          PY
       - name: Validate universal device and orientation metadata
         run: |
           python3 - <<'PY'
@@ -134,7 +112,7 @@ jobs:
           xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Capture the real channel screen before XCTest initialization
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
           set -euo pipefail
           # Native app screenshot; no WebView, mock-up renderer or XCTest Accessibility dependency.
@@ -143,19 +121,22 @@ jobs:
           python3 - <<'PY'
           import os, pathlib, subprocess, time
           device = os.environ['IOS_TEST_DEVICE']
-          subprocess.run(['xcrun','simctl','launch',device,'com.cinemaplus.rebuilt.ios',
-                          '-ios.contentSource.v1','ext:demo','--cinema-ui-testing-iptv',
-                          '--cinema-ui-testing-iptv-reset','--cinema-ui-testing-iptv-snapshot'], check=True, timeout=60)
-          container = pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',device,
-                                                           'com.cinemaplus.rebuilt.ios','data'], text=True).strip())
-          marker = container/'Documents/iptv-fixture-ready.txt'
-          deadline = time.monotonic()+90
-          while not marker.exists() and time.monotonic() < deadline:
-              time.sleep(2)
-          time.sleep(3)
-          subprocess.run(['xcrun','simctl','io',device,'screenshot',os.environ['RUNNER_TEMP']+'/iptv-channels.png'], check=True, timeout=30)
-          assert marker.exists(), 'The real channel catalogue did not become ready; inspect the captured screen'
-          print(marker.read_text())
+          try:
+              # Xcode generates and signs the simulator entitlements; no invented team or profile.
+              subprocess.run(['xcrun','simctl','launch',device,'com.cinemaplus.rebuilt.ios',
+                              '-ios.contentSource.v1','ext:demo','--cinema-ui-testing-iptv',
+                              '--cinema-ui-testing-iptv-reset','--cinema-ui-testing-iptv-snapshot'], check=True, timeout=60)
+              container = pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',device,
+                                                               'com.cinemaplus.rebuilt.ios','data'], text=True).strip())
+              marker = container/'Documents/iptv-fixture-ready.txt'
+              deadline = time.monotonic()+90
+              while not marker.exists() and time.monotonic() < deadline:
+                  time.sleep(2)
+              time.sleep(3)
+              assert marker.exists(), 'The real channel catalogue did not become ready; inspect the captured screen'
+              print(marker.read_text())
+          finally:
+              subprocess.run(['xcrun','simctl','io',device,'screenshot',os.environ['RUNNER_TEMP']+'/iptv-channels.png'], check=True, timeout=30)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -182,7 +163,7 @@ jobs:
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/ios-layout.log" | grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' || true
           grep -Eq '\*\* TEST( EXECUTE)? SUCCEEDED \*\*' "$RUNNER_TEMP/ios-layout.log"
       - name: Export simulator evidence
