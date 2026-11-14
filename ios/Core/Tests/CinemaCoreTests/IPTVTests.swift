@@ -63,6 +63,9 @@ final class IPTVTests: XCTestCase {
         }
         XCTAssertThrowsError(try source(address: "http://provider.example/a")) { XCTAssertEqual($0 as? IPTVError, .insecureConnection) }
         XCTAssertNoThrow(try source(address: "http://provider.example/a", allowHTTP: true))
+        let mixed = Data("#EXTM3U\n#EXTINF:-1,Secure\nhttps://media.example/secure.m3u8\n#EXTINF:-1,Plain\nhttp://media.example/plain.m3u8\n".utf8)
+        XCTAssertEqual(try IPTVParser.playlist(mixed, source: source()).channels.count, 1)
+        XCTAssertEqual(try IPTVParser.playlist(mixed, source: source(allowHTTP: true)).channels.count, 2)
     }
     func testXtreamAuthenticationActiveExpiredAndWrongAccount() throws {
         XCTAssertNoThrow(try IPTVParser.xtreamAuthentication(Data(#"{"user_info":{"auth":"1","status":"Active"}}"#.utf8)))

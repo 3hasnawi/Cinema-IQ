@@ -17,7 +17,7 @@ Both apps use the same Core IPTV store, parser/client, memory cache and Keychain
 
 Source addresses, tokens and credentials are stored in a non-synchronizing, device-only Keychain item. They are not part of movie/series library data or Firebase synchronization. Only the selected source's opaque identifier is stored in UserDefaults. Channel catalogues are cached in memory for five minutes, with at most three cached sources. Live channels do not create movie watch-history or resume entries.
 
-The current app form accepts **HTTPS** providers. HTTP support requires a coordinated iOS ATS configuration change; it remains disabled in the form while that change is pending. Core parsing supports HTTP only when a source explicitly opts in. TLS validation is never bypassed. Catalogue/API redirects to other origins are rejected; use the provider's final direct URL in that case.
+HTTPS is the default. Enable **السماح باتصال HTTP لهذا المصدر** only if the provider uses HTTP for its catalogue or channels, including HTTP channels inside HTTPS playlists. HTTP is not encrypted. Both target ATS settings permit user-configured HTTP hosts; Core rejects HTTP unless the source explicitly opts in. TLS validation is never bypassed. Catalogue/API redirects to other origins are rejected; use the provider's final direct URL in that case.
 
 ## Verification
 

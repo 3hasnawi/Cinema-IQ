@@ -49,7 +49,7 @@ targets:
         OMDbAPIKey: "5b9c7295"
         # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
         TMDBAPIKey: "$(TMDB_API_KEY)"
-        NSLocalNetworkUsageDescription: للعثور على أجهزة Chromecast وتشغيل الفيديو عليها.
+        NSLocalNetworkUsageDescription: للعثور على أجهزة Chromecast والاتصال بمصادر IPTV داخل شبكتك.
         NSBonjourServices:
           - _googlecast._tcp
           - _CC1AD845._googlecast._tcp
@@ -68,10 +68,12 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         # The content sources are Iraqi ISP services whose servers do not all meet App Transport Security's
-        # strict TLS defaults (Android's OkHttp accepts them). Relax ATS for these domains only; every other
-        # host keeps the full defaults. Media from the sources' CDNs is allowed the same way.
+        # strict TLS defaults (Android's OkHttp accepts them). Keep those source-specific TLS exceptions.
+        # User-configured IPTV hosts also require HTTP support, guarded by per-source consent in Core.
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoadsForMedia: true
+          # User-configured IPTV hosts may use HTTP; runtime policy requires per-source consent.
+          # Do not also set NSAllowsArbitraryLoadsForMedia: it overrides this key on modern OS versions.
+          NSAllowsArbitraryLoads: true
           NSExceptionDomains:
             shabakaty.cc:
               NSIncludesSubdomains: true
@@ -126,13 +128,16 @@ targets:
         CFBundleDevelopmentRegion: ar
         OMDbAPIKey: "$(OMDB_API_KEY)"
         YouTubeAPIKey: "$(YOUTUBE_API_KEY)"
+        NSLocalNetworkUsageDescription: للاتصال بمصادر IPTV داخل شبكتك.
         # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
         TMDBAPIKey: "$(TMDB_API_KEY)"
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark
         NSAppTransportSecurity:
-          NSAllowsArbitraryLoadsForMedia: true
+          # User-configured IPTV hosts may use HTTP; runtime policy requires per-source consent.
+          # Do not also set NSAllowsArbitraryLoadsForMedia: it overrides this key on modern OS versions.
+          NSAllowsArbitraryLoads: true
           NSExceptionDomains:
             shabakaty.cc:
               NSIncludesSubdomains: true

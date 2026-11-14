@@ -11,6 +11,7 @@ struct TVIPTVSourceForm: View {
     @State private var username = ""
     @State private var password = ""
     @State private var output = IPTVSource.Output.hls
+    @State private var allowHTTP = false
     @State private var message: String?
     @State private var submitting = false
     @State private var submission: Task<Void, Never>?
@@ -28,7 +29,7 @@ struct TVIPTVSourceForm: View {
                 }
                 Section {
                     TextField("اسم المصدر", text: $name).accessibilityIdentifier("tv.iptv.form.name")
-                    TextField(kind == .playlist ? "رابط قائمة M3U (HTTPS)" : "عنوان خادم Xtream (HTTPS)", text: $address)
+                    TextField(kind == .playlist ? "رابط قائمة M3U" : "عنوان خادم Xtream", text: $address)
                         .textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .privacySensitive().accessibilityIdentifier("tv.iptv.form.address")
                     if kind == .xtream {
@@ -45,6 +46,12 @@ struct TVIPTVSourceForm: View {
                 } header: { Text("بيانات المصدر") } footer: {
                     Text(kind == .playlist ? "أدخل رابط القائمة من مزوّدك. يمكنك استخدام لوحة مفاتيح Apple TV أو الكتابة من iPhone عند ظهور إشعار لوحة المفاتيح."
                          : "أدخل عنوان الخادم فقط، ثم اسم المستخدم وكلمة المرور. يُفضّل HLS لتوافق أفضل مع Apple TV؛ بعض صيغ TS غير مدعومة.")
+                }
+                Section {
+                    Toggle("السماح باتصال HTTP لهذا المصدر", isOn: $allowHTTP)
+                        .accessibilityIdentifier("tv.iptv.form.allowHTTP")
+                } footer: {
+                    Text("فعّل الخيار إذا كان رابط القائمة أو بعض قنواتها يستخدم HTTP. الاتصال غير مشفّر وقد تمر بيانات الاشتراك دون تشفير؛ يُفضّل HTTPS.")
                 }
                 if let message { Section { Text(message).foregroundStyle(.red).accessibilityIdentifier("tv.iptv.form.error") } }
                 Section {
@@ -63,7 +70,7 @@ struct TVIPTVSourceForm: View {
         .onAppear {
             if let existing {
                 name = existing.name; kind = existing.kind; address = existing.address.absoluteString
-                username = existing.username; password = existing.password; output = existing.output
+                username = existing.username; password = existing.password; output = existing.output; allowHTTP = existing.allowHTTP
                 focus = kind == .xtream ? "xtream" : "m3u"
             }
         }
@@ -77,13 +84,13 @@ struct TVIPTVSourceForm: View {
         guard text.count <= 8192, username.count <= 1024, password.count <= 4096 else {
             message = "بيانات المصدر أطول من الحد المدعوم."; return
         }
-        guard let url = URL(string: text.contains("://") ? text : "https://" + text), url.scheme?.lowercased() == "https" else {
-            message = "أدخل رابط HTTPS صالحًا لهذا المصدر."; return
+        guard let url = URL(string: text.contains("://") ? text : "https://" + text) else {
+            message = "أدخل رابط HTTP أو HTTPS صالحًا لهذا المصدر."; return
         }
         do {
             let source = try IPTVSource(id: existing?.id ?? UUID().uuidString, name: name, kind: kind, address: url,
                 username: kind == .xtream ? username.trimmingCharacters(in: .whitespacesAndNewlines) : "",
-                password: kind == .xtream ? password : "", output: output)
+                password: kind == .xtream ? password : "", output: output, allowHTTP: allowHTTP)
             submitting = true
             submission = Task { @MainActor in
                 defer { submitting = false }

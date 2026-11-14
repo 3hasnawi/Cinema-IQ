@@ -1,9 +1,6 @@
 import SwiftUI
 import CinemaCore
 
-/// HTTP is enabled only together with the target's coordinated ATS configuration.
-enum IPTVConnectionPolicy { static let supportsHTTP = false }
-
 struct IPTVSourceForm: View {
     @EnvironmentObject private var store: IPTVStore
     @Environment(\.dismiss) private var dismiss
@@ -20,7 +17,6 @@ struct IPTVSourceForm: View {
     @State private var submission: Task<Void, Never>?
     @FocusState private var field: Field?
     private enum Field { case name, address, username, password }
-    private var usesHTTP: Bool { address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("http://") }
     var body: some View {
         NavigationStack {
             Form {
@@ -54,13 +50,11 @@ struct IPTVSourceForm: View {
                     Text(kind == .playlist ? "أدخل رابط قائمة القنوات من مزوّدك. يدعم القسم قوائم M3U وروابط HLS المباشرة."
                          : "أدخل عنوان الخادم فقط، ثم اسم المستخدم وكلمة المرور. يُفضّل HLS لتوافق أفضل مع iPhone وiPad؛ بعض بثوث TS غير مدعومة.")
                 }
-                if usesHTTP && IPTVConnectionPolicy.supportsHTTP {
-                    Section {
-                        Toggle("السماح باتصال HTTP لهذا المصدر", isOn: $allowHTTP)
-                            .accessibilityIdentifier("ios.iptv.form.allowHTTP")
-                    } footer: {
-                        Text("HTTP غير مشفّر؛ قد تمر بيانات الاشتراك ورابط القائمة دون تشفير. استخدم HTTPS إذا كان المزوّد يدعمه.")
-                    }
+                Section {
+                    Toggle("السماح باتصال HTTP لهذا المصدر", isOn: $allowHTTP)
+                        .accessibilityIdentifier("ios.iptv.form.allowHTTP")
+                } footer: {
+                    Text("فعّل الخيار إذا كان رابط القائمة أو بعض قنواتها يستخدم HTTP. الاتصال غير مشفّر وقد تمر بيانات الاشتراك دون تشفير؛ يُفضّل HTTPS.")
                 }
                 if let message { Section { Text(message).foregroundStyle(.red).accessibilityIdentifier("ios.iptv.form.error") } }
                 Section {
@@ -98,14 +92,11 @@ struct IPTVSourceForm: View {
             message = "بيانات المصدر أطول من الحد المدعوم."; return
         }
         guard let url = URL(string: text.contains("://") ? text : "https://" + text) else { message = IPTVError.invalidURL.localizedDescription; return }
-        if url.scheme?.lowercased() == "http" && !IPTVConnectionPolicy.supportsHTTP {
-            message = "استخدم رابط HTTPS لهذا المصدر."; return
-        }
         do {
             let source = try IPTVSource(id: existing?.id ?? UUID().uuidString, name: name, kind: kind, address: url,
                 username: kind == .xtream ? username.trimmingCharacters(in: .whitespacesAndNewlines) : "",
                 password: kind == .xtream ? password : "",
-                output: output, allowHTTP: IPTVConnectionPolicy.supportsHTTP && allowHTTP)
+                output: output, allowHTTP: allowHTTP)
             submitting = true
             submission = Task { @MainActor in
                 defer { submitting = false }

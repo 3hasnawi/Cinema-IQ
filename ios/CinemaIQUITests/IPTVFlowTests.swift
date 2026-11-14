@@ -22,7 +22,8 @@ final class IPTVFlowTests: XCTestCase {
     func testM3UPersistsFiltersAndPlaysInsideApp() {
         openAdd()
         fill("ios.iptv.form.name", "M3U Test")
-        fill("ios.iptv.form.address", "https://iptv.example/channels.m3u\n")
+        fill("ios.iptv.form.address", "http://iptv.example/channels.m3u\n")
+        app.switches["ios.iptv.form.allowHTTP"].tap()
         connect()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["قناة الرياضة"].exists)
