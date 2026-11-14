@@ -16,7 +16,7 @@ struct TVIPTVPlayerView: View {
     init(initial: IPTVChannel, group: String? = nil, onReturn: @escaping (IPTVChannel, String?) -> Void = { _, _ in }) {
         self.onReturn = onReturn; _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group))
     }
-    private func close() { onReturn(session.channel, session.group); dismiss() }
+    private func close() { onReturn(session.channel, session.group == session.channel.group ? session.group : nil); dismiss() }
     private func closePanel() { guide = false; pane = nil; controls = true; interaction += 1; focus = "surface" }
     var body: some View {
         GeometryReader { geometry in

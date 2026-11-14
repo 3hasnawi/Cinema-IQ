@@ -16,7 +16,7 @@ struct IPTVPlaybackView: View {
     init(initial: IPTVChannel, group: String? = nil, onReturn: @escaping (IPTVChannel, String?) -> Void = { _, _ in }) {
         self.onReturn = onReturn; _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group))
     }
-    private func close() { onReturn(session.channel, session.group); dismiss() }
+    private func close() { onReturn(session.channel, session.group == session.channel.group ? session.group : nil); dismiss() }
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -127,7 +127,7 @@ private struct IPTVLiveGuide: View {
                     Picker("التصنيف", selection: $session.group) {
                         Text("كل القنوات").tag(Optional<String>.none)
                         ForEach(session.groups, id: \.self) { Text($0).tag(Optional($0)) }
-                    }.accessibilityIdentifier("ios.iptv.guide.groups")
+                    }.pickerStyle(.menu).accessibilityIdentifier("ios.iptv.guide.groups")
                 }
                 Section("\(visible.count) قناة") {
                     ForEach(visible) { channel in
@@ -137,7 +137,7 @@ private struct IPTVLiveGuide: View {
                                 VStack(alignment: .leading) { Text(channel.name).foregroundStyle(.primary); Text(channel.group).font(.caption).foregroundStyle(.secondary) }
                                 Spacer(); if channel.id == session.channel.id { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
                             }.padding(.vertical, 4)
-                        }.id(channel.id).accessibilityIdentifier("ios.iptv.guide.channel." + channel.id)
+                        }.id(channel.id).accessibilityLabel(channel.name).accessibilityIdentifier("ios.iptv.guide.channel." + channel.id)
                     }
                     if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.") }
                 }
