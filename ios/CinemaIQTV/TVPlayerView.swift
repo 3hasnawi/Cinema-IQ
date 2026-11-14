@@ -82,7 +82,7 @@ struct TVPlayerView: View {
                 }
             }
             .allowsHitTesting(false)
-            if loading && resolutionError == nil && controller.error == nil { ProgressView().allowsHitTesting(false) }
+            if (loading || controller.buffering) && resolutionError == nil && controller.error == nil { ProgressView().allowsHitTesting(false) }
             if let message = failure {
                 VStack(spacing: 28) {
                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 60)).foregroundStyle(TVTheme.accent)

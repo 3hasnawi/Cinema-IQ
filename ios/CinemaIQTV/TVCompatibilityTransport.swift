@@ -13,7 +13,7 @@ struct TVCompatibilityTransport<Options: View>: View {
             PlaybackVideoSurface(controller: controller).ignoresSafeArea().allowsHitTesting(false)
             Button { controls = true; focus = "play"; interaction += 1 } label: { Color.clear.contentShape(Rectangle()) }
                 .buttonStyle(TVArtworkButtonStyle()).focused($focus, equals: "surface")
-                .accessibilityLabel("عرض أدوات التشغيل").accessibilityIdentifier("tv.compatibility.surface")
+                .accessibilityLabel("عرض أدوات التشغيل").accessibilityValue(controller.buffering ? "جارٍ التحميل" : controller.playing ? "تشغيل" : "متوقف مؤقتًا").accessibilityIdentifier("tv.compatibility.surface")
                 .onMoveCommand { direction in
                     if direction == .left { controller.skip(-10) }
                     else if direction == .right { controller.skip(10) }

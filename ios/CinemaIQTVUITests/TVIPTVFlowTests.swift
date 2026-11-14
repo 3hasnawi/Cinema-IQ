@@ -119,13 +119,35 @@ final class TVIPTVFlowTests: XCTestCase {
         expectFocus(element("tv.iptv.track.first")); remote.press(.down); remote.press(.select); expectFocus(player)
         remote.press(.select)
         XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15)); shot("compatibility-guide-preview")
-        remote.press(.menu); expectFocus(player)
+        let current = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'tv.iptv.guide.channel.' AND label CONTAINS %@", "قناة الأخبار")).firstMatch
+        expectFocus(current); remote.press(.select); expectFocus(player)
+        XCTAssertEqual(player.value as? String, "متوقف مؤقتًا", "Selecting the current preview must not restart or resume the channel")
         try assertReferenceVideoVisible("compatibility-paused-after-guide")
         remote.press(.playPause); waitFor { (player.value as? String) == "بث مباشر" }
         remote.press(.down); waitFor { player.label == "قناة الرياضة" }
         waitFor { (player.value as? String) == "بث مباشر" }
         try assertReferenceVideoVisible("compatibility-after-channel-change")
         remote.press(.menu); expectFocus(channel("قناة الرياضة"))
+    }
+    func testCompatibilityMovieTransportAndReturnToDetails() throws {
+        executionTimeAllowance = 360
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-compatibility"]
+        app.launch()
+        let home = element("tv.home.showcase"); XCTAssertTrue(home.waitForExistence(timeout: 30))
+        expectFocus(home); remote.press(.select)
+        let play = app.buttons["tv.detail.play"]; expectFocus(play); remote.press(.select)
+        let surface = element("tv.compatibility.surface"); expectFocus(surface)
+        waitFor { (surface.value as? String) == "تشغيل" }
+        // Hide transport before checking video pixels, then pause using the real remote.
+        try assertReferenceVideoVisible("compatibility-movie-playing")
+        remote.press(.playPause)
+        waitFor { (surface.value as? String) == "متوقف مؤقتًا" }
+        XCTAssertTrue(app.staticTexts["tv.player.pausedTitle"].waitForExistence(timeout: 15))
+        shot("compatibility-movie-paused")
+        remote.press(.playPause); waitFor { (surface.value as? String) == "تشغيل" }
+        remote.press(.menu)
+        XCTAssertTrue(play.waitForExistence(timeout: 15)); expectFocus(play)
+        XCTAssertEqual(app.state, .runningForeground)
     }
     private func assertReferenceVideoVisible(_ name: String) throws {
         let capture = XCUIScreen.main.screenshot()

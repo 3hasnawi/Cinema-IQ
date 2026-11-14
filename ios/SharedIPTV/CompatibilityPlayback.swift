@@ -34,6 +34,7 @@ import CinemaCore
               update: @escaping (Snapshot) -> Void) {
         close(); let token = UUID(); generation = token
         self.update = update; wantsPlay = playing; desiredRate = rate
+        diagnostic("open queued")
         subtitleWasChosen = subtitleID?.hasPrefix("vlcs:") == true; desiredSubtitle = subtitleWasChosen ? subtitleID : nil
         task = Task { @MainActor [weak self] in
             // Serialize retirement before starting the next channel; never run two live decoders together.
@@ -41,6 +42,7 @@ import CinemaCore
                 Self.shutdownQueue.async { continuation.resume() }
             }
             guard let self, !Task.isCancelled, generation == token else { return }
+            diagnostic("shutdown queue drained")
             let value = VLCMediaPlayer(options: ["--quiet", "--no-video-title-show"])
             let media = VLCMedia(url: url)
             var options: [String: Any] = ["network-caching": 1000]
@@ -50,7 +52,9 @@ import CinemaCore
             if highest { options["adaptive-logic"] = "highest" }
             media.addOptions(options)
             engine = value; value.delegate = self; value.drawable = surface; value.media = media
+            diagnostic("media attached; drawable=\(surface != nil)")
             value.play(); value.rate = desiredRate
+            diagnostic("play requested")
             var appliedTracks = false
             while !Task.isCancelled, generation == token {
                 if !appliedTracks, value.state == .playing || value.state == .paused {
@@ -63,7 +67,9 @@ import CinemaCore
             }
         }
     }
-    func attach(_ view: UIView) { surface = view; engine?.drawable = view }
+    func attach(_ view: UIView) {
+        guard surface !== view else { return }; surface = view; engine?.drawable = view
+    }
     func detach(_ view: UIView) {
         guard surface === view else { return }; engine?.drawable = nil; surface = nil
     }
@@ -71,7 +77,7 @@ import CinemaCore
     func pause() { wantsPlay = false; engine?.pause() }
     func seek(_ seconds: Double) {
         guard seconds.isFinite, let engine, engine.isSeekable else { return }
-        engine.time = VLCTime(int: Int32(clamping: Int64(max(0, seconds) * 1000)))
+        engine.time = VLCTime(int: Int32(min(Double(Int32.max), max(0, seconds) * 1000)))
     }
     func setRate(_ value: Float) { desiredRate = value; engine?.rate = value }
     func selectAudio(_ id: String) {
@@ -90,6 +96,7 @@ import CinemaCore
     private func publish(_ value: VLCMediaPlayer) {
         guard value === engine else { return }
         let state = value.state
+        diagnostic("state=\(state.rawValue) time=\(value.time.intValue) audio=\(value.audioTrackIndexes.count) drawable=\(surface?.bounds.size ?? .zero) window=\(surface?.window != nil)")
         // A paused request issued during opening must survive the decoder's asynchronous ready event.
         if state == .playing && !wantsPlay { value.pause() }
         var result = Snapshot()
@@ -101,7 +108,7 @@ import CinemaCore
         result.audio = tracks(value.audioTrackNames, value.audioTrackIndexes, prefix: "vlca:")
         result.subtitles = tracks(value.videoSubTitlesNames, value.videoSubTitlesIndexes, prefix: "vlcs:")
         if value.currentAudioTrackIndex >= 0 { result.audioID = "vlca:\(value.currentAudioTrackIndex)" }
-        if !subtitleWasChosen { value.currentVideoSubTitleIndex = -1 }
+        if !subtitleWasChosen && value.currentVideoSubTitleIndex != -1 { value.currentVideoSubTitleIndex = -1 }
         result.subtitleID = desiredSubtitle
         update?(result)
     }
@@ -112,7 +119,17 @@ import CinemaCore
             guard let self, let engine, ObjectIdentifier(engine) == identity else { return }; publish(engine)
         }
     }
+    private func diagnostic(_ text: String) {
+#if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-compatibility") else { return }
+        let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let file = root.appendingPathComponent("compatibility-debug.txt")
+        let existing = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        if existing.utf8.count < 100_000 { try? (existing + text + "\n").write(to: file, atomically: true, encoding: .utf8) }
+#endif
+    }
     func close() {
+        diagnostic("close")
         generation = UUID(); task?.cancel(); task = nil; update = nil
         guard let old = engine else { return }; engine = nil
         old.delegate = nil; old.pause(); old.drawable = nil

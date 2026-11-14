@@ -33,7 +33,7 @@ struct TVIPTVLiveGuide: View {
                     ScrollView {
                         LazyVStack(spacing: 16) {
                             ForEach(visible) { channel in
-                                Button { session.tune(channel); selected() } label: {
+                                Button { if channel.id != session.channel.id { session.tune(channel) }; selected() } label: {
                                     HStack(spacing: 14) {
                                         Image(systemName: channel.id == session.channel.id ? "waveform" : "tv")
                                         VStack(alignment: .leading, spacing: 8) {

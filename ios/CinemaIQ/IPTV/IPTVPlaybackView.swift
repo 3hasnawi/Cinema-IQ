@@ -66,6 +66,7 @@ struct IPTVPlaybackView: View {
                         Button("إعادة المحاولة") { session.retry() }.disabled(session.retrying).primaryAction().accessibilityIdentifier("ios.iptv.player.retry")
                         Button("القنوات") { panel = .channels }.secondaryAction()
                     }
+                    Button("تجربة التوافق الموسّع") { session.controller.chooseEngine(.compatibility) }.secondaryAction()
                 }.padding(24).frame(maxWidth: 500).glass(in: RoundedRectangle(cornerRadius: 24)).padding(24)
             }
         }
@@ -102,14 +103,6 @@ struct IPTVPlaybackView: View {
     @ViewBuilder private func trackOptions(_ value: Panel) -> some View {
         List {
             if value == .quality {
-                Section("محرك التشغيل") {
-                    ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
-                        Button { session.controller.chooseEngine(mode); panel = nil } label: { choice(mode.title, selected: session.engineMode == mode) }
-                            .accessibilityIdentifier("ios.iptv.engine." + mode.rawValue)
-                    }
-                    Text(session.usesCompatibility ? "المحرك الحالي: التوافق الموسّع" : "المحرك الحالي: Apple").font(.footnote)
-                    Link("VideoLAN VLCKit — LGPL 2.1 أو أحدث والمصدر", destination: URL(string: "https://code.videolan.org/videolan/VLCKit")!)
-                }
                 Button { session.chooseQuality(nil); panel = nil } label: { choice("تلقائي", selected: !session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil) }
                     .accessibilityIdentifier("ios.iptv.quality.auto")
                     .accessibilityValue(!session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil ? "محدد" : "غير محدد")
@@ -120,6 +113,14 @@ struct IPTVPlaybackView: View {
                 if let height = session.maximumHeight { Text("الحد الأقصى الحالي: \(height)p").font(.footnote) }
                 Text("تُعرض الجودات التي يعلنها البث فقط. الاختيار يحدد الحد الأقصى ويحافظ على الصوت والترجمة؛ التلقائي يتكيّف مع الشبكة.").font(.footnote).foregroundStyle(.secondary)
                 Text("أعلى جودة تزيل حدود الدقة الأقل؛ تبقى الجودة الفعلية بحسب البث والشبكة وقدرة الجهاز.").font(.footnote).foregroundStyle(.secondary)
+                Section("محرك التشغيل") {
+                    ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
+                        Button { session.controller.chooseEngine(mode); panel = nil } label: { choice(mode.title, selected: session.engineMode == mode) }
+                            .accessibilityIdentifier("ios.iptv.engine." + mode.rawValue)
+                    }
+                    Text(session.usesCompatibility ? "المحرك الحالي: التوافق الموسّع" : "المحرك الحالي: Apple").font(.footnote)
+                    Link("VideoLAN VLCKit — LGPL 2.1 أو أحدث والمصدر", destination: URL(string: "https://code.videolan.org/videolan/VLCKit")!)
+                }
             } else if value == .audio {
                 ForEach(session.audio) { option in Button { session.chooseAudio(option.id); panel = nil } label: { choice(option.title, selected: session.audioID == option.id) } }
                 if session.audio.isEmpty { Text("لا تتوفر مسارات صوت إضافية لهذا البث.") }
@@ -153,7 +154,7 @@ private struct IPTVLiveGuide: View {
                 }
                 Section("\(visible.count) قناة") {
                     ForEach(visible) { channel in
-                        Button { session.tune(channel); selected() } label: {
+                        Button { if channel.id != session.channel.id { session.tune(channel) }; selected() } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: channel.id == session.channel.id ? "waveform" : "tv").foregroundStyle(Theme.accent)
                                 VStack(alignment: .leading) { Text(channel.name).foregroundStyle(.primary); Text(channel.group).font(.caption).foregroundStyle(.secondary) }

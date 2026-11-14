@@ -9,6 +9,11 @@ on:
         type: choice
         options: [both, iphone, ipad]
         default: both
+      scenario:
+        description: Full flow or compatibility decoder only
+        type: choice
+        options: [all, compatibility]
+        default: all
 
 permissions:
   contents: read
@@ -150,6 +155,8 @@ jobs:
           if-no-files-found: error
       - name: Test M3U, Xtream, Keychain persistence and internal playback
         timeout-minutes: 25
+        env:
+          IPTV_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
           python3 - <<'PY'
@@ -160,9 +167,11 @@ jobs:
           except subprocess.TimeoutExpired:
               print('Simulator termination timed out; XCTest will relaunch the fixture app')
           PY
+          test_id=CinemaIQUITests/IPTVFlowTests
+          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then test_id="$test_id/testCompatibilityDecoderWithTracksAndRotation"; fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
-            -only-testing:CinemaIQUITests/IPTVFlowTests \
+            -only-testing:"$test_id" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
@@ -172,6 +181,8 @@ jobs:
       - name: Export simulator evidence
         if: always()
         run: |
+          container="$(xcrun simctl get_app_container "$IOS_TEST_DEVICE" com.cinemaplus.rebuilt.ios data 2>/dev/null)" || true
+          if [ -f "$container/Documents/compatibility-debug.txt" ]; then cp "$container/Documents/compatibility-debug.txt" "$RUNNER_TEMP/compatibility-debug.txt"; fi
           if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
             find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
@@ -182,6 +193,7 @@ jobs:
         with:
           name: ios-iptv-${{ matrix.device }}-${{ github.run_id }}
           path: |
+            ${{ runner.temp }}/compatibility-debug.txt
             ${{ runner.temp }}/ios-build.log
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
