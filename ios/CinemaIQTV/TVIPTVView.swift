@@ -18,7 +18,10 @@ struct TVIPTVView: View {
     @State private var reloadID = UUID()
     @State private var forceReload = false
     @State private var editingSearch = false
+    @State private var focusTask: Task<Void, Never>?
     @FocusState private var focus: String?
+    @Namespace private var gridScope
+    @Environment(\.resetFocus) private var resetFocus
     private enum Sheet: Identifiable {
         case source(IPTVSource?), sources, groups
         var id: String { switch self { case .source(let value): return value?.id ?? "add"; case .sources: return "sources"; case .groups: return "groups" } }
@@ -61,11 +64,12 @@ struct TVIPTVView: View {
                                 Button { lastChannel = channel.id; playing = channel } label: { card(channel) }
                                     .buttonStyle(.card)
                                     .focused($focus, equals: "channel." + channel.id)
+                                    .prefersDefaultFocus(visible.first?.id == channel.id, in: gridScope)
                                     .accessibilityLabel(channel.name)
                                     .accessibilityIdentifier("tv.iptv.channel." + channel.id)
                             }
                         }.padding(20)
-                    }.focusSection().accessibilityIdentifier("tv.iptv.channels")
+                    }.focusScope(gridScope).focusSection().accessibilityIdentifier("tv.iptv.channels")
                 }
             }
             Spacer(minLength: 0)
@@ -85,8 +89,10 @@ struct TVIPTVView: View {
                     (text.isEmpty || $0.name.localizedStandardContains(text) || $0.group.localizedStandardContains(text)) }
             }.value
             guard !Task.isCancelled else { return }
+            let changed = visible.map(\.id) != result.map(\.id)
             visible = result
-            if !editingSearch, sheet == nil, playing == nil { await Task.yield(); focus = initialFocus }
+            // A cache refresh on returning from AVKit must not override the restored channel focus.
+            if changed, !editingSearch, sheet == nil, playing == nil { focusFirstChannel() }
         }
         .onChange(of: store.selectedID) { _, _ in group = nil; query = ""; lastChannel = nil }
         .onChange(of: store.storageLoading) { _, loading in if !loading { focus = initialFocus } }
@@ -105,10 +111,8 @@ struct TVIPTVView: View {
             }
             .environment(\.layoutDirection, .rightToLeft)
         }
-        .fullScreenCover(item: $playing, onDismiss: {
-            if let lastChannel, visible.contains(where: { $0.id == lastChannel }) { focus = "channel." + lastChannel }
-            else { focus = initialFocus }
-        }) { channel in TVIPTVPlayerView(initial: channel).environmentObject(store) }
+        .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in TVIPTVPlayerView(initial: channel).environmentObject(store) }
+        .onDisappear { focusTask?.cancel() }
         // Let native keyboards, modal lists and AVKit consume Menu before this page's Home fallback.
         .onExitCommand(perform: sheet == nil && playing == nil ? { router.tab = .home } : nil)
     }
@@ -160,7 +164,27 @@ struct TVIPTVView: View {
     }
     private func restoreAfterModal() {
         let changed = modalSource != store.selectedID || modalGroup != group || modalRevision != store.sourceRevision
-        focus = changed && !visible.isEmpty ? initialFocus : lastControl
+        if changed { focusFirstChannel() }
+        else { focus = lastControl }
+    }
+    private func focusFirstChannel() {
+        focusTask?.cancel()
+        focusTask = Task { @MainActor in
+            // Allow native modal focus restoration/layout to finish before selecting the new grid.
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard sheet == nil, playing == nil, !editingSearch else { return }
+            focus = initialFocus
+            if !visible.isEmpty { resetFocus(in: gridScope) }
+        }
+    }
+    private func restoreAfterPlayer() {
+        focusTask?.cancel()
+        focusTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard sheet == nil, playing == nil else { return }
+            if let lastChannel, visible.contains(where: { $0.id == lastChannel }) { focus = "channel." + lastChannel }
+            else { focus = initialFocus }
+        }
     }
     private func refresh() { forceReload = true; reloadID = UUID() }
 }
