@@ -1,12 +1,7 @@
 name: iPhone and iPad IPTV checks
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'ios/CinemaIQ/IPTV/**'
-      - 'ios/Core/Sources/CinemaCore/IPTV*.swift'
-      - 'ios/CinemaIQUITests/IPTVFlowTests.swift'
-      - '.github/workflows/ios-iptv-validation.yml'
+  # Expensive two-device visual validation is explicit, like ios-adaptive-validation.yml.
+  # Core, unsigned Release compilation and required PR checks remain automatic.
   workflow_dispatch:
 
 permissions:

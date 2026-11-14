@@ -2,7 +2,7 @@ import Foundation
 
 public enum IPTVParser {
     public static let maximumChannels = 50_000
-    private static let attributeRegex = try? NSRegularExpression(pattern: #"([A-Za-z0-9_-]+)\s*=\s*(?:"((?:\\.|[^"])*)"|'([^']*)'|([^\s,]+))"#)
+    private static let attributeRegex = try? NSRegularExpression(pattern: #"([A-Za-z0-9_-]+)\s*=\s*(?:"((?:\\.|[^"\\])*)"|'([^']*)'|([^\s,]+))"#)
     public static func playlist(_ data: Data, source: IPTVSource) throws -> IPTVCatalog {
         guard data.count <= 20 * 1024 * 1024 else { throw IPTVError.tooLarge }
         guard let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .utf16) else { throw IPTVError.invalidPlaylist }

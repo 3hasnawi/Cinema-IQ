@@ -48,6 +48,13 @@ final class IPTVTests: XCTestCase {
         XCTAssertEqual(result.channels.count, 1)
         XCTAssertEqual(result.channels[0].url, try source().address)
     }
+    func testEscapedAndMalformedQuotedPlaylistMetadata() throws {
+        // Escaped attributes and malformed quoted metadata must not prevent the next channel loading.
+        let escaped = "#EXTM3U\n#EXTINF:-1 group-title=\"Kids \\\"HD\\\"\",One\nhttps://media.example/one.m3u8\n"
+        XCTAssertEqual(try IPTVParser.playlist(Data(escaped.utf8), source: source()).channels[0].group, "Kids \"HD\"")
+        let malformed = "#EXTM3U\n#EXTINF:-1 tvg-name=\"" + String(repeating: "\\", count: 200) + "\nhttps://media.example/two.m3u8\n"
+        XCTAssertEqual(try IPTVParser.playlist(Data(malformed.utf8), source: source()).channels.count, 1)
+    }
     func testRejectInvalidPlaylistsAndUserInfoAndRequireHTTPConsent() throws {
         XCTAssertThrowsError(try IPTVParser.playlist(Data("<html>Denied</html>".utf8), source: source()))
         XCTAssertThrowsError(try IPTVParser.playlist(Data("#EXTM3U\nfile:///bad".utf8), source: source()))
