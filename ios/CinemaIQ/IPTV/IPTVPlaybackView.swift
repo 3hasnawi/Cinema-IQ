@@ -22,7 +22,7 @@ struct IPTVPlaybackView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            IPTVVideoSurface(player: session.controller.player).ignoresSafeArea().contentShape(Rectangle())
+            PlaybackVideoSurface(controller: session.controller).ignoresSafeArea().contentShape(Rectangle())
                 .accessibilityElement(children: .ignore).accessibilityLabel("إظهار خيارات المشغل")
                 .accessibilityIdentifier("ios.iptv.player.surface").accessibilityValue(session.status)
                 .accessibilityAddTraits(.isButton)
@@ -102,6 +102,13 @@ struct IPTVPlaybackView: View {
     @ViewBuilder private func trackOptions(_ value: Panel) -> some View {
         List {
             if value == .quality {
+                Section("محرك التشغيل") {
+                    ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
+                        Button { session.controller.chooseEngine(mode); panel = nil } label: { choice(mode.title, selected: session.engineMode == mode) }
+                            .accessibilityIdentifier("ios.iptv.engine." + mode.rawValue)
+                    }
+                    Text(session.usesCompatibility ? "المحرك الحالي: التوافق الموسّع" : "المحرك الحالي: Apple").font(.footnote)
+                }
                 Button { session.chooseQuality(nil); panel = nil } label: { choice("تلقائي", selected: !session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil) }
                     .accessibilityIdentifier("ios.iptv.quality.auto")
                     .accessibilityValue(!session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil ? "محدد" : "غير محدد")

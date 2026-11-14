@@ -79,7 +79,7 @@ struct PlaybackView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            VideoSurface(player: controller.player)
+            PlaybackVideoSurface(controller: controller)
                 .ignoresSafeArea()
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("ios.player.video")
@@ -119,6 +119,9 @@ struct PlaybackView: View {
                     Image(systemName: "exclamationmark.triangle.fill").font(.largeTitle).foregroundStyle(Theme.accent)
                     Text(error).multilineTextAlignment(.center)
                     HStack {
+                        if resolutionError == nil {
+                            Menu("محرك التشغيل") { ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in Button(mode.title) { controller.chooseEngine(mode) } } }.menuStyle(.button).secondaryAction()
+                        }
                         if streams.count > 1 && resolutionError == nil {
                             Menu("جودة أخرى") { qualityItems }.menuStyle(.button).secondaryAction()
                         }
@@ -143,12 +146,12 @@ struct PlaybackView: View {
         }
         .sheet(isPresented: $cast.showControls) { CastControls(cast: cast) }
         .onAppear {
-            cast.didLoad = { controller.persist(); controller.externalPlayback = true; controller.player.pause() }
+            cast.didLoad = { controller.persist(); controller.externalPlayback = true; controller.pause() }
             cast.localPosition = { controller.position }
             cast.didDisconnect = { seconds, shouldResume in
                 controller.externalPlayback = false
                 controller.seek(to: seconds)
-                if shouldResume && phase == .active { controller.player.play() }
+                if shouldResume && phase == .active { controller.play() }
             }
             cast.start()
         }
@@ -175,7 +178,7 @@ struct PlaybackView: View {
         }
         .onAppear { previousIdleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true }
         .onChange(of: phase) { _, value in
-            if value != .active { controller.persist(); controller.player.pause(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
+            if value != .active { controller.persist(); controller.pause(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
             else { UIApplication.shared.isIdleTimerDisabled = true }
         }
         .onDisappear { cast.close(); controller.close(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
@@ -282,7 +285,7 @@ struct PlaybackView: View {
         .accessibilityIdentifier("ios.player.options")
     }
 
-    enum OptionsPage { case root, quality, subtitles, audio, speed }
+    enum OptionsPage { case root, quality, subtitles, audio, speed, engine }
 
     private var subtitleTitle: String {
         guard let id = controller.subtitleID else { return "بدون" }
@@ -321,6 +324,12 @@ struct PlaybackView: View {
                     optionRow("الصوت", icon: "waveform", value: controller.audioOptions.first { $0.id == audioBinding.wrappedValue }?.title) { optionsPage = .audio }
                 }
                 optionRow("السرعة", icon: "gauge.with.dots.needle.67percent", value: rateLabel(controller.rate)) { optionsPage = .speed }
+                optionRow("محرك التشغيل", icon: "play.rectangle", value: controller.mode.title) { optionsPage = .engine }
+            case .engine:
+                panelHeader("محرك التشغيل")
+                ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { value in
+                    choiceRow(value.title, selected: value == controller.mode) { controller.chooseEngine(value); optionsPage = nil }
+                }
             case .quality:
                 panelHeader("الجودة")
                 ForEach(streams) { stream in
@@ -512,7 +521,7 @@ struct PlaybackView: View {
         controller.open(media, url: playbackURL, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
-        if phase != .active { controller.player.pause() }
+        if phase != .active { controller.pause() }
     }
 
     private func start(_ media: Media) async {

@@ -24,7 +24,7 @@ struct TVIPTVPlayerView: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
-                IPTVVideoSurface(player: session.controller.player).ignoresSafeArea().allowsHitTesting(false)
+                if !guide { PlaybackVideoSurface(controller: session.controller).ignoresSafeArea().allowsHitTesting(false) }
                 Button { guide = true } label: { Color.clear.contentShape(Rectangle()) }
                     // PlainButtonStyle paints a screen-sized focus backdrop on tvOS; artwork style draws only the clear label.
                     .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")
@@ -72,6 +72,7 @@ struct TVIPTVPlayerView: View {
                         Text(problem.replacingOccurrences(of: "على iOS", with: "على Apple TV")).multilineTextAlignment(.center)
                         HStack(spacing: 28) {
                             Button("إعادة المحاولة") { session.retry(); focus = "surface" }.disabled(session.retrying)
+                            Button("توافق موسّع") { session.controller.chooseEngine(.compatibility); focus = "surface" }
                             Button("القنوات") { guide = true }
                             Button("إغلاق", action: close).accessibilityIdentifier("tv.iptv.player.close")
                         }
@@ -80,7 +81,7 @@ struct TVIPTVPlayerView: View {
                 if guide {
                     HStack {
                         TVIPTVLiveGuide(session: session) { closePanel() }
-                            .frame(width: min(1100, geometry.size.width * 0.72), height: geometry.size.height * 0.82)
+                            .frame(width: min(1740, geometry.size.width * 0.94), height: geometry.size.height * 0.82)
                         Spacer(minLength: 0)
                     }.padding(.horizontal, 54)
                 }
@@ -124,6 +125,12 @@ struct TVIPTVPlayerView: View {
                         }
                         Text("الجودات المتاحة من البث فقط؛ الاختيار يحدد الحد الأقصى، والتلقائي يتكيّف مع الشبكة.").font(.system(size: 22)).foregroundStyle(.secondary)
                         Text("أعلى جودة بحسب البث والشبكة وقدرة الجهاز.").font(.system(size: 22)).foregroundStyle(.secondary)
+                        Divider()
+                        Text("محرك التشغيل").font(.headline)
+                        ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
+                            trackButton(mode.title, id: "engine." + mode.rawValue, selected: session.engineMode == mode) { session.controller.chooseEngine(mode) }
+                        }
+                        Text(session.usesCompatibility ? "المحرك الحالي: التوافق الموسّع" : "المحرك الحالي: Apple").font(.system(size: 22)).foregroundStyle(.secondary)
                     } else if value == "audio" {
                         ForEach(Array(session.audio.enumerated()), id: \.element.id) { index, option in
                             trackButton(option.title, id: index == 0 ? "track.first" : option.id, selected: session.audioID == option.id) { session.chooseAudio(option.id) }
