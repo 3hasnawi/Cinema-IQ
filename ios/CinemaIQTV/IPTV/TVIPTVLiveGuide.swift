@@ -18,6 +18,7 @@ struct TVIPTVLiveGuide: View {
             }
             TextField("ابحث عن قناة", text: $query).font(.system(size: 23)).focused($focus, equals: "search")
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .multilineTextAlignment(.leading)
                 .onSubmit { focus = IPTVNavigation.entry(currentID: session.channel.id, in: visible).map { "channel." + $0 } }
             HStack(alignment: .top, spacing: 20) {
                 ScrollView {
@@ -25,7 +26,7 @@ struct TVIPTVLiveGuide: View {
                         category("كل القنوات", group: nil)
                         ForEach(session.groups, id: \.self) { category($0, group: $0) }
                     }.padding(10)
-                }.frame(width: 230).focusSection()
+                }.frame(width: 270).focusSection()
                     .onMoveCommand { if $0 == .left { focus = IPTVNavigation.entry(currentID: session.channel.id, in: visible).map { "channel." + $0 } } }
                 Divider()
                 ScrollViewReader { proxy in
@@ -64,13 +65,14 @@ struct TVIPTVLiveGuide: View {
             }
         }
         .buttonStyle(.bordered).padding(32)
+        .background(TVTheme.panel.opacity(0.78), in: RoundedRectangle(cornerRadius: 28))
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12)))
         .accessibilityIdentifier("tv.iptv.guide")
     }
     private func category(_ title: String, group: String?) -> some View {
         Button { session.group = group; query = "" } label: {
-            HStack { Text(title).font(.system(size: 22)).lineLimit(2); Spacer(); if session.group == group { Image(systemName: "checkmark") } }
+            HStack { Text(title).font(.system(size: 22)).lineLimit(2).minimumScaleFactor(0.8).layoutPriority(1); Spacer(minLength: 4); if session.group == group { Image(systemName: "checkmark").font(.system(size: 18)) } }
                 .frame(maxWidth: .infinity).padding(4)
         }.focused($focus, equals: "group." + (group ?? "all"))
             .accessibilityIdentifier("tv.iptv.guide.group." + (group ?? "all"))

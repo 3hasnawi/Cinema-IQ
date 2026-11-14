@@ -55,10 +55,12 @@ final class IPTVFlowTests: XCTestCase {
         let doc = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "ios.iptv.guide.channel.", "قناة الوثائقيات")).firstMatch
         XCTAssertTrue(doc.waitForExistence(timeout: 10)); doc.tap()
         waitFor { self.element("ios.iptv.player.title").label == "قناة الوثائقيات" }
-        showPlayerControls(); screenshot("playing-portrait")
+        showPlayerControls(); element("ios.iptv.player.play").tap()
+        waitFor { self.element("ios.iptv.player.status").label == "متوقف مؤقتًا" }
+        screenshot("playing-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
         waitFor { self.app.frame.width > self.app.frame.height }
-        inside(element("ios.iptv.player.close"))
+        showPlayerControls(); inside(element("ios.iptv.player.close"))
         showPlayerControls(); XCTAssertEqual(element("ios.iptv.player.title").label, "قناة الوثائقيات")
         screenshot("playing-landscape")
         showPlayerControls(); element("ios.iptv.player.close").tap()
@@ -92,9 +94,11 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
     private func showPlayerControls() {
-        if !element("ios.iptv.player.close").isHittable {
+        let close = element("ios.iptv.player.close")
+        if !close.exists || close.frame.isEmpty {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
+        waitFor { self.element("ios.iptv.player.close").exists }
     }
     private func openIPTV() {
         let browse = app.buttons.matching(NSPredicate(format: "label == %@", "تصفّح")).firstMatch

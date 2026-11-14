@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CinemaCore
 
 /// A touch-first live player with a floating guide; the AVPlayer stays mounted while sheets are open.
@@ -7,6 +8,7 @@ struct IPTVPlaybackView: View {
     @EnvironmentObject private var store: IPTVStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
+    @Environment(\.verticalSizeClass) private var verticalSize
     @StateObject private var session: IPTVPlayerSession
     @State private var controls = true
     @State private var panel: Panel?
@@ -21,6 +23,9 @@ struct IPTVPlaybackView: View {
         ZStack {
             Color.black.ignoresSafeArea()
             IPTVVideoSurface(player: session.controller.player).ignoresSafeArea().contentShape(Rectangle())
+                .accessibilityElement(children: .ignore).accessibilityLabel("إظهار خيارات المشغل")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { controls = true; interaction += 1 }
                 .onTapGesture { controls.toggle(); interaction += 1 }
                 .gesture(DragGesture(minimumDistance: 50).onEnded { value in
                     guard abs(value.translation.height) > abs(value.translation.width), abs(value.translation.height) > 65 else { return }
@@ -66,6 +71,7 @@ struct IPTVPlaybackView: View {
         .buttonStyle(.plain)
         .onAppear { idleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true; session.attach(store) }
         .onDisappear { session.close(); UIApplication.shared.isIdleTimerDisabled = idleSetting }
+        .onChange(of: verticalSize) { _, _ in controls = true; interaction += 1 }
         .onChange(of: phase) { _, value in
             if value != .active { session.pause(); UIApplication.shared.isIdleTimerDisabled = idleSetting }
             else { UIApplication.shared.isIdleTimerDisabled = true }
@@ -73,7 +79,7 @@ struct IPTVPlaybackView: View {
         .task(id: "\(interaction)|\(panel?.rawValue ?? "")|\(session.playing)|\(controls)") {
             guard controls, panel == nil, session.playing else { return }
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            controls = false
+            if !UIAccessibility.isVoiceOverRunning { controls = false }
         }
         .sheet(item: $panel, onDismiss: { interaction += 1; controls = true }) { value in
             NavigationStack {

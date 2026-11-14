@@ -128,7 +128,8 @@ struct TVIPTVPlayerView: View {
                 }.padding(12)
             }.buttonStyle(.bordered)
         }
-        .padding(38).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
+        .padding(38).background(TVTheme.panel.opacity(0.78), in: RoundedRectangle(cornerRadius: 28))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12)))
         .task(id: value) { await Task.yield(); focus = value == "audio" && session.audio.isEmpty ? "track.close" : "track.first" }
     }

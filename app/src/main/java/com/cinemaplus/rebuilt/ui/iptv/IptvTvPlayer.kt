@@ -73,10 +73,11 @@ import kotlinx.coroutines.*
     var panel by remember { mutableStateOf<Int?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     var refreshTask by remember { mutableStateOf<Job?>(null) }
+    var requestGeneration by remember { mutableIntStateOf(0) }
     fun restoreSurface() { controls = true; interaction++; scope.launch { withFrameNanos { }; runCatching { surface.requestFocus() } } }
     fun tune(next: IptvChannel) {
         if (next.sourceId != initial.sourceId || next.id == channel.id) return
-        refreshTask?.cancel(); refreshing = false; previousId = channel.id; channel = next
+        refreshTask?.cancel(); requestGeneration++; refreshing = false; previousId = channel.id; channel = next
         controls = true; interaction++; error = null; loading = true
     }
     fun surf(step: Int) { IptvNavigation.neighbor(queue, channel.id, step)?.let { tune(it) } }
@@ -166,13 +167,14 @@ import kotlinx.coroutines.*
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Label(error!!, 16)
             IptvButton(if (refreshing) "جارٍ تحديث الرابط…" else "تحديث الرابط وإعادة المحاولة", enabled = !refreshing) {
-                val requested = channel
+                val requested = channel; requestGeneration++; val token = requestGeneration
+                refreshTask?.cancel()
                 refreshTask = scope.launch {
                     refreshing = true
-                    try { val fresh = refresh(requested); if (channel.id == requested.id) { channel = fresh; attempt++ } }
+                    try { val fresh = refresh(requested); if (requestGeneration == token && channel.id == requested.id) { channel = fresh; attempt++ } }
                     catch (e: CancellationException) { throw e }
-                    catch (e: Exception) { if (channel.id == requested.id) error = iptvMessage(e) }
-                    finally { refreshing = false }
+                    catch (e: Exception) { if (requestGeneration == token && channel.id == requested.id) error = iptvMessage(e) }
+                    finally { if (requestGeneration == token) refreshing = false }
                 }
             }
             IptvButton("القنوات") { guide = true }
