@@ -29,7 +29,7 @@ import com.cinemaplus.rebuilt.ui.*
         colors = TvButtonDefaults.colors(containerColor = Glass, contentColor = Brand.TextPrimary,
             focusedContainerColor = androidx.compose.ui.graphics.Color.White, focusedContentColor = Ink),
         shape = TvButtonDefaults.shape(RoundedCornerShape(50)), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)) {
-        Text(text, fontFamily = Cairo)
+        androidx.tv.material3.Text(text, fontFamily = Cairo, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
@@ -41,8 +41,8 @@ import com.cinemaplus.rebuilt.ui.*
         }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Surface(Modifier.fillMaxWidth(.67f).heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .88f).dp), color = Panel.copy(alpha = .98f),
+        BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Surface(Modifier.fillMaxWidth(.67f).heightIn(max = maxHeight * .88f), color = Panel.copy(alpha = .98f),
                 shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Brand.BorderStrong)) {
                 Column(Modifier.padding(28.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(15.dp)) {
                     Label(title, 22, bold = true)

@@ -45,7 +45,7 @@ class IptvTvActivity : ComponentActivity() {
                 bodySmall = t.bodySmall.copy(fontFamily = Cairo), titleMedium = t.titleMedium.copy(fontFamily = Cairo)) }
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                 MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Ink, surface = Panel), typography = type) {
-                    TvScaled { IptvTvScreen(onExit = { finish() }) }
+                    androidx.tv.material3.MaterialTheme { TvScaled { IptvTvScreen(onExit = { finish() }) } }
                 }
             }
         }
