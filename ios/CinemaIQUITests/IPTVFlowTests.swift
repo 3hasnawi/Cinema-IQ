@@ -81,12 +81,12 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.state, .runningForeground)
     }
-    func testCompatibilityDecoderWithTracksAndRotation() {
+    func testCompatibilityDecoderWithTracksAndRotation() throws {
         openAdd(); fill("ios.iptv.form.name", "Compatibility")
         fill("ios.iptv.form.address", "https://iptv.example/channels.m3u\n"); connect()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20)); app.buttons["قناة الأخبار"].tap()
         waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
-        screenshot("compatibility-mpeg2-mp2-playing")
+        try assertCompatibilityVideoVisible(); screenshot("compatibility-mpeg2-mp2-playing")
         tapPlayerControl("play")
         waitFor { (self.element("ios.iptv.player.surface").value as? String) == "متوقف مؤقتًا" }
         tapPlayerControl("audio")
@@ -180,6 +180,27 @@ final class IPTVFlowTests: XCTestCase {
         for _ in 0..<4 { if button.isHittable { break }; app.swipeUp() }
         XCTAssertTrue(button.isEnabled && button.isHittable); button.tap()
         waitFor { !self.element("ios.iptv.form.name").exists }
+    }
+    private func assertCompatibilityVideoVisible() throws {
+        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        let width = 128, height = 72
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        let fraction = try rgba.withUnsafeMutableBytes { bytes -> Double in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let pixels = bytes.bindMemory(to: UInt8.self)
+            var saturated = 0, count = 0
+            // The middle strip stays inside the letterboxed 16:9 clip on both portrait device families.
+            for y in 32..<40 { for x in 16..<112 {
+                let i = (y * width + x) * 4
+                let colors = [Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2])]
+                if colors.max()! - colors.min()! > 100 { saturated += 1 }; count += 1
+            } }
+            return Double(saturated) / Double(count)
+        }
+        XCTAssertGreaterThan(fraction, 0.7, "The decoder must render actual video pixels, not merely report playing")
     }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
     private func waitFor(_ condition: @escaping () -> Bool) {

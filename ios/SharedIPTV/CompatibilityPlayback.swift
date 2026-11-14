@@ -23,11 +23,33 @@ import CinemaCore
     private var desiredRate: Float = 1
     private var desiredSubtitle: String?
     private var subtitleWasChosen = false
+    private static var pendingShutdown: Task<Void, Never>?
     private static let shutdownQueue = DispatchQueue(label: "cinema.playback.shutdown", qos: .utility)
     // VLC's stop can block while a stream is closing. No UI or delegate accesses this retired instance.
     private final class RetiredPlayer: @unchecked Sendable {
         let value: VLCMediaPlayer
         init(_ value: VLCMediaPlayer) { self.value = value }
+    }
+
+    @MainActor private final class Retirement: NSObject, VLCMediaPlayerDelegate {
+        let player: VLCMediaPlayer
+        private var continuation: CheckedContinuation<Void, Never>?
+        init(_ player: VLCMediaPlayer) { self.player = player }
+        func finish() async {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation; player.delegate = self
+                let retired = RetiredPlayer(player)
+                CompatibilityPlayback.shutdownQueue.async { retired.value.stop() }
+            }
+            player.delegate = nil
+        }
+        nonisolated func mediaPlayerStateChanged(_ aNotification: Notification) {
+            guard let player = aNotification.object as? VLCMediaPlayer, player.state == .stopped else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let completion = continuation; continuation = nil; completion?.resume()
+            }
+        }
     }
 
     func open(url: URL, resume: Double, rate: Float, playing: Bool, audioID: String?, subtitleID: String?, maximumHeight: Int?, highest: Bool,
@@ -38,9 +60,7 @@ import CinemaCore
         subtitleWasChosen = subtitleID?.hasPrefix("vlcs:") == true; desiredSubtitle = subtitleWasChosen ? subtitleID : nil
         task = Task { @MainActor [weak self] in
             // Serialize retirement before starting the next channel; never run two live decoders together.
-            await withCheckedContinuation { continuation in
-                Self.shutdownQueue.async { continuation.resume() }
-            }
+            if let pending = Self.pendingShutdown { await pending.value }
             guard let self, !Task.isCancelled, generation == token else { return }
             diagnostic("shutdown queue drained")
             let value = VLCMediaPlayer(options: ["--quiet", "--no-video-title-show"])
@@ -136,8 +156,13 @@ import CinemaCore
         generation = UUID(); task?.cancel(); task = nil; update = nil
         guard let old = engine else { return }; engine = nil
         old.delegate = nil; old.pause(); old.drawable = nil
-        let retired = RetiredPlayer(old)
-        Self.shutdownQueue.async { retired.value.stop() }
+        let previous = Self.pendingShutdown
+        Self.pendingShutdown = Task { @MainActor in
+            if let previous { await previous.value }
+            // This stable VLC build has asynchronous stop: retain it until its own stopped event.
+            // Releasing after stop() merely returns can assert/crash or overlap the next decoder.
+            await Retirement(old).finish()
+        }
     }
 }
 
