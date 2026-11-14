@@ -19,6 +19,8 @@ import androidx.compose.ui.focus.*
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -60,7 +62,9 @@ import kotlinx.coroutines.*
                     else PlaybackException.ERROR_CODE_IO_UNSPECIFIED) }
                 spec
             })
-        ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(restricted)).build()
+        ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(restricted))
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
+            .setHandleAudioBecomingNoisy(true).build()
     }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -133,7 +137,8 @@ import kotlinx.coroutines.*
                 }
                 true
             } else false
-        }.clickable { if (television) guide = true else { controls = !controls; interaction++ } }
+        }.semantics { contentDescription = if (television) "قائمة القنوات" else "إظهار خيارات المشغل" }
+            .clickable(role = androidx.compose.ui.semantics.Role.Button) { if (television) guide = true else { controls = !controls; interaction++ } }
             .pointerInput(channel.id, queue, television) {
                 if (!television) { var delta = 0f; detectVerticalDragGestures(onDragStart = { delta = 0f }, onVerticalDrag = { _, value -> delta += value },
                     onDragEnd = { if (kotlin.math.abs(delta) > 100f) surf(if (delta < 0) 1 else -1) }) }
