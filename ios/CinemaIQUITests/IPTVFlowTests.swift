@@ -23,7 +23,12 @@ final class IPTVFlowTests: XCTestCase {
         openAdd()
         fill("ios.iptv.form.name", "M3U Test")
         fill("ios.iptv.form.address", "http://iptv.example/channels.m3u\n")
-        app.switches["ios.iptv.form.allowHTTP"].tap()
+        // SwiftUI exposes a labelled row switch and a nested native UISwitch on iPad.
+        // Tap the actual control, then verify consent before submitting an HTTP source.
+        let consent = app.switches["ios.iptv.form.allowHTTP"]
+        XCTAssertTrue(consent.waitForExistence(timeout: 10))
+        consent.switches.firstMatch.tap()
+        waitFor { (consent.value as? String) == "1" }
         connect()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["قناة الرياضة"].exists)
