@@ -57,7 +57,7 @@ import CinemaCore
             diagnostic("play requested")
             var appliedTracks = false
             while !Task.isCancelled, generation == token {
-                if !appliedTracks, value.state == .playing || value.state == .paused {
+                if !appliedTracks, value.isPlaying || value.state == .paused {
                     appliedTracks = true
                     if let audioID, audioID.hasPrefix("vlca:") { selectAudio(audioID) }
                     if subtitleWasChosen { selectSubtitle(desiredSubtitle) }
@@ -93,17 +93,20 @@ import CinemaCore
             return MediaOption(id: prefix + index.stringValue, title: String(describing: name))
         }
     }
-    private func publish(_ value: VLCMediaPlayer) {
+    private func publish(_ value: VLCMediaPlayer, stateOverride: VLCMediaPlayerState? = nil) {
         guard value === engine else { return }
-        let state = value.state
+        let state = stateOverride ?? value.state
+        let running = value.isPlaying
         diagnostic("state=\(state.rawValue) time=\(value.time.intValue) audio=\(value.audioTrackIndexes.count) drawable=\(surface?.bounds.size ?? .zero) window=\(surface?.window != nil)")
         // A paused request issued during opening must survive the decoder's asynchronous ready event.
-        if state == .playing && !wantsPlay { value.pause() }
+        if running && !wantsPlay { value.pause() }
         var result = Snapshot()
         result.position = max(0, Double(value.time.intValue) / 1000)
         result.duration = max(0, Double(value.media?.length.intValue ?? 0) / 1000)
-        result.playing = wantsPlay && (state == .playing || state == .opening || state == .buffering)
-        result.buffering = state == .opening || state == .buffering
+        // VLCKit 3 caches its last event, including Buffering(100%) and ESAdded, even while decoding.
+        // Query actual transport state so a completed buffer event cannot leave an endless spinner.
+        result.buffering = wantsPlay && !running && (state == .opening || state == .buffering)
+        result.playing = wantsPlay && (running || result.buffering)
         result.ended = state == .ended; result.failed = state == .error
         result.audio = tracks(value.audioTrackNames, value.audioTrackIndexes, prefix: "vlca:")
         result.subtitles = tracks(value.videoSubTitlesNames, value.videoSubTitlesIndexes, prefix: "vlcs:")
@@ -114,9 +117,9 @@ import CinemaCore
     }
     nonisolated func mediaPlayerStateChanged(_ aNotification: Notification) {
         guard let value = aNotification.object as? VLCMediaPlayer else { return }
-        let identity = ObjectIdentifier(value)
+        let identity = ObjectIdentifier(value), state = value.state.rawValue
         Task { @MainActor [weak self] in
-            guard let self, let engine, ObjectIdentifier(engine) == identity else { return }; publish(engine)
+            guard let self, let engine, ObjectIdentifier(engine) == identity else { return }; publish(engine, stateOverride: VLCMediaPlayerState(rawValue: state))
         }
     }
     private func diagnostic(_ text: String) {
