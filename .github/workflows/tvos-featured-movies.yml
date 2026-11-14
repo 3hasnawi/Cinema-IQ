@@ -1,0 +1,99 @@
+name: Apple TV featured movie checks
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/CinemaIQTV/TVHomeView.swift'
+      - 'ios/Core/Sources/CinemaCore/FeaturedMovies.swift'
+      - 'ios/Core/Tests/CinemaCoreTests/FeaturedMoviesTests.swift'
+      - '.github/workflows/tvos-featured-movies.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tvos-featured-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  featured:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+      - name: Test deterministic Core behavior
+        # The ordinary Core workflow still runs the independent live-CDN reachability probe.
+        # This regression check excludes only that probe, which can fail on external HTTP 403s.
+        run: |
+          set -o pipefail
+          swift test --package-path ios/Core --skip 'ExternalSourceTests[./]testDemoStreamsAndArtworkAreReachable' \
+            2>&1 | tee "$RUNNER_TEMP/core.log"
+      - name: Generate project
+        run: |
+          brew install xcodegen
+          cd ios
+          xcodegen generate --spec project.yml
+      - name: Compile Apple TV Release without exporting
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          xcodebuild -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV -configuration Release \
+            -sdk appletvos -destination 'generic/platform=tvOS' -derivedDataPath "$RUNNER_TEMP/FeaturedRelease" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+            TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            build 2>&1 | tee "$RUNNER_TEMP/release.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)' || true
+          grep -q 'BUILD SUCCEEDED' "$RUNNER_TEMP/release.log"
+      - name: Prepare Apple TV simulator
+        timeout-minutes: 6
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          def sim(*args): return subprocess.check_output(['xcrun','simctl',*args], text=True)
+          runtimes = [r for r in json.loads(sim('list','runtimes','--json'))['runtimes']
+                      if r['isAvailable'] and '.tvOS-' in r['identifier']]
+          runtime = max(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
+          types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
+          kind = next(t['identifier'] for t in types if 'Apple TV 4K' in t['name'] and '1080p' in t['name'])
+          device = sim('create','FeaturedMoviesCheck',kind,runtime).strip()
+          with open(os.environ['GITHUB_ENV'],'a') as output: output.write('TV_FEATURED_DEVICE='+device+'\n')
+          sim('boot',device)
+          subprocess.run(['open','-a',subprocess.check_output(['xcode-select','-p'],text=True).strip()+'/Applications/Simulator.app',
+                          '--args','-CurrentDeviceUDID',device],check=True)
+          subprocess.run(['xcrun','simctl','bootstatus',device,'-b'],check=True)
+          PY
+      - name: Check movie-only carousel and remote navigation
+        timeout-minutes: 12
+        run: |
+          set -o pipefail
+          xcodebuild test -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_FEATURED_DEVICE" -derivedDataPath "$RUNNER_TEMP/FeaturedUI" \
+            -only-testing:CinemaIQTVUITests/TVVisualAuditTests/testCarouselRemoteWrapAndAutomaticAdvance \
+            -only-testing:CinemaIQTVUITests/TVVisualAuditTests/testCarouselStopsWhileBrowsingShelves \
+            -resultBundlePath "$RUNNER_TEMP/featured.xcresult" -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
+            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/ui.log" | grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' || true
+          grep -Eq '\*\* TEST( EXECUTE)? SUCCEEDED \*\*' "$RUNNER_TEMP/ui.log"
+      - name: Export screenshot evidence
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/featured.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/featured.xcresult" --output-path "$RUNNER_TEMP/evidence"
+            find "$RUNNER_TEMP/evidence" -name '*.mp4' -delete
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tvos-featured-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/core.log
+            ${{ runner.temp }}/release.log
+            ${{ runner.temp }}/ui.log
+            ${{ runner.temp }}/evidence
+          retention-days: 1
+          if-no-files-found: warn

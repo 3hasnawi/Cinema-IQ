@@ -6,6 +6,7 @@ struct TVHomeView: View {
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @State private var shelves: [Shelf] = []
+    @State private var featured: [Media] = []
     @State private var loading = false
     @State private var error: String?
     @State private var heroIndex = 0
@@ -26,13 +27,6 @@ struct TVHomeView: View {
     @State private var scrollPosition = ScrollPosition(edge: .top)
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
-    private var featured: [Media] {
-        var seen = Set<String>()
-        let all = shelves.flatMap(\.items).filter { seen.insert($0.id).inserted }
-        let wide = all.filter { !$0.backdrop.isEmpty }
-        let illustrated = all.filter { !$0.poster.isEmpty || !$0.backdrop.isEmpty }
-        return Array((wide.count >= 3 ? wide : (illustrated.isEmpty ? all : illustrated)).prefix(8))
-    }
     private var hero: Media? { featured.indices.contains(heroIndex) ? featured[heroIndex] : featured.first }
     private var recent: [Media] { library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source } }
 
@@ -111,7 +105,7 @@ struct TVHomeView: View {
         }
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
-            if loadedSource != sourceName { shelves = []; heroIndex = 0; featuredFocus = false; initialFocusAssigned = false }
+            if loadedSource != sourceName { shelves = []; featured = []; heroIndex = 0; featuredFocus = false; initialFocusAssigned = false }
             await load()
         }
         .onDisappear { focusRecovery?.cancel(); focusRecovery = nil }
@@ -161,9 +155,12 @@ struct TVHomeView: View {
         loadID = request; loading = true; error = nil
         defer { if loadID == request { loading = false } }
         do {
-            let result = try await SourceClient().home(SourcePreference.source(requestedSource))
+            let result = try await SourceClient().home(SourcePreference.source(requestedSource), prioritizeFeaturedMovies: true)
             try Task.checkCancellation()
             guard loadID == request, sourceName == requestedSource else { return }
+            let highlights = FeaturedMovies.select(from: result)
+            heroIndex = min(heroIndex, max(0, highlights.count - 1))
+            featured = highlights
             shelves = result
             loadedSource = requestedSource
         } catch is CancellationError {

@@ -1,0 +1,16 @@
+{"groups":[
+ {"groupsID":"1","ar_title":"أضيف حديثاً","content":[{"nb":"101","ar_title":"فيلم حديث","kind":"1","imgObjUrl":"wide/latest.jpg"}]},
+ {"groupsID":"2","ar_title":"أكشن","content":[]},
+ {"groupsID":"3","ar_title":"رعب","content":[]},
+ {"groupsID":"4","ar_title":"دراما","content":[]},
+ {"groupsID":"5","ar_title":"كوميديا","content":[]},
+ {"groupsID":"6","ar_title":"رسوم متحركة","content":[]},
+ {"groupsID":"7","ar_title":"الأكثر مشاهدة","content":[]},
+ {"groupsID":"8","ar_title":"أحدث المسلسلات","content":[]},
+ {"groupsID":"9","ar_title":"المسلسلات المميزة","content":[{"nb":"201","ar_title":"مسلسل مميز","kind":"2","imgObjUrl":"wide/show.jpg"}]},
+ {"groupsID":"10","ar_title":"الأفلام المميّزة","content":[
+   {"nb":"301","ar_title":"الفيلم المميز الأول","kind":"1","imgMediumThumbObjUrl":"posters/featured.jpg"},
+   {"nb":"302","ar_title":"الفيلم المميز الثاني","kind":"1"},
+   {"nb":"303","ar_title":"حلقة","kind":"2","episodeNummer":"4"}
+ ]}
+]}
