@@ -76,7 +76,9 @@ final class TVIPTVFlowTests: XCTestCase {
         let field = element(id)
         focus(field, direction: .down); remote.press(.select)
         app.typeText(text)
-        remote.press(.menu) // Native tvOS keyboard commits its value and returns to the form.
+        let done = app.buttons.matching(NSPredicate(format: "label == 'Done' OR label == 'تم' OR label == 'OK'")).firstMatch
+        if done.waitForExistence(timeout: 3) { focus(done, direction: .down); remote.press(.select) }
+        else { app.typeText("\n") }
         XCTAssertTrue(element("tv.iptv.form.save").exists)
     }
     private func openIPTV() {
@@ -94,7 +96,7 @@ final class TVIPTVFlowTests: XCTestCase {
     private func focus(_ element: XCUIElement, direction: XCUIRemote.Button) {
         // Move with the actual remote toward the element's live geometry, including horizontal toolbars.
         for _ in 0..<32 {
-            if element.exists && element.hasFocus { return }
+            if element.exists && isFocused(element) { return }
             guard element.exists else { remote.press(direction); continue }
             let current = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
             guard current.exists else { remote.press(direction); continue }
@@ -103,12 +105,22 @@ final class TVIPTVFlowTests: XCTestCase {
             else if abs(dx) > 20 { remote.press(dx > 0 ? .right : .left) }
             else { remote.press(direction) }
         }
-        XCTAssertTrue(element.hasFocus, "The remote could not reach \(element.identifier)")
+        XCTAssertTrue(isFocused(element), "The remote could not reach \(element.identifier)")
     }
     private func expectFocus(_ element: XCUIElement) {
         XCTAssertTrue(element.waitForExistence(timeout: 25))
-        let focused = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: element)
+        let focused = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in self.isFocused(element) }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [focused], timeout: 20), .completed)
+    }
+    private func isFocused(_ element: XCUIElement) -> Bool {
+        if element.hasFocus { return true }
+        // Native tvOS list rows can own focus on behalf of their single action/field.
+        let id = element.identifier.isEmpty ? element.label : element.identifier
+        guard !id.isEmpty else { return false }
+        let cell = app.cells.containing(.any, identifier: id).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+        guard cell.exists else { return false }
+        let actions = Set(cell.buttons.allElementsBoundByIndex.map { $0.identifier.isEmpty ? $0.label : $0.identifier })
+        return actions.count <= 1
     }
     private func waitFor(_ block: @escaping () -> Bool) {
         let value = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in block() }, object: nil)

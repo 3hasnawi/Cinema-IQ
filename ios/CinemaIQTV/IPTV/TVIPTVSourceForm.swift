@@ -24,7 +24,7 @@ struct TVIPTVSourceForm: View {
                             .focused($focus, equals: "m3u").accessibilityIdentifier("tv.iptv.form.m3u")
                         Button { kind = .xtream } label: { Label("Xtream", systemImage: kind == .xtream ? "checkmark.circle.fill" : "person.crop.rectangle") }
                             .focused($focus, equals: "xtream").accessibilityIdentifier("tv.iptv.form.xtream")
-                    }
+                    }.buttonStyle(.bordered)
                 }
                 Section {
                     TextField("اسم المصدر", text: $name).accessibilityIdentifier("tv.iptv.form.name")
@@ -56,6 +56,7 @@ struct TVIPTVSourceForm: View {
                         .focused($focus, equals: "cancel").accessibilityIdentifier("tv.iptv.form.cancel")
                 } footer: { Text("تحفظ بيانات الاشتراك على Apple TV في Keychain، ولا تُرسل إلى حساب المزامنة.") }
             }
+            .buttonStyle(.bordered)
             .navigationTitle(existing == nil ? "إضافة مصدر IPTV" : "تعديل مصدر IPTV")
         }
         .defaultFocus($focus, "m3u")

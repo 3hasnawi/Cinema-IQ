@@ -102,6 +102,7 @@ private struct TVIPTVSystemPlayer: UIViewControllerRepresentable {
         view.player = player
         view.view.backgroundColor = .black
         view.view.semanticContentAttribute = .forceLeftToRight
+        view.transportBarIncludesTitleView = false
         view.view.accessibilityIdentifier = "tv.iptv.player.native"
         return view
     }

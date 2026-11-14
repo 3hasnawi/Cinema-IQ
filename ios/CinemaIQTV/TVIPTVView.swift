@@ -14,6 +14,7 @@ struct TVIPTVView: View {
     @State private var lastControl = "add"
     @State private var reloadID = UUID()
     @State private var forceReload = false
+    @State private var editingSearch = false
     @FocusState private var focus: String?
     private enum Sheet: Identifiable {
         case source(IPTVSource?), sources, groups
@@ -82,17 +83,24 @@ struct TVIPTVView: View {
             }.value
             guard !Task.isCancelled else { return }
             visible = result
-            if focus != "search", sheet == nil, playing == nil { await Task.yield(); focus = initialFocus }
+            if !editingSearch, sheet == nil, playing == nil { await Task.yield(); focus = initialFocus }
         }
         .onChange(of: store.selectedID) { _, _ in group = nil; query = ""; lastChannel = nil }
         .onChange(of: store.storageLoading) { _, loading in if !loading { focus = initialFocus } }
+        .onChange(of: focus) { _, value in
+            if value == "search" { editingSearch = true }
+            else if value != nil { editingSearch = false }
+        }
         .onAppear { focus = initialFocus }
-        .sheet(item: $sheet, onDismiss: { focus = lastControl == "add" && !visible.isEmpty ? initialFocus : lastControl }) { item in
-            switch item {
-            case .source(let source): TVIPTVSourceForm(existing: source).environmentObject(store)
-            case .sources: TVIPTVSourcesView(edit: { sheet = .source($0) }).environmentObject(store)
-            case .groups: TVIPTVGroupView(groups: store.catalog.groups, selection: $group)
+        .fullScreenCover(item: $sheet, onDismiss: { focus = lastControl == "add" && !visible.isEmpty ? initialFocus : lastControl }) { item in
+            Group {
+                switch item {
+                case .source(let source): TVIPTVSourceForm(existing: source).environmentObject(store)
+                case .sources: TVIPTVSourcesView(edit: { sheet = .source($0) }).environmentObject(store)
+                case .groups: TVIPTVGroupView(groups: store.catalog.groups, selection: $group)
+                }
             }
+            .environment(\.layoutDirection, .rightToLeft)
         }
         .fullScreenCover(item: $playing, onDismiss: {
             if let lastChannel, visible.contains(where: { $0.id == lastChannel }) { focus = "channel." + lastChannel }
@@ -120,7 +128,7 @@ struct TVIPTVView: View {
                 .disabled(store.loading).focused($focus, equals: "group").accessibilityIdentifier("tv.iptv.groups")
             TextField("ابحث عن قناة", text: $query).textInputAutocapitalization(.never).autocorrectionDisabled()
                 .focused($focus, equals: "search").accessibilityIdentifier("tv.iptv.search")
-                .onSubmit { focus = initialFocus }
+                .onSubmit { editingSearch = false; focus = initialFocus }
             Button(action: refresh) { Image(systemName: "arrow.clockwise") }
                 .disabled(store.loading).focused($focus, equals: "refresh").accessibilityLabel("تحديث القنوات").accessibilityIdentifier("tv.iptv.refresh")
         }
@@ -162,7 +170,7 @@ private struct TVIPTVGroupView: View {
                         .focused($focus, equals: group).accessibilityIdentifier("tv.iptv.group." + group)
                 }
                 Button("إغلاق") { dismiss() }
-            }.navigationTitle("تصنيفات القنوات")
+            }.buttonStyle(.bordered).navigationTitle("تصنيفات القنوات")
         }.defaultFocus($focus, selection ?? "all").onExitCommand { dismiss() }
     }
     private func row(_ text: String, selected: Bool) -> some View {
@@ -188,12 +196,12 @@ private struct TVIPTVSourcesView: View {
                         HStack(spacing: 32) {
                             Button("تعديل") { edit(source) }.accessibilityIdentifier("tv.iptv.edit." + source.id)
                             Button("حذف", role: .destructive) { deleting = source }.accessibilityIdentifier("tv.iptv.delete." + source.id)
-                        }
+                        }.buttonStyle(.bordered)
                     }
                 }
                 if let message = store.message { Text(message).foregroundStyle(.secondary) }
                 Button("إغلاق") { dismiss() }
-            }.navigationTitle("مصادر IPTV")
+            }.buttonStyle(.bordered).navigationTitle("مصادر IPTV")
         }
         .defaultFocus($focus, store.selectedID ?? store.sources.first?.id ?? "")
         .onExitCommand { dismiss() }
