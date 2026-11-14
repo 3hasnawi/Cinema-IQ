@@ -111,7 +111,9 @@ struct TVIPTVView: View {
             }
             .environment(\.layoutDirection, .rightToLeft)
         }
-        .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in TVIPTVPlayerView(initial: channel).environmentObject(store) }
+        .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in
+            TVIPTVPlayerView(initial: channel).environmentObject(store).environment(\.layoutDirection, .rightToLeft)
+        }
         .onDisappear { focusTask?.cancel() }
         // Let native keyboards, modal lists and AVKit consume Menu before this page's Home fallback.
         .onExitCommand(perform: sheet == nil && playing == nil ? { router.tab = .home } : nil)

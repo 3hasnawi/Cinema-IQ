@@ -23,6 +23,7 @@ struct TVIPTVPlayerView: View {
             Color.black.ignoresSafeArea()
             if failure == nil {
                 TVIPTVSystemPlayer(player: controller.player, title: channel.name, status: status).ignoresSafeArea()
+                    .environment(\.layoutDirection, .leftToRight)
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("tv.iptv.player.native").accessibilityValue(status)
                 if !controller.playing || controller.buffering {
