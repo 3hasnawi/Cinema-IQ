@@ -94,7 +94,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func openNative(url: URL, resume: Double, playing shouldPlay: Bool = true) {
-        usesCompatibility = false; ended = false
+        usesCompatibility = false; ended = false; wantsPlay = shouldPlay
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -146,6 +146,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func startCompatibility(resume: Double, playing shouldPlay: Bool) {
+        wantsPlay = shouldPlay
         let chosenAudio = audioID, chosenSubtitle = subtitleID
         releaseNative(); usesCompatibility = true; error = nil; lastFailure = nil; ended = false
         if subtitleID?.hasPrefix("emb:") == true { subtitleID = nil }
