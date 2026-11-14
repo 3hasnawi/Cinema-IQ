@@ -182,10 +182,19 @@ final class IPTVFlowTests: XCTestCase {
         waitFor { !self.element("ios.iptv.form.name").exists }
     }
     private func assertCompatibilityVideoVisible() throws {
-        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        var fraction = try saturatedFraction(XCUIScreen.main.screenshot())
+        let deadline = Date().addingTimeInterval(8)
+        while fraction <= 0.70 && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            fraction = try saturatedFraction(XCUIScreen.main.screenshot())
+        }
+        XCTAssertGreaterThan(fraction, 0.70, "The decoder must render actual video pixels, not merely report playing")
+    }
+    private func saturatedFraction(_ capture: XCUIScreenshot) throws -> Double {
+        let image = try XCTUnwrap(capture.image.cgImage)
         let width = 128, height = 72
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
-        let fraction = try rgba.withUnsafeMutableBytes { bytes -> Double in
+        return try rgba.withUnsafeMutableBytes { bytes -> Double in
             let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: width, height: height,
                 bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
@@ -200,7 +209,6 @@ final class IPTVFlowTests: XCTestCase {
             } }
             return Double(saturated) / Double(count)
         }
-        XCTAssertGreaterThan(fraction, 0.7, "The decoder must render actual video pixels, not merely report playing")
     }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
     private func waitFor(_ condition: @escaping () -> Bool) {

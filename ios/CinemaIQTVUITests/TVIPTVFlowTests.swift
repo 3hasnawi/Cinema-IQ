@@ -117,6 +117,10 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertEqual(player.value as? String, "متوقف مؤقتًا")
         remote.press(.left); focus(element("tv.iptv.player.subtitles"), direction: .right); remote.press(.select)
         expectFocus(element("tv.iptv.track.first")); remote.press(.down); remote.press(.select); expectFocus(player)
+        remote.press(.left); focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first")); remote.press(.down); expectFocus(element("tv.iptv.track.highest")); remote.press(.select)
+        expectFocus(player); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
+        try assertReferenceVideoVisible("compatibility-paused-highest-quality")
         remote.press(.select)
         XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15)); shot("compatibility-guide-preview")
         let current = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'tv.iptv.guide.channel.' AND label CONTAINS %@", "قناة الأخبار")).firstMatch
@@ -150,15 +154,24 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
     private func assertReferenceVideoVisible(_ name: String) throws {
-        let capture = XCUIScreen.main.screenshot()
+        var capture = XCUIScreen.main.screenshot()
+        var fraction = try saturatedFraction(capture)
+        let deadline = Date().addingTimeInterval(8)
+        while fraction <= 0.70 && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            capture = XCUIScreen.main.screenshot(); fraction = try saturatedFraction(capture)
+        }
         let attachment = XCTAttachment(screenshot: capture); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        XCTAssertGreaterThan(fraction, 0.70, "Focused playback must show the video, without a screen-sized button backdrop")
+    }
+    private func saturatedFraction(_ capture: XCUIScreenshot) throws -> Double {
         let image = try XCTUnwrap(capture.image.cgImage)
         XCTAssertGreaterThan(image.width, 100)
         // The bundled SMPTE clip has saturated bars in the middle, away from all transport/title overlays.
         // A system focus backdrop washes those bars white even though accessibility/remote tests still pass.
         let width = 128, height = 72
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
-        let fraction = try rgba.withUnsafeMutableBytes { bytes -> Double in
+        return try rgba.withUnsafeMutableBytes { bytes -> Double in
             let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: width, height: height,
                 bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
@@ -173,7 +186,6 @@ final class TVIPTVFlowTests: XCTestCase {
             } }
             return Double(saturated) / Double(count)
         }
-        XCTAssertGreaterThan(fraction, 0.70, "Focused playback must show the video, without a screen-sized button backdrop")
     }
     func testAddM3USourceWithNativeKeyboard() {
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset"]

@@ -19,6 +19,7 @@ import CinemaCore
     private var generation = UUID()
     private var task: Task<Void, Never>?
     private var update: ((Snapshot) -> Void)?
+    private var clockStarted = false
     private var wantsPlay = true
     private var desiredRate: Float = 1
     private var desiredSubtitle: String?
@@ -55,7 +56,7 @@ import CinemaCore
     func open(url: URL, resume: Double, rate: Float, playing: Bool, audioID: String?, subtitleID: String?, maximumHeight: Int?, highest: Bool,
               update: @escaping (Snapshot) -> Void) {
         close(); let token = UUID(); generation = token
-        self.update = update; wantsPlay = playing; desiredRate = rate
+        self.update = update; wantsPlay = playing; desiredRate = rate; clockStarted = false
         diagnostic("open queued")
         subtitleWasChosen = subtitleID?.hasPrefix("vlcs:") == true; desiredSubtitle = subtitleWasChosen ? subtitleID : nil
         task = Task { @MainActor [weak self] in
@@ -125,7 +126,10 @@ import CinemaCore
         result.duration = max(0, Double(value.media?.length.intValue ?? 0) / 1000)
         // VLCKit 3 caches its last event, including Buffering(100%) and ESAdded, even while decoding.
         // Query actual transport state so a completed buffer event cannot leave an endless spinner.
-        result.buffering = wantsPlay && !running && (state == .opening || state == .buffering)
+        if result.position > 0 && (value.numberOfVideoTracks <= 0 || value.hasVideoOut) { clockStarted = true }
+        // libVLC can report Playing before its output clock delivers the first video/audio frame.
+        result.buffering = wantsPlay && state != .error && state != .ended &&
+            (!clockStarted || (!running && (state == .opening || state == .buffering)))
         result.playing = wantsPlay && (running || result.buffering)
         result.ended = state == .ended; result.failed = state == .error
         result.audio = tracks(value.audioTrackNames, value.audioTrackIndexes, prefix: "vlca:")
