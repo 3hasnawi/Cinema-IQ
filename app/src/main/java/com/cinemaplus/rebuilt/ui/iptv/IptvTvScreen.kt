@@ -159,7 +159,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
         border = BorderStroke(if (hasFocus) 2.dp else 1.dp, if (hasFocus) Accent else Brand.BorderStrong)) {
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Glass), contentAlignment = Alignment.Center) {
-                if (channel.logo != null) AsyncImage(channel.logo, null, Modifier.fillMaxSize().padding(5.dp), contentScale = ContentScale.Fit, imageLoader = logos)
+                if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.fillMaxSize().padding(5.dp), contentScale = ContentScale.Fit, imageLoader = logos)
                 else Label("TV", 16, bold = true)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
