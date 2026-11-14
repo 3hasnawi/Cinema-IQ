@@ -48,6 +48,8 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
     func testRemoteChannelSurfingAndFloatingGuide() {
+        // Hosted Intel XCTest snapshots can take several seconds per remote move in this longer flow.
+        executionTimeAllowance = 360
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
         app.launch(); openIPTV()
         let news = channel("قناة الأخبار"); expectFocus(news); remote.press(.select)

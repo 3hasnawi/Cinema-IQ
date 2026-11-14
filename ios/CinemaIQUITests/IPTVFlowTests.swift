@@ -106,6 +106,20 @@ final class IPTVFlowTests: XCTestCase {
         waitFor { self.element("ios.iptv.player.close").exists }
     }
     private func openIPTV() {
+        if tablet {
+            // Exercise iPad's native IPTV tab/sidebar instead of a Browse stack restored across rotation.
+            let tab = app.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@ AND (elementType == %d OR elementType == %d)", "IPTV",
+                XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue)).firstMatch
+            if !tab.exists || !tab.isHittable {
+                let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
+                if sidebar.exists && sidebar.isHittable { sidebar.tap() }
+            }
+            XCTAssertTrue(tab.waitForExistence(timeout: 25)); tab.tap()
+            XCTAssertTrue(element("ios.iptv.add").waitForExistence(timeout: 20))
+            screenshot("ipad-entry")
+            return
+        }
         let browse = app.buttons.matching(NSPredicate(format: "label == %@", "تصفّح")).firstMatch
         if !browse.exists || !browse.isHittable {
             let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
