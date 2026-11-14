@@ -12,6 +12,9 @@ struct TVIPTVView: View {
     @State private var playing: IPTVChannel?
     @State private var lastChannel: String?
     @State private var lastControl = "add"
+    @State private var modalSource: String?
+    @State private var modalGroup: String?
+    @State private var modalRevision = UUID()
     @State private var reloadID = UUID()
     @State private var forceReload = false
     @State private var editingSearch = false
@@ -92,7 +95,7 @@ struct TVIPTVView: View {
             else if value != nil { editingSearch = false }
         }
         .onAppear { focus = initialFocus }
-        .fullScreenCover(item: $sheet, onDismiss: { focus = lastControl == "add" && !visible.isEmpty ? initialFocus : lastControl }) { item in
+        .fullScreenCover(item: $sheet, onDismiss: restoreAfterModal) { item in
             Group {
                 switch item {
                 case .source(let source): TVIPTVSourceForm(existing: source).environmentObject(store)
@@ -151,7 +154,14 @@ struct TVIPTVView: View {
         .padding(24).frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
         .background(TVTheme.panel, in: RoundedRectangle(cornerRadius: 24))
     }
-    private func present(_ item: Sheet, from control: String) { lastControl = control; sheet = item }
+    private func present(_ item: Sheet, from control: String) {
+        lastControl = control; modalSource = store.selectedID; modalGroup = group; modalRevision = store.sourceRevision
+        sheet = item
+    }
+    private func restoreAfterModal() {
+        let changed = modalSource != store.selectedID || modalGroup != group || modalRevision != store.sourceRevision
+        focus = changed && !visible.isEmpty ? initialFocus : lastControl
+    }
     private func refresh() { forceReload = true; reloadID = UUID() }
 }
 

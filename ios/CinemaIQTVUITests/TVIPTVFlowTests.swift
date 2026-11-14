@@ -76,9 +76,8 @@ final class TVIPTVFlowTests: XCTestCase {
         let field = element(id)
         focus(field, direction: .down); remote.press(.select)
         app.typeText(text)
-        let done = app.buttons.matching(NSPredicate(format: "label == 'Done' OR label == 'تم' OR label == 'OK'")).firstMatch
-        if done.waitForExistence(timeout: 3) { focus(done, direction: .down); remote.press(.select) }
-        else { app.typeText("\n") }
+        remote.press(.menu) // Native tvOS text bindings retain the entered value when leaving the keyboard.
+        waitFor { !self.app.keyboards.firstMatch.exists }
         XCTAssertTrue(element("tv.iptv.form.save").exists)
     }
     private func openIPTV() {
