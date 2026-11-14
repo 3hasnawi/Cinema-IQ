@@ -5,7 +5,7 @@ on:
       scenario:
         description: Run the full IPTV flow or the quality-controls scenario
         type: choice
-        options: [all, quality]
+        options: [all, quality, visibility]
         default: all
 permissions:
   contents: read
@@ -89,6 +89,7 @@ jobs:
           set -o pipefail
           test_id=CinemaIQTVUITests/TVIPTVFlowTests
           if [ "$IPTV_TEST_SCENARIO" = quality ]; then test_id="$test_id/testHighestQualityPreferenceAndAutomaticSelection"; fi
+          if [ "$IPTV_TEST_SCENARIO" = visibility ]; then test_id="$test_id/testFocusedVideoHasNoButtonBackdrop"; fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
             -only-testing:"$test_id" \

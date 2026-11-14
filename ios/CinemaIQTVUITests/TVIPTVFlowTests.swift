@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 
 /// Real remote navigation and isolated actual Keychain storage; accounts and network responses are fixtures.
 final class TVIPTVFlowTests: XCTestCase {
@@ -79,6 +80,54 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(player.exists); XCTAssertFalse(element("tv.iptv.guide").exists)
         remote.press(.menu)
         expectFocus(channel("قناة الوثائقيات"))
+    }
+    func testFocusedVideoHasNoButtonBackdrop() throws {
+        executionTimeAllowance = 360
+        app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
+        app.launch(); openIPTV()
+        expectFocus(channel("قناة الأخبار")); remote.press(.select)
+        let player = element("tv.iptv.player.native")
+        expectFocus(player)
+        waitFor { (player.value as? String) == "بث مباشر" }
+        try assertReferenceVideoVisible("focused-video-playing")
+        remote.press(.playPause)
+        waitFor { (player.value as? String) == "متوقف مؤقتًا" }
+        try assertReferenceVideoVisible("focused-video-paused")
+        remote.press(.select)
+        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15))
+        remote.press(.menu); expectFocus(player)
+        try assertReferenceVideoVisible("focused-video-after-guide")
+        remote.press(.playPause)
+        waitFor { (player.value as? String) == "بث مباشر" }
+        remote.press(.down); waitFor { player.label == "قناة الرياضة" }
+        try assertReferenceVideoVisible("focused-video-after-channel-change")
+        remote.press(.menu); expectFocus(channel("قناة الرياضة"))
+    }
+    private func assertReferenceVideoVisible(_ name: String) throws {
+        let capture = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: capture); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        let image = try XCTUnwrap(capture.image.cgImage)
+        XCTAssertGreaterThan(image.width, 100)
+        // The bundled SMPTE clip has saturated bars in the middle, away from all transport/title overlays.
+        // A system focus backdrop washes those bars white even though accessibility/remote tests still pass.
+        let width = 128, height = 72
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        let fraction = try rgba.withUnsafeMutableBytes { bytes -> Double in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let pixels = bytes.bindMemory(to: UInt8.self)
+            var saturated = 0, count = 0
+            for y in 24..<48 { for x in 16..<112 {
+                let offset = (y * width + x) * 4
+                let colors = [Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2])]
+                if colors.max()! - colors.min()! > 100 { saturated += 1 }
+                count += 1
+            } }
+            return Double(saturated) / Double(count)
+        }
+        XCTAssertGreaterThan(fraction, 0.70, "Focused playback must show the video, without a screen-sized button backdrop")
     }
     func testAddM3USourceWithNativeKeyboard() {
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset"]

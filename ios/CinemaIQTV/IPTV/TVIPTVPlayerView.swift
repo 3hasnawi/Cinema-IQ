@@ -26,7 +26,8 @@ struct TVIPTVPlayerView: View {
                 Color.black.ignoresSafeArea()
                 IPTVVideoSurface(player: session.controller.player).ignoresSafeArea().allowsHitTesting(false)
                 Button { guide = true } label: { Color.clear.contentShape(Rectangle()) }
-                    .buttonStyle(.plain).focusEffectDisabled().focused($focus, equals: "surface")
+                    // PlainButtonStyle paints a screen-sized focus backdrop on tvOS; artwork style draws only the clear label.
+                    .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")
                     .accessibilityLabel(session.channel.name).accessibilityValue(session.status)
                     .accessibilityIdentifier("tv.iptv.player.native")
                     .onMoveCommand { direction in
