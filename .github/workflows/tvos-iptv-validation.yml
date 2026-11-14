@@ -5,7 +5,7 @@ on:
       scenario:
         description: Run the full IPTV flow or the quality-controls scenario
         type: choice
-        options: [all, quality, visibility]
+        options: [all, quality, visibility, compatibility]
         default: all
 permissions:
   contents: read
@@ -28,6 +28,7 @@ jobs:
           brew install xcodegen
           # Include the licensed local clip before Xcode seals and signs the simulator app.
           cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQTV/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
       - name: Create a TV simulator
@@ -90,6 +91,7 @@ jobs:
           test_id=CinemaIQTVUITests/TVIPTVFlowTests
           if [ "$IPTV_TEST_SCENARIO" = quality ]; then test_id="$test_id/testHighestQualityPreferenceAndAutomaticSelection"; fi
           if [ "$IPTV_TEST_SCENARIO" = visibility ]; then test_id="$test_id/testFocusedVideoHasNoButtonBackdrop"; fi
+          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then test_id="$test_id/testCompatibilityDecoderWithRemoteAndTracks"; fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
             -only-testing:"$test_id" \

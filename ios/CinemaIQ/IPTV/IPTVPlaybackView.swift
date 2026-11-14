@@ -108,6 +108,7 @@ struct IPTVPlaybackView: View {
                             .accessibilityIdentifier("ios.iptv.engine." + mode.rawValue)
                     }
                     Text(session.usesCompatibility ? "المحرك الحالي: التوافق الموسّع" : "المحرك الحالي: Apple").font(.footnote)
+                    Link("VideoLAN VLCKit — LGPL 2.1 أو أحدث والمصدر", destination: URL(string: "https://code.videolan.org/videolan/VLCKit")!)
                 }
                 Button { session.chooseQuality(nil); panel = nil } label: { choice("تلقائي", selected: !session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil) }
                     .accessibilityIdentifier("ios.iptv.quality.auto")

@@ -23,3 +23,13 @@ application target's source/resources directory.
 
 Live HLS/provider availability is a separate network integration check; these
 tests verify the UI without relying on a public CDN or simulator network access.
+
+`compatibility-pattern.mkv` is also CC0-1.0, generated entirely with FFmpeg:
+120 seconds of SMPTE bars (MPEG-2 video), two synthesized MP2 tones (440 Hz
+English and 880 Hz Arabic track metadata), and one English SubRip track reading
+“Compatibility subtitle fixture”. It contains no third-party footage or audio.
+The IPTV simulator workflows alone copy it as `UICompatibilityFixture.mkv`;
+the DEBUG-only `--cinema-ui-testing-compatibility` flag selects it. This tests
+actual decoding, embedded track selection, pause, rotation/remote controls and
+channel changes through VLCKit instead of treating a codec error message as proof
+of codec support. It is never an application Release resource.

@@ -103,6 +103,30 @@ final class TVIPTVFlowTests: XCTestCase {
         try assertReferenceVideoVisible("focused-video-after-channel-change")
         remote.press(.menu); expectFocus(channel("قناة الرياضة"))
     }
+    func testCompatibilityDecoderWithRemoteAndTracks() throws {
+        executionTimeAllowance = 360
+        app.launchArguments = base + ["--cinema-ui-testing-compatibility", "--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
+        app.launch(); openIPTV(); expectFocus(channel("قناة الأخبار")); remote.press(.select)
+        let player = element("tv.iptv.player.native"); expectFocus(player)
+        waitFor { (player.value as? String) == "بث مباشر" }
+        try assertReferenceVideoVisible("compatibility-mpeg2-mp2-playing")
+        remote.press(.playPause); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
+        remote.press(.left); focus(element("tv.iptv.player.audio"), direction: .right); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first")); shot("compatibility-audio-tracks")
+        remote.press(.down); remote.press(.select); expectFocus(player)
+        XCTAssertEqual(player.value as? String, "متوقف مؤقتًا")
+        remote.press(.left); focus(element("tv.iptv.player.subtitles"), direction: .right); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first")); remote.press(.down); remote.press(.select); expectFocus(player)
+        remote.press(.select)
+        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15)); shot("compatibility-guide-preview")
+        remote.press(.menu); expectFocus(player)
+        try assertReferenceVideoVisible("compatibility-paused-after-guide")
+        remote.press(.playPause); waitFor { (player.value as? String) == "بث مباشر" }
+        remote.press(.down); waitFor { player.label == "قناة الرياضة" }
+        waitFor { (player.value as? String) == "بث مباشر" }
+        try assertReferenceVideoVisible("compatibility-after-channel-change")
+        remote.press(.menu); expectFocus(channel("قناة الرياضة"))
+    }
     private func assertReferenceVideoVisible(_ name: String) throws {
         let capture = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: capture); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)

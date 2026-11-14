@@ -85,7 +85,8 @@ import CinemaCore
 #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if args.contains("--cinema-ui-testing-player") || args.contains("--cinema-tv-ui-testing-iptv-player") {
-            guard let fixture = Bundle.main.url(forResource: "UIPlayerFixture", withExtension: "mp4") else {
+            let compatible = args.contains("--cinema-ui-testing-compatibility")
+            guard let fixture = Bundle.main.url(forResource: compatible ? "UICompatibilityFixture" : "UIPlayerFixture", withExtension: compatible ? "mkv" : "mp4") else {
                 problem = "تعذّر العثور على فيديو الاختبار المحلي."; tuning = false; return
             }
             url = fixture

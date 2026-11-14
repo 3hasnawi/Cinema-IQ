@@ -8,6 +8,9 @@ enum UITestSupport {
 
     static func playbackURL(or sourceURL: URL) -> URL? {
         guard playerFixtureEnabled else { return sourceURL }
+        if ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-compatibility") {
+            return Bundle.main.url(forResource: "UICompatibilityFixture", withExtension: "mkv")
+        }
         return Bundle.main.url(forResource: "UIPlayerFixture", withExtension: "mp4")
     }
 }

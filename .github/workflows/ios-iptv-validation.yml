@@ -43,6 +43,7 @@ jobs:
           cd ios
           # Include the local clip before resource sealing and simulator signing.
           cp CinemaIQUITests/Fixtures/player-pattern.mp4 CinemaIQ/Resources/UIPlayerFixture.mp4
+          cp CinemaIQUITests/Fixtures/compatibility-pattern.mkv CinemaIQ/Resources/UICompatibilityFixture.mkv
           xcodegen generate --spec project.yml
           # Test the licensed fixture without metadata keys or external catalogue accounts.
           python3 - <<'PY'

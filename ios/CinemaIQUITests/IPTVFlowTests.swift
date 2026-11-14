@@ -10,6 +10,7 @@ final class IPTVFlowTests: XCTestCase {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = baseArguments + ["--cinema-ui-testing-iptv-reset"]
+        if name.contains("testCompatibilityDecoderWithTracksAndRotation") { app.launchArguments += ["--cinema-ui-testing-compatibility"] }
         app.launch()
         openIPTV()
     }
@@ -79,6 +80,27 @@ final class IPTVFlowTests: XCTestCase {
         tapPlayerControl("close")
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.state, .runningForeground)
+    }
+    func testCompatibilityDecoderWithTracksAndRotation() {
+        openAdd(); fill("ios.iptv.form.name", "Compatibility")
+        fill("ios.iptv.form.address", "https://iptv.example/channels.m3u\n"); connect()
+        XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20)); app.buttons["قناة الأخبار"].tap()
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        screenshot("compatibility-mpeg2-mp2-playing")
+        tapPlayerControl("play")
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "متوقف مؤقتًا" }
+        tapPlayerControl("audio")
+        let arabic = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'Arabic' OR label CONTAINS 'العربية'")).firstMatch
+        XCTAssertTrue(arabic.waitForExistence(timeout: 15)); screenshot("compatibility-audio-tracks"); arabic.tap()
+        tapPlayerControl("subtitles")
+        let english = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'English' OR label CONTAINS 'الإنجليزية'")).firstMatch
+        XCTAssertTrue(english.waitForExistence(timeout: 15)); english.tap()
+        XCTAssertEqual(element("ios.iptv.player.surface").value as? String, "متوقف مؤقتًا")
+        XCUIDevice.shared.orientation = .landscapeLeft; waitFor { self.app.frame.width > self.app.frame.height }
+        screenshot("compatibility-landscape")
+        tapPlayerControl("play"); waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        tapPlayerControl("next"); waitFor { self.element("ios.iptv.player.title").label == "قناة الرياضة" }
+        tapPlayerControl("close"); XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 15))
     }
     func testXtreamConnectsAndChannelSearchWorks() {
         openAdd()

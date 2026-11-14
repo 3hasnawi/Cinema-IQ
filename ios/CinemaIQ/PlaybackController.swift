@@ -74,7 +74,13 @@ struct MediaOption: Identifiable, Hashable {
     private static let arabicWindows = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
         CFStringEncoding(CFStringEncodings.windowsArabic.rawValue)))
 
-    init() { player.appliesMediaSelectionCriteriaAutomatically = false }
+    init() {
+        player.appliesMediaSelectionCriteriaAutomatically = false
+#if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--cinema-ui-testing-player") || args.contains("--cinema-tv-ui-testing-iptv-player") { mode = .automatic }
+#endif
+    }
 
     func open(_ media: Media, url: URL, resume: Double, save: @escaping (Double, Double, Bool) -> Void) {
         close(); self.save = save; error = nil; lastFailure = nil; ended = false; position = max(0, resume); duration = 0; ticks = 0
