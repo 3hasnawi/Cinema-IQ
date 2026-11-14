@@ -24,6 +24,7 @@ struct IPTVPlaybackView: View {
             Color.black.ignoresSafeArea()
             IPTVVideoSurface(player: session.controller.player).ignoresSafeArea().contentShape(Rectangle())
                 .accessibilityElement(children: .ignore).accessibilityLabel("إظهار خيارات المشغل")
+                .accessibilityIdentifier("ios.iptv.player.surface").accessibilityValue(session.status)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { controls = true; interaction += 1 }
                 .onTapGesture { controls.toggle(); interaction += 1 }
