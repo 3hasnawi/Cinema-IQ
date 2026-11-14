@@ -1,0 +1,94 @@
+import SwiftUI
+import CinemaCore
+
+struct TVIPTVSourceForm: View {
+    let existing: IPTVSource?
+    @EnvironmentObject private var store: IPTVStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var kind = IPTVSource.Kind.playlist
+    @State private var address = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var output = IPTVSource.Output.hls
+    @State private var message: String?
+    @State private var submitting = false
+    @State private var submission: Task<Void, Never>?
+    @FocusState private var focus: String?
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("طريقة الإضافة") {
+                    HStack(spacing: 28) {
+                        Button { kind = .playlist } label: { Label("M3U", systemImage: kind == .playlist ? "checkmark.circle.fill" : "link") }
+                            .focused($focus, equals: "m3u").accessibilityIdentifier("tv.iptv.form.m3u")
+                        Button { kind = .xtream } label: { Label("Xtream", systemImage: kind == .xtream ? "checkmark.circle.fill" : "person.crop.rectangle") }
+                            .focused($focus, equals: "xtream").accessibilityIdentifier("tv.iptv.form.xtream")
+                    }
+                }
+                Section {
+                    TextField("اسم المصدر", text: $name).accessibilityIdentifier("tv.iptv.form.name")
+                    TextField(kind == .playlist ? "رابط قائمة M3U (HTTPS)" : "عنوان خادم Xtream (HTTPS)", text: $address)
+                        .textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .privacySensitive().accessibilityIdentifier("tv.iptv.form.address")
+                    if kind == .xtream {
+                        TextField("اسم المستخدم", text: $username).textContentType(.username)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .privacySensitive().accessibilityIdentifier("tv.iptv.form.username")
+                        SecureField("كلمة المرور", text: $password).textContentType(.password)
+                            .accessibilityIdentifier("tv.iptv.form.password")
+                        Picker("صيغة البث", selection: $output) {
+                            Text("HLS (m3u8) — مفضّل").tag(IPTVSource.Output.hls)
+                            Text("MPEG-TS (ts)").tag(IPTVSource.Output.transportStream)
+                        }
+                    }
+                } header: { Text("بيانات المصدر") } footer: {
+                    Text(kind == .playlist ? "أدخل رابط القائمة من مزوّدك. يمكنك استخدام لوحة مفاتيح Apple TV أو الكتابة من iPhone عند ظهور إشعار لوحة المفاتيح."
+                         : "أدخل عنوان الخادم فقط، ثم اسم المستخدم وكلمة المرور. يُفضّل HLS لتوافق أفضل مع Apple TV؛ بعض صيغ TS غير مدعومة.")
+                }
+                if let message { Section { Text(message).foregroundStyle(.red).accessibilityIdentifier("tv.iptv.form.error") } }
+                Section {
+                    Button(submitting ? "جارٍ الاتصال…" : "اتصال وحفظ", action: connect)
+                        .disabled(submitting || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                                  (kind == .xtream && (username.isEmpty || password.isEmpty)))
+                        .focused($focus, equals: "save").accessibilityIdentifier("tv.iptv.form.save")
+                    Button("إلغاء") { submission?.cancel(); dismiss() }
+                        .focused($focus, equals: "cancel").accessibilityIdentifier("tv.iptv.form.cancel")
+                } footer: { Text("تحفظ بيانات الاشتراك على Apple TV في Keychain، ولا تُرسل إلى حساب المزامنة.") }
+            }
+            .navigationTitle(existing == nil ? "إضافة مصدر IPTV" : "تعديل مصدر IPTV")
+        }
+        .defaultFocus($focus, "m3u")
+        .onAppear {
+            if let existing {
+                name = existing.name; kind = existing.kind; address = existing.address.absoluteString
+                username = existing.username; password = existing.password; output = existing.output
+                focus = kind == .xtream ? "xtream" : "m3u"
+            }
+        }
+        .onDisappear { submission?.cancel() }
+        .onExitCommand { submission?.cancel(); dismiss() }
+    }
+    private func connect() {
+        guard !submitting else { return }
+        message = nil
+        let text = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.count <= 8192, username.count <= 1024, password.count <= 4096 else {
+            message = "بيانات المصدر أطول من الحد المدعوم."; return
+        }
+        guard let url = URL(string: text.contains("://") ? text : "https://" + text), url.scheme?.lowercased() == "https" else {
+            message = "أدخل رابط HTTPS صالحًا لهذا المصدر."; return
+        }
+        do {
+            let source = try IPTVSource(id: existing?.id ?? UUID().uuidString, name: name, kind: kind, address: url,
+                username: kind == .xtream ? username.trimmingCharacters(in: .whitespacesAndNewlines) : "",
+                password: kind == .xtream ? password : "", output: output)
+            submitting = true
+            submission = Task { @MainActor in
+                defer { submitting = false }
+                do { try await store.connectAndSave(source); try Task.checkCancellation(); dismiss() }
+                catch { if !Task.isCancelled { message = store.safeMessage(error) } }
+            }
+        } catch { message = store.safeMessage(error) }
+    }
+}
