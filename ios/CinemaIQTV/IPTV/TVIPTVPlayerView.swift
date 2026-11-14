@@ -131,6 +131,7 @@ struct TVIPTVPlayerView: View {
                             trackButton(mode.title, id: "engine." + mode.rawValue, selected: session.engineMode == mode) { session.controller.chooseEngine(mode) }
                         }
                         Text(session.usesCompatibility ? "المحرك الحالي: التوافق الموسّع" : "المحرك الحالي: Apple").font(.system(size: 22)).foregroundStyle(.secondary)
+                        Text("VideoLAN VLCKit · LGPL 2.1 أو أحدث\ncode.videolan.org/videolan/VLCKit").font(.system(size: 18)).foregroundStyle(.secondary)
                     } else if value == "audio" {
                         ForEach(Array(session.audio.enumerated()), id: \.element.id) { index, option in
                             trackButton(option.title, id: index == 0 ? "track.first" : option.id, selected: session.audioID == option.id) { session.chooseAudio(option.id) }

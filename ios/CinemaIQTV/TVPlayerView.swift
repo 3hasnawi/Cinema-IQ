@@ -199,7 +199,7 @@ struct TVPlayerView: View {
         }))
         items.append(UIMenu(title: "محرك التشغيل", image: UIImage(systemName: "play.rectangle"), children: IPTVPlaybackMode.allCases.map { mode in
             UIAction(title: mode.title, state: controller.mode == mode ? .on : .off) { _ in controller.chooseEngine(mode) }
-        }))
+        } + [UIAction(title: "VideoLAN VLCKit · LGPL 2.1+", attributes: .disabled) { _ in }]))
         return items
     }
 
@@ -207,6 +207,7 @@ struct TVPlayerView: View {
         ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
             Button(mode.title + (mode == controller.mode ? " ✓" : "")) { controller.chooseEngine(mode) }
         }
+        Text("VideoLAN VLCKit · LGPL 2.1+")
     }
     private var compatibilityOptions: some View {
         Group {

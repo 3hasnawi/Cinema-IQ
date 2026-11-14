@@ -330,6 +330,8 @@ struct PlaybackView: View {
                 ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { value in
                     choiceRow(value.title, selected: value == controller.mode) { controller.chooseEngine(value); optionsPage = nil }
                 }
+                Text("VideoLAN VLCKit · LGPL 2.1 أو أحدث").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14)
+                Link("مصدر المكتبة والترخيص", destination: URL(string: "https://code.videolan.org/videolan/VLCKit")!).font(.caption).padding(14)
             case .quality:
                 panelHeader("الجودة")
                 ForEach(streams) { stream in
