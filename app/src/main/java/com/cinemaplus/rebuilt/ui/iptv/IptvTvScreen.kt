@@ -45,6 +45,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     var returnId by remember { mutableStateOf<String?>(null) }
     var focusedId by remember { mutableStateOf<String?>(null) }
     var returnEpoch by remember { mutableIntStateOf(0) }
+    var handledFocus by remember { mutableStateOf<String?>(null) }
     var control by remember { mutableStateOf("add") }
     val grid = rememberLazyGridState()
     val cardFocus = remember { FocusRequester() }
@@ -67,7 +68,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     Box(Modifier.fillMaxSize().background(Ink)) {
         if (playing != null) {
             val channel = playing!!
-            IptvTvPlayer(channel, vm::refreshPlayback) { playing = null; returnId = channel.id; returnEpoch++ }
+            IptvTvPlayer(channel, state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback) { playing = null; returnId = channel.id; returnEpoch++ }
         } else Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Label("IPTV", 30, bold = true)
@@ -139,13 +140,17 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
             null -> Unit
         }
     }
-    LaunchedEffect(state.focusEpoch, returnEpoch, playing == null, state.storageLoading) {
+    LaunchedEffect(state.focusEpoch, returnEpoch, playing == null, state.storageLoading, state.busy, state.filtering) {
+        val event = "${state.focusEpoch}:$returnEpoch"
+        if (handledFocus == event) return@LaunchedEffect
         if (playing != null || panel != null || state.busy || state.filtering || state.storageLoading) return@LaunchedEffect
         val index = state.visible.indexOfFirst { it.id == targetId }
         if (index >= 0) grid.scrollToItem(index)
         repeat(12) {
             withFrameNanos { }
-            if (runCatching { if (index >= 0) cardFocus.requestFocus() else addFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+            if (runCatching { if (index >= 0) cardFocus.requestFocus() else addFocus.requestFocus() }.getOrDefault(false)) {
+                handledFocus = event; return@LaunchedEffect
+            }
         }
     }
 }

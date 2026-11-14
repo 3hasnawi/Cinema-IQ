@@ -26,16 +26,23 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-@Composable internal fun IptvTvPlayer(initial: IptvChannel, refresh: suspend (IptvChannel) -> IptvChannel, onExit: () -> Unit) {
+@Composable internal fun IptvTvPlayer(initial: IptvChannel, allowHttp: Boolean, refresh: suspend (IptvChannel) -> IptvChannel, onExit: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val view = LocalView.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var channel by remember(initial.id) { mutableStateOf(initial) }
     var attempt by remember { mutableIntStateOf(0) }
-    val player = remember(channel.id, channel.url, attempt) {
+    val player = remember(channel.id, channel.url, allowHttp, attempt) {
         val factory = DefaultHttpDataSource.Factory().setUserAgent("Cinema-iQ-IPTV/1.0")
-            .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000).setAllowCrossProtocolRedirects(false)
-        ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(factory)).build()
+            .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000).setAllowCrossProtocolRedirects(allowHttp)
+        // Apply source consent to every HLS manifest/segment/key request, not just the first URL.
+        val restricted = androidx.media3.datasource.ResolvingDataSource.Factory(factory,
+            androidx.media3.datasource.ResolvingDataSource.Resolver { spec ->
+                try { IptvUrls.validate(spec.uri.toString(), allowHttp) }
+                catch (_: IptvException) { throw androidx.media3.datasource.DataSourceException(PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED) }
+                spec
+            })
+        ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(restricted)).build()
     }
     var error by remember(player) { mutableStateOf<String?>(null) }
     var loading by remember(player) { mutableStateOf(true) }

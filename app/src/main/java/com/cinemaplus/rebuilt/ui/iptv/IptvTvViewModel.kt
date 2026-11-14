@@ -44,9 +44,9 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
     fun group(value: String?) { mutable.value = mutable.value.copy(group = value); applyFilter(true) }
     fun reload(force: Boolean = false) {
         request?.cancel(); filter?.cancel()
-        val source = mutable.value.selected ?: run { mutable.value = mutable.value.copy(channels = emptyList(), visible = emptyList(), busy = false); return }
+        val source = mutable.value.selected ?: run { mutable.value = mutable.value.copy(channels = emptyList(), visible = emptyList(), busy = false, filtering = false); return }
         request = viewModelScope.launch {
-            mutable.value = mutable.value.copy(busy = true, message = null)
+            mutable.value = mutable.value.copy(busy = true, message = null, filtering = false)
             try {
                 val recent = cache[source.id]?.takeIf { android.os.SystemClock.elapsedRealtime() - it.first < 300_000 }
                 val catalog = if (force || recent == null) client.load(source) else recent.second
@@ -61,7 +61,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
         if (mutable.value.busy || !mutable.value.storageReady) return
         request?.cancel(); filter?.cancel()
         request = viewModelScope.launch {
-            mutable.value = mutable.value.copy(busy = true, message = null)
+            mutable.value = mutable.value.copy(busy = true, message = null, filtering = false)
             try {
                 val valid = source.validated()
                 val catalog = client.load(valid)
@@ -108,6 +108,11 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
         val source = mutable.value.sources.firstOrNull { it.id == channel.sourceId }
             ?: throw IptvException(IptvException.Reason.NoChannels)
         val result = client.load(source)
+        putCache(source.id, result)
+        if (mutable.value.selectedId == source.id) {
+            mutable.value = mutable.value.copy(channels = result.channels)
+            applyFilter(false)
+        }
         return result.channels.firstOrNull { it.id == channel.id } ?: throw IptvException(IptvException.Reason.NoChannels)
     }
     override fun onCleared() { request?.cancel(); filter?.cancel(); client.close(); super.onCleared() }

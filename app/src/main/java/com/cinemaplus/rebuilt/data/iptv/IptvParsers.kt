@@ -34,7 +34,7 @@ object IptvParsers {
                 if (title.isNotBlank() && url != null) {
                     // Query tokens can expire; public identity must remain stable across refresh/reordering.
                     val path = IptvUrls.validate(url, source.allowHttp).let { it.host + ":" + it.port + it.encodedPath }
-                    val id = IptvUrls.channelId(source.id, if (tvg.isNotEmpty()) "tvg:$tvg" else "$title|$group|$path")
+                    val id = IptvUrls.channelId(source.id, "$tvg|$title|$group|$path")
                     if (seen.add(id)) channels += IptvChannel(id, source.id, title, group, url, logo, tvg)
                     if (channels.size > MAX_CHANNELS) throw IptvException(IptvException.Reason.TooLarge)
                 }
