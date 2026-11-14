@@ -117,8 +117,11 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
     }
     override fun onCleared() { request?.cancel(); filter?.cancel(); client.close(); super.onCleared() }
     private fun putCache(id: String, catalog: IptvCatalog) {
+        cache.remove(id)
+        // Keep weak TVs from retaining three large subscription catalogues at once.
+        if (catalog.channels.size > 20_000) return
         cache[id] = android.os.SystemClock.elapsedRealtime() to catalog
-        while (cache.size > 3) cache.remove(cache.keys.first())
+        while (cache.size > 3 || cache.values.sumOf { it.second.channels.size } > 20_000) cache.remove(cache.keys.first())
     }
     private fun applyFilter(moveToFirst: Boolean) {
         filter?.cancel()

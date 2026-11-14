@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.*
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
@@ -31,6 +32,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
 @Composable internal fun IptvTvScreen(onExit: () -> Unit, vm: IptvTvViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    val hostView = androidx.compose.ui.platform.LocalView.current
     val logos = remember {
         coil.ImageLoader.Builder(context).allowRgb565(true).crossfade(false)
             .diskCachePolicy(coil.request.CachePolicy.DISABLED)
@@ -78,7 +80,16 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
                 }
                 IptvButton("العودة", onClick = onExit)
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
+                val key = event.nativeKeyEvent
+                val ime = androidx.core.view.ViewCompat.getRootWindowInsets(hostView)
+                    ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+                if (key.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN && !ime &&
+                    !state.busy && !state.filtering && state.visible.isNotEmpty()) {
+                    if (key.action == android.view.KeyEvent.ACTION_DOWN) { returnId = null; returnEpoch++ }
+                    true
+                } else false
+            }, horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IptvButton(state.selected?.name ?: "المصادر", Modifier.focusRequester(sourcesFocus), !state.busy && state.sources.isNotEmpty()) {
                     control = "sources"; panel = IptvPanel.Sources
                 }
