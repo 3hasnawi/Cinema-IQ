@@ -65,7 +65,7 @@ struct TVIPTVLiveGuide: View {
         }
         .buttonStyle(.bordered).padding(32)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
-        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(.12)))
+        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12)))
         .accessibilityIdentifier("tv.iptv.guide")
     }
     private func category(_ title: String, group: String?) -> some View {

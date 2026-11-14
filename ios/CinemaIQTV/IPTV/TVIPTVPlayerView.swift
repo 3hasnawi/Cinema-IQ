@@ -77,11 +77,11 @@ struct TVIPTVPlayerView: View {
                 if guide {
                     HStack {
                         TVIPTVLiveGuide(session: session) { closePanel() }
-                            .frame(width: min(1100, geometry.size.width * .72), height: geometry.size.height * .82)
+                            .frame(width: min(1100, geometry.size.width * 0.72), height: geometry.size.height * 0.82)
                         Spacer(minLength: 0)
                     }.padding(.horizontal, 54)
                 }
-                if let pane { trackPanel(pane).frame(width: min(900, geometry.size.width * .65), height: geometry.size.height * .8) }
+                if let pane { trackPanel(pane).frame(width: min(900, geometry.size.width * 0.65), height: geometry.size.height * 0.8) }
             }
         }
         .defaultFocus($focus, "surface")
@@ -129,7 +129,7 @@ struct TVIPTVPlayerView: View {
             }.buttonStyle(.bordered)
         }
         .padding(38).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
-        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(.12)))
+        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12)))
         .task(id: value) { await Task.yield(); focus = value == "audio" && session.audio.isEmpty ? "track.close" : "track.first" }
     }
 }
