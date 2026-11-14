@@ -39,7 +39,9 @@ import kotlinx.coroutines.launch
         val restricted = androidx.media3.datasource.ResolvingDataSource.Factory(factory,
             androidx.media3.datasource.ResolvingDataSource.Resolver { spec ->
                 try { IptvUrls.validate(spec.uri.toString(), allowHttp) }
-                catch (_: IptvException) { throw androidx.media3.datasource.DataSourceException(PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED) }
+                catch (e: IptvException) { throw androidx.media3.datasource.DataSourceException(
+                    if (e.reason == IptvException.Reason.HttpConsent) PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED
+                    else PlaybackException.ERROR_CODE_IO_UNSPECIFIED) }
                 spec
             })
         ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(restricted)).build()
@@ -51,6 +53,8 @@ import kotlinx.coroutines.launch
     var panel by remember { mutableStateOf<Int?>(null) }
     var refreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var nativeView by remember { mutableStateOf<PlayerView?>(null) }
+    fun closeTracks() { panel = null; nativeView?.apply { showController(); requestFocus() } }
     DisposableEffect(player, lifecycle) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) { view.keepScreenOn = isPlaying }
@@ -61,7 +65,9 @@ import kotlinx.coroutines.launch
             }
             override fun onPlayerError(exception: PlaybackException) {
                 loading = false; view.keepScreenOn = false
-                error = "تعذّر تشغيل القناة. تحقق من الاشتراك والشبكة وتوافق صيغة البث، ثم حدّث الرابط."
+                error = if (exception.errorCode == PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED)
+                    "هذا البث يستخدم HTTP. عدّل المصدر وفعّل السماح بالاتصال غير المشفّر إذا كان مزوّدك يتطلبه."
+                else "تعذّر تشغيل القناة. تحقق من الاشتراك والشبكة وتوافق صيغة البث، ثم حدّث الرابط."
             }
         }
         val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) {
@@ -82,7 +88,7 @@ import kotlinx.coroutines.launch
             isFocusable = true; isFocusableInTouchMode = true
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             post { requestFocus(); showController() }
-        } }, update = { it.player = player }, modifier = Modifier.fillMaxSize())
+        } }, update = { nativeView = it; it.player = player }, modifier = Modifier.fillMaxSize())
         if (controls || error != null) {
             Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Ink.copy(alpha = .75f)).padding(22.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -111,11 +117,11 @@ import kotlinx.coroutines.launch
         panel?.let { type ->
             val groups = tracks.groups.filter { it.type == type }
             val first = remember(type) { androidx.compose.ui.focus.FocusRequester() }
-            IptvDialog(when (type) { C.TRACK_TYPE_VIDEO -> "جودة البث"; C.TRACK_TYPE_AUDIO -> "مسار الصوت"; else -> "الترجمة" }, { panel = null }, first) {
+            IptvDialog(when (type) { C.TRACK_TYPE_VIDEO -> "جودة البث"; C.TRACK_TYPE_AUDIO -> "مسار الصوت"; else -> "الترجمة" }, { closeTracks() }, first) {
                 IptvButton(if (type == C.TRACK_TYPE_TEXT) "إيقاف الترجمة" else "تلقائي", Modifier.focusRequester(first)) {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
                         .setTrackTypeDisabled(type, type == C.TRACK_TYPE_TEXT).build()
-                    panel = null
+                    closeTracks()
                 }
                 groups.forEach { group ->
                     for (i in 0 until group.length) if (group.isTrackSupported(i)) {
@@ -127,12 +133,12 @@ import kotlinx.coroutines.launch
                         IptvButton((if (group.isTrackSelected(i)) "✓ " else "") + label) {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
                                 .setTrackTypeDisabled(type, false).addOverride(TrackSelectionOverride(group.mediaTrackGroup, i)).build()
-                            panel = null
+                            closeTracks()
                         }
                     }
                 }
                 if (groups.isEmpty()) Label("لم يوفّر هذا البث خيارات إضافية من هذا النوع.", 14, Brand.TextTertiary)
-                IptvButton("إغلاق") { panel = null }
+                IptvButton("إغلاق") { closeTracks() }
             }
         }
     }
