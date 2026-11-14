@@ -13,7 +13,9 @@ object IptvParsers {
     fun playlist(data: ByteArray, source: IptvSource): IptvCatalog {
         val base = IptvUrls.validate(source.address, source.allowHttp)
         val text = checked(data)
-        if (text.lineSequence().firstOrNull()?.trim() != "#EXTM3U") throw IptvException(IptvException.Reason.InvalidPlaylist)
+        val header = text.lineSequence().firstOrNull()?.trim().orEmpty()
+        if (header != "#EXTM3U" && !header.startsWith("#EXTM3U ") && !header.startsWith("#EXTM3U\t"))
+            throw IptvException(IptvException.Reason.InvalidPlaylist)
         // HLS manifests describe segments/variants, not a list of TV channels.
         if (text.lineSequence().any { it.startsWith("#EXT-X-") }) return IptvCatalog(listOf(
             IptvChannel(IptvUrls.channelId(source.id, "direct-hls"), source.id, source.name, "عام", base.toString())))
@@ -29,13 +31,15 @@ object IptvParsers {
                 group = attrs["group-title"]?.trim()?.take(150)?.ifBlank { "عام" } ?: "عام"
                 tvg = attrs["tvg-id"].orEmpty().take(200)
                 logo = attrs["tvg-logo"]?.let { IptvUrls.resolve(it, base, source.allowHttp) }
+            } else if (line.startsWith("#EXTGRP:", true)) {
+                group = line.substringAfter(':').trim().take(150).ifBlank { "عام" }
             } else if (line.isNotEmpty() && !line.startsWith('#')) {
                 val url = IptvUrls.resolve(line, base, source.allowHttp)
-                if (title.isNotBlank() && url != null) {
+                if (url != null) {
                     // Query tokens can expire; public identity must remain stable across refresh/reordering.
                     val path = IptvUrls.validate(url, source.allowHttp).let { it.host + ":" + it.port + it.encodedPath }
                     val id = IptvUrls.channelId(source.id, "$tvg|$title|$group|$path")
-                    if (seen.add(id)) channels += IptvChannel(id, source.id, title, group, url, logo, tvg)
+                    if (seen.add(id)) channels += IptvChannel(id, source.id, title.ifBlank { "قناة ${channels.size + 1}" }, group, url, logo, tvg)
                     if (channels.size > MAX_CHANNELS) throw IptvException(IptvException.Reason.TooLarge)
                 }
                 title = ""; group = "عام"; tvg = ""; logo = null

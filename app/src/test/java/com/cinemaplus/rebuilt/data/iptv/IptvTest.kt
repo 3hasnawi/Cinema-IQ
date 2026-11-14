@@ -20,6 +20,12 @@ class IptvTest {
         assertEquals("https://provider.example/news.png", channels[0].logo)
         assertFalse(channels[0].id.contains("fixture"))
     }
+    @Test fun playlistSupportsHeaderAttributesExtgrpAndBareChannelUrls() {
+        val text = "#EXTM3U x-tvg-url=\"https://provider.example/epg.xml\"\n#EXTINF:-1,News\n#EXTGRP:News group\nhttps://media.example/news.m3u8\nhttps://media.example/unnamed.m3u8\n"
+        val channels = IptvParsers.playlist(bytes(text), source()).channels
+        assertEquals(2, channels.size); assertEquals("News group", channels[0].group)
+        assertEquals("قناة 2", channels[1].name)
+    }
     @Test fun sameEpgIdDoesNotCollapseDifferentQualityChannels() {
         val data = bytes("#EXTM3U\n#EXTINF:-1 tvg-id=shared,News HD\nhttps://media.example/720.m3u8\n#EXTINF:-1 tvg-id=shared,News Full HD\nhttps://media.example/1080.m3u8\n")
         val channels = IptvParsers.playlist(data, source()).channels
