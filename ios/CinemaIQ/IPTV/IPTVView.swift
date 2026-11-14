@@ -101,7 +101,7 @@ struct IPTVView: View {
             }
         }
         .fullScreenCover(item: $playing) { channel in
-            ResponsiveContainer { IPTVPlaybackView(initial: channel).environmentObject(store) }
+            ResponsiveContainer { IPTVPlaybackView(initial: channel, group: group) { _, selectedGroup in group = selectedGroup; query = "" }.environmentObject(store) }
         }
     }
     private func channelLogo(_ channel: IPTVChannel) -> some View {

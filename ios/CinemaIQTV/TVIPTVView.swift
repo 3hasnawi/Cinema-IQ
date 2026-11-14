@@ -112,7 +112,9 @@ struct TVIPTVView: View {
             .environment(\.layoutDirection, .rightToLeft)
         }
         .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in
-            TVIPTVPlayerView(initial: channel).environmentObject(store).environment(\.layoutDirection, .rightToLeft)
+            TVIPTVPlayerView(initial: channel, group: group) { value, selectedGroup in
+                lastChannel = value.id; group = selectedGroup; query = ""
+            }.environmentObject(store).environment(\.layoutDirection, .rightToLeft)
         }
         .onDisappear { focusTask?.cancel() }
         // Let native keyboards, modal lists and AVKit consume Menu before this page's Home fallback.
