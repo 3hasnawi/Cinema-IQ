@@ -75,12 +75,17 @@ struct MediaOption: Identifiable, Hashable {
         player.replaceCurrentItem(with: item)
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             if item.status == .failed {
-                Task { @MainActor in self?.error = "تعذّر تشغيل هذه النسخة. قد تكون صيغة الفيديو أو الصوت غير مدعومة على iOS. جرّب جودة أخرى." }
+                Task { @MainActor in
+                    guard self?.player.currentItem === item else { return }
+                    self?.error = "تعذّر تشغيل هذه النسخة. قد تكون صيغة الفيديو أو الصوت غير مدعومة على iOS. جرّب جودة أخرى."
+                }
             }
         }
         controlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
-            let status = player.timeControlStatus
+            let observedItem = player.currentItem
             Task { @MainActor in
+                guard self?.player.currentItem === observedItem else { return }
+                let status = player.timeControlStatus
                 self?.playing = status != .paused
                 self?.buffering = status == .waitingToPlayAtSpecifiedRate
             }
@@ -92,7 +97,10 @@ struct MediaOption: Identifiable, Hashable {
             }
         }
         failureToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.error = "انقطع تشغيل الفيديو. تحقق من الاتصال وأعد فتح العمل." }
+            Task { @MainActor in
+                guard self?.player.currentItem === item else { return }
+                self?.error = "انقطع تشغيل الفيديو. تحقق من الاتصال وأعد فتح العمل."
+            }
         }
         timer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
             Task { @MainActor in self?.tick() }

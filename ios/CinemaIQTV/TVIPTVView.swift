@@ -10,6 +10,7 @@ struct TVIPTVView: View {
     @State private var visible: [IPTVChannel] = []
     @State private var sheet: Sheet?
     @State private var playing: IPTVChannel?
+    @State private var returningFromPlayer = false
     @State private var lastChannel: String?
     @State private var lastControl = "add"
     @State private var modalSource: String?
@@ -92,7 +93,9 @@ struct TVIPTVView: View {
             let changed = visible.map(\.id) != result.map(\.id)
             visible = result
             // A cache refresh on returning from AVKit must not override the restored channel focus.
-            if changed, !editingSearch, sheet == nil, playing == nil { focusFirstChannel() }
+            if changed, !editingSearch, sheet == nil, playing == nil {
+                if returningFromPlayer { restoreAfterPlayer() } else { focusFirstChannel() }
+            }
         }
         .onChange(of: store.selectedID) { _, _ in group = nil; query = ""; lastChannel = nil }
         .onChange(of: store.storageLoading) { _, loading in if !loading { focus = initialFocus } }
@@ -112,7 +115,9 @@ struct TVIPTVView: View {
             .environment(\.layoutDirection, .rightToLeft)
         }
         .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in
-            TVIPTVPlayerView(initial: channel).environmentObject(store).environment(\.layoutDirection, .rightToLeft)
+            TVIPTVPlayerView(initial: channel, group: group) { value, selectedGroup in
+                lastChannel = value.id; returningFromPlayer = true; group = selectedGroup; query = ""
+            }.environmentObject(store).environment(\.layoutDirection, .rightToLeft)
         }
         .onDisappear { focusTask?.cancel() }
         // Let native keyboards, modal lists and AVKit consume Menu before this page's Home fallback.
@@ -184,7 +189,7 @@ struct TVIPTVView: View {
         focusTask = Task { @MainActor in
             do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             guard sheet == nil, playing == nil else { return }
-            if let lastChannel, visible.contains(where: { $0.id == lastChannel }) { focus = "channel." + lastChannel }
+            if let lastChannel, visible.contains(where: { $0.id == lastChannel }) { focus = "channel." + lastChannel; returningFromPlayer = false }
             else { focus = initialFocus }
         }
     }

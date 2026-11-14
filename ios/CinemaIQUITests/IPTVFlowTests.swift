@@ -45,14 +45,38 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20), "The saved source must reload from Keychain")
         app.buttons["قناة الأخبار"].tap()
         XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 20))
-        waitFor { self.element("ios.iptv.player.status").label == "بث مباشر" }
+        // Playback status stays accessible after the production HUD timer hides its labels.
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        // Exercise the real production timer and tap-to-reveal gesture before using the controls.
+        waitFor { !self.element("ios.iptv.player.close").exists }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        waitFor { self.element("ios.iptv.player.close").exists }
+        tapPlayerControl("next")
+        waitFor { self.element("ios.iptv.player.title").label == "قناة الرياضة" }
+        tapPlayerControl("previous")
+        waitFor { self.element("ios.iptv.player.title").label == "قناة الأخبار" }
+        tapPlayerControl("channels")
+        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 15)); screenshot("floating-guide")
+        let doc = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "ios.iptv.guide.channel.", "قناة الوثائقيات")).firstMatch
+        XCTAssertTrue(doc.waitForExistence(timeout: 10)); doc.tap()
+        waitFor { self.element("ios.iptv.player.title").label == "قناة الوثائقيات" }
+        tapPlayerControl("play")
+        waitFor { self.element("ios.iptv.player.status").label == "متوقف مؤقتًا" }
+        element("ios.iptv.player.quality").tap()
+        let highest = element("ios.iptv.quality.highest")
+        XCTAssertTrue(highest.waitForExistence(timeout: 10)); highest.tap()
+        element("ios.iptv.player.quality").tap()
+        XCTAssertTrue(highest.waitForExistence(timeout: 10))
+        XCTAssertEqual(highest.value as? String, "محدد")
+        element("ios.iptv.quality.auto").tap()
+        XCTAssertEqual(element("ios.iptv.player.surface").value as? String, "متوقف مؤقتًا")
         screenshot("playing-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
         waitFor { self.app.frame.width > self.app.frame.height }
-        inside(element("ios.iptv.player.close"))
-        XCTAssertEqual(element("ios.iptv.player.title").label, "قناة الأخبار")
+        showPlayerControls(); inside(element("ios.iptv.player.close"))
+        showPlayerControls(); XCTAssertEqual(element("ios.iptv.player.title").label, "قناة الوثائقيات")
         screenshot("playing-landscape")
-        element("ios.iptv.player.close").tap()
+        tapPlayerControl("close")
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.state, .runningForeground)
     }
@@ -82,7 +106,37 @@ final class IPTVFlowTests: XCTestCase {
         screenshot("xtream-search")
         XCTAssertEqual(app.state, .runningForeground)
     }
+    private func showPlayerControls() {
+        let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // Refresh the real five-second timer rather than spending its remaining time on XCTest queries.
+        if element("ios.iptv.player.close").exists { center.tap() }
+        center.tap()
+        XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 5))
+    }
+    private func tapPlayerControl(_ name: String) {
+        showPlayerControls()
+        let frame = element("ios.iptv.player." + name).frame
+        guard !frame.isEmpty, frame.midX.isFinite, frame.midY.isFinite else {
+            XCTFail("The visible player control must have a finite touch target: " + name); return
+        }
+        // Tap the measured physical target directly; native element.tap() can retry after the HUD has expired.
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+    }
     private func openIPTV() {
+        if tablet {
+            // Exercise iPad's native IPTV tab/sidebar instead of a Browse stack restored across rotation.
+            let tab = app.descendants(matching: .any).matching(NSPredicate(
+                format: "label == %@ AND (elementType == %d OR elementType == %d)", "IPTV",
+                XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue)).firstMatch
+            if !tab.exists || !tab.isHittable {
+                let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
+                if sidebar.exists && sidebar.isHittable { sidebar.tap() }
+            }
+            XCTAssertTrue(tab.waitForExistence(timeout: 25)); tab.tap()
+            XCTAssertTrue(element("ios.iptv.add").waitForExistence(timeout: 20))
+            screenshot("ipad-entry")
+            return
+        }
         let browse = app.buttons.matching(NSPredicate(format: "label == %@", "تصفّح")).firstMatch
         if !browse.exists || !browse.isHittable {
             let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch

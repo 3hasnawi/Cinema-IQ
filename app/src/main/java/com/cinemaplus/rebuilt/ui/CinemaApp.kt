@@ -370,6 +370,7 @@ internal val LocalTvEntryRequest = androidx.compose.runtime.staticCompositionLoc
                     vm.navigate(page); onNavigated()
                 }
             }
+            com.cinemaplus.rebuilt.ui.iptv.IptvRailEntry(expanded)
             Spacer(Modifier.weight(1f))
             if (expanded) Box(Modifier.fillMaxWidth().padding(vertical = 8.mx).height(1.dp).background(Brand.Divider))
             RailItem(Page.Settings, vm.page == Page.Settings, expanded,

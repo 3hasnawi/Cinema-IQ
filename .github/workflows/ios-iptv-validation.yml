@@ -3,11 +3,17 @@ on:
   # Expensive two-device visual validation is explicit, like ios-adaptive-validation.yml.
   # Core, unsigned Release compilation and required PR checks remain automatic.
   workflow_dispatch:
+    inputs:
+      device:
+        description: Simulator family to validate
+        type: choice
+        options: [both, iphone, ipad]
+        default: both
 
 permissions:
   contents: read
 concurrency:
-  group: ios-iptv-${{ github.ref }}
+  group: ios-iptv-${{ github.ref }}-${{ inputs.device || 'both' }}
   cancel-in-progress: true
 jobs:
   simulator:
@@ -16,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [iphone, ipad]
+        device: ${{ inputs.device == 'iphone' && fromJSON('["iphone"]') || inputs.device == 'ipad' && fromJSON('["ipad"]') || fromJSON('["iphone","ipad"]') }}
     env:
       IPTV_TEST_KIND: ${{ matrix.device }}
     steps:

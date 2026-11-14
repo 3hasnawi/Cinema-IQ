@@ -20,6 +20,7 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: CinemaIQ
+      - path: SharedIPTV
     dependencies:
       - package: CinemaCore
       - framework: .build/cast/GoogleCastSDK-ios-4.8.6_dynamic_xcframework/GoogleCast.xcframework
@@ -98,6 +99,7 @@ targets:
     deploymentTarget: "18.0"
     sources:
       - path: CinemaIQTV
+      - path: SharedIPTV
       - path: CinemaIQ/LibraryStore.swift
       - path: CinemaIQ/CloudSync.swift
       - path: CinemaIQ/PlaybackController.swift
