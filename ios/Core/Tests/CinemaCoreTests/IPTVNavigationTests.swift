@@ -46,4 +46,18 @@ final class IPTVNavigationTests: XCTestCase {
         XCTAssertTrue(IPTVStreamQualities.parse(Data("<html>Denied</html>".utf8), url: url, allowHTTP: false).isEmpty)
         XCTAssertTrue(IPTVStreamQualities.parse(Data("#EXTM3U\n#EXT-X-TARGETDURATION:6\nsegment.ts".utf8), url: url, allowHTTP: false).isEmpty)
     }
+    func testHighestAdvertisedQualityIsNotCappedAtFullHDOr4K() {
+        let master = """
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=5000000,RESOLUTION=1920x1080
+        fullhd.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=16000000,RESOLUTION=3840x2160
+        uhd.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=40000000,RESOLUTION=7680x4320
+        eightk.m3u8
+        """
+        let values = IPTVStreamQualities.parse(Data(master.utf8), url: URL(string: "https://provider.example/master.m3u8")!, allowHTTP: false)
+        XCTAssertEqual(values.map(\.height), [4320, 2160, 1080])
+        XCTAssertEqual(values.first?.bandwidth, 40000000)
+    }
 }

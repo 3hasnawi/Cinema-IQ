@@ -92,6 +92,31 @@ final class TVIPTVFlowTests: XCTestCase {
         expectFocus(channel("قناة الأخبار")); shot("source-added-with-remote")
         XCTAssertEqual(app.state, .runningForeground)
     }
+    func testHighestQualityPreferenceAndAutomaticSelection() {
+        executionTimeAllowance = 360
+        app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
+        app.launch(); openIPTV()
+        expectFocus(channel("قناة الأخبار")); remote.press(.select)
+        let player = element("tv.iptv.player.native")
+        XCTAssertTrue(player.waitForExistence(timeout: 20))
+        waitFor { (player.value as? String) == "بث مباشر" }
+        remote.press(.playPause)
+        remote.press(.left)
+        focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first"))
+        remote.press(.down); expectFocus(element("tv.iptv.track.highest")); remote.press(.select)
+        remote.press(.left)
+        focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
+        XCTAssertTrue(element("tv.iptv.track.highest").waitForExistence(timeout: 10))
+        XCTAssertEqual(element("tv.iptv.track.highest").value as? String, "محدد")
+        shot("highest-quality-options")
+        expectFocus(element("tv.iptv.track.first")); remote.press(.select)
+        XCTAssertEqual(player.value as? String, "متوقف مؤقتًا")
+        remote.press(.select)
+        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 10))
+        remote.press(.menu); remote.press(.menu)
+        expectFocus(channel("قناة الأخبار"))
+    }
     func testXtreamFormShowsCredentialsAndMenuReturnsSafely() {
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset"]
         app.launch(); openIPTV()

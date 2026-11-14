@@ -1,6 +1,12 @@
 name: Apple TV IPTV checks
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: Run the full IPTV flow or the quality-controls scenario
+        type: choice
+        options: [all, quality]
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -77,11 +83,15 @@ jobs:
           PY
       - name: Test M3U entry, Xtream, Keychain persistence and remote playback
         timeout-minutes: 15
+        env:
+          IPTV_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
+          test_id=CinemaIQTVUITests/TVIPTVFlowTests
+          if [ "$IPTV_TEST_SCENARIO" = quality ]; then test_id="$test_id/testHighestQualityPreferenceAndAutomaticSelection"; fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
-            -only-testing:CinemaIQTVUITests/TVIPTVFlowTests \
+            -only-testing:"$test_id" \
             -resultBundlePath "$RUNNER_TEMP/tvos-iptv.xcresult" -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \

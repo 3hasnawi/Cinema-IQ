@@ -186,13 +186,23 @@ import kotlinx.coroutines.*
             val groups = tracks.groups.filter { it.type == type }; val first = remember(type) { FocusRequester() }
             IptvDialog(when (type) { C.TRACK_TYPE_VIDEO -> "جودة البث"; C.TRACK_TYPE_AUDIO -> "مسار الصوت"; else -> "الترجمة" }, { closeTracks() }, first) {
                 IptvButton(if (type == C.TRACK_TYPE_TEXT) "إيقاف الترجمة" else "تلقائي", Modifier.focusRequester(first)) {
-                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type).setTrackTypeDisabled(type, type == C.TRACK_TYPE_TEXT).build(); closeTracks()
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
+                        .apply { if (type == C.TRACK_TYPE_VIDEO) setForceHighestSupportedBitrate(false) }
+                        .setTrackTypeDisabled(type, type == C.TRACK_TYPE_TEXT).build(); closeTracks()
+                }
+                if (type == C.TRACK_TYPE_VIDEO) {
+                    IptvButton((if (player.trackSelectionParameters.forceHighestSupportedBitrate) "✓ " else "") + "تفضيل أعلى جودة متاحة") {
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false).setForceHighestSupportedBitrate(true).build(); closeTracks()
+                    }
+                    Label("بما يدعمه البث والجهاز؛ 4K أو أعلى عند توفرها.", 14, Brand.TextTertiary)
                 }
                 groups.forEach { track -> for (i in 0 until track.length) if (track.isTrackSupported(i)) {
                     val format = track.getTrackFormat(i)
                     val label = if (type == C.TRACK_TYPE_VIDEO && format.height > 0) "${format.height}p" else format.label ?: format.language ?: "مسار ${i + 1}"
                     IptvButton((if (track.isTrackSelected(i)) "✓ " else "") + label) {
                         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
+                            .apply { if (type == C.TRACK_TYPE_VIDEO) setForceHighestSupportedBitrate(false) }
                             .setTrackTypeDisabled(type, false).addOverride(TrackSelectionOverride(track.mediaTrackGroup, i)).build(); closeTracks()
                     }
                 } }

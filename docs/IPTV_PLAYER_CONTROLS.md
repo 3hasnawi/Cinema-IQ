@@ -16,6 +16,8 @@ Open IPTV under Browse/Explore (iPad also has an IPTV tab/sidebar item). Tap the
 
 Quality options come from the stream. Apple HLS choices are preferred maximum resolution/bit-rate caps that keep alternate audio in the master manifest; Auto removes caps. Apple TV retains the existing default quality setting on entry. Resolution caps chosen in the session survive channel changes, while rendition-specific bit-rate overrides are cleared for the new channel. Media3 selects supported video tracks or automatic adaptation. A fixed single-quality stream cannot offer additional renditions. Audio/subtitle options depend on tracks supplied by the provider.
 
+The quality menu also offers **Prefer highest available quality**. On Apple this clears any lower default/session cap, uses the highest advertised HLS resolution/bit-rate ceiling when discoverable, and reapplies the preference after channel changes. AVPlayer still adapts to network and decoder capability; this is not a forced fixed-rendition promise. On Android, Media3 selects the highest supported bit-rate tracks within device constraints. Choosing Auto or a manual video track clears that preference. There is no application-imposed Full HD/4K ceiling: 4K/8K can be used when supplied and supported, without upscaling or inventing source renditions. The fixture tests do not establish physical-device 4K/HDR playback.
+
 The existing M3U/Xtream source forms and encrypted source storage stay compatible. Source URLs must contain their scheme once, and HTTP requires source-level consent.
 
 ## Design references

@@ -104,7 +104,8 @@ struct TVIPTVPlayerView: View {
     private func trackButton(_ title: String, id: String, selected: Bool, run: @escaping () -> Void) -> some View {
         Button { run(); closePanel() } label: {
             HStack { Text(title); Spacer(); if selected { Image(systemName: "checkmark") } }.frame(maxWidth: .infinity)
-        }.focused($focus, equals: id)
+        }.focused($focus, equals: id).accessibilityIdentifier("tv.iptv." + id)
+            .accessibilityValue(selected ? "محدد" : "غير محدد")
     }
     private func trackPanel(_ value: String) -> some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -112,14 +113,16 @@ struct TVIPTVPlayerView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     if value == "quality" {
-                        trackButton("تلقائي", id: "track.first", selected: session.quality == nil && session.maximumHeight == nil) { session.chooseQuality(nil) }
+                        trackButton("تلقائي", id: "track.first", selected: !session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil) { session.chooseQuality(nil) }
+                        trackButton("تفضيل أعلى جودة متاحة", id: "track.highest", selected: session.prefersHighestQuality) { session.preferHighestQuality() }
                         ForEach(session.qualities) { quality in
-                            trackButton(quality.title, id: quality.id, selected: session.quality?.id == quality.id) { session.chooseQuality(quality) }
+                            trackButton(quality.title, id: quality.id, selected: !session.prefersHighestQuality && session.quality?.id == quality.id) { session.chooseQuality(quality) }
                         }
                         if let height = session.maximumHeight {
                             Text("الحد الأقصى الحالي: \(height)p").font(.system(size: 22))
                         }
                         Text("الجودات المتاحة من البث فقط؛ الاختيار يحدد الحد الأقصى، والتلقائي يتكيّف مع الشبكة.").font(.system(size: 22)).foregroundStyle(.secondary)
+                        Text("أعلى جودة بحسب البث والشبكة وقدرة الجهاز.").font(.system(size: 22)).foregroundStyle(.secondary)
                     } else if value == "audio" {
                         ForEach(Array(session.audio.enumerated()), id: \.element.id) { index, option in
                             trackButton(option.title, id: index == 0 ? "track.first" : option.id, selected: session.audioID == option.id) { session.chooseAudio(option.id) }

@@ -20,6 +20,7 @@ import CinemaCore
     @Published private(set) var qualities: [IPTVStreamQuality] = []
     @Published private(set) var quality: IPTVStreamQuality?
     @Published private(set) var maximumHeight: Int?
+    @Published private(set) var prefersHighestQuality = false
     @Published private(set) var audio: [MediaOption] = []
     @Published private(set) var subtitles: [MediaOption] = []
     @Published private(set) var audioID: String?
@@ -75,6 +76,7 @@ import CinemaCore
         }
     }
     private func open(_ next: IPTVChannel, token: UUID) {
+        if prefersHighestQuality { qualities = []; quality = nil; maximumHeight = nil }
         var url = next.url
 #if DEBUG
         let args = ProcessInfo.processInfo.arguments
@@ -104,10 +106,23 @@ import CinemaCore
                 let available = IPTVStreamQualities.parse(data, url: url, allowHTTP: allowHTTP)
                 guard !Task.isCancelled, generation == token else { return }
                 qualities = available
+                if prefersHighestQuality { applyHighestQuality() }
             } catch { /* Optional quality discovery must never interrupt authorized playback. */ }
         }
     }
     func chooseQuality(_ value: IPTVStreamQuality?) {
+        prefersHighestQuality = false
+        applyQuality(value)
+    }
+    func preferHighestQuality() {
+        prefersHighestQuality = true
+        applyHighestQuality()
+    }
+    private func applyHighestQuality() {
+        // HLS choices are sorted by resolution/bit-rate. Never replace the master and lose alternate tracks.
+        applyQuality(qualities.first)
+    }
+    private func applyQuality(_ value: IPTVStreamQuality?) {
         quality = value
         maximumHeight = value.flatMap { $0.height > 0 ? $0.height : nil }
         // AVPlayer's public rendition controls are caps: keep the master so alternate audio remains available.

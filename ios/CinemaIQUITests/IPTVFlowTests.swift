@@ -62,6 +62,14 @@ final class IPTVFlowTests: XCTestCase {
         waitFor { self.element("ios.iptv.player.title").label == "قناة الوثائقيات" }
         showPlayerControls(); element("ios.iptv.player.play").tap()
         waitFor { self.element("ios.iptv.player.status").label == "متوقف مؤقتًا" }
+        element("ios.iptv.player.quality").tap()
+        let highest = element("ios.iptv.quality.highest")
+        XCTAssertTrue(highest.waitForExistence(timeout: 10)); highest.tap()
+        element("ios.iptv.player.quality").tap()
+        XCTAssertTrue(highest.waitForExistence(timeout: 10))
+        XCTAssertEqual(highest.value as? String, "محدد")
+        element("ios.iptv.quality.auto").tap()
+        XCTAssertEqual(element("ios.iptv.player.surface").value as? String, "متوقف مؤقتًا")
         screenshot("playing-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
         waitFor { self.app.frame.width > self.app.frame.height }

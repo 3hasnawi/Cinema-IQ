@@ -102,10 +102,16 @@ struct IPTVPlaybackView: View {
     @ViewBuilder private func trackOptions(_ value: Panel) -> some View {
         List {
             if value == .quality {
-                Button { session.chooseQuality(nil); panel = nil } label: { choice("تلقائي", selected: session.quality == nil && session.maximumHeight == nil) }
-                ForEach(session.qualities) { quality in Button { session.chooseQuality(quality); panel = nil } label: { choice(quality.title, selected: session.quality?.id == quality.id) } }
+                Button { session.chooseQuality(nil); panel = nil } label: { choice("تلقائي", selected: !session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil) }
+                    .accessibilityIdentifier("ios.iptv.quality.auto")
+                    .accessibilityValue(!session.prefersHighestQuality && session.quality == nil && session.maximumHeight == nil ? "محدد" : "غير محدد")
+                Button { session.preferHighestQuality(); panel = nil } label: { choice("تفضيل أعلى جودة متاحة", selected: session.prefersHighestQuality) }
+                    .accessibilityIdentifier("ios.iptv.quality.highest")
+                    .accessibilityValue(session.prefersHighestQuality ? "محدد" : "غير محدد")
+                ForEach(session.qualities) { quality in Button { session.chooseQuality(quality); panel = nil } label: { choice(quality.title, selected: !session.prefersHighestQuality && session.quality?.id == quality.id) } }
                 if let height = session.maximumHeight { Text("الحد الأقصى الحالي: \(height)p").font(.footnote) }
                 Text("تُعرض الجودات التي يعلنها البث فقط. الاختيار يحدد الحد الأقصى ويحافظ على الصوت والترجمة؛ التلقائي يتكيّف مع الشبكة.").font(.footnote).foregroundStyle(.secondary)
+                Text("أعلى جودة تزيل حدود الدقة الأقل؛ تبقى الجودة الفعلية بحسب البث والشبكة وقدرة الجهاز.").font(.footnote).foregroundStyle(.secondary)
             } else if value == .audio {
                 ForEach(session.audio) { option in Button { session.chooseAudio(option.id); panel = nil } label: { choice(option.title, selected: session.audioID == option.id) } }
                 if session.audio.isEmpty { Text("لا تتوفر مسارات صوت إضافية لهذا البث.") }
