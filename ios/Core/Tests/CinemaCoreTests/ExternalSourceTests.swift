@@ -127,9 +127,12 @@ final class ExternalSourceTests: XCTestCase {
         XCTAssertEqual(hls.first?.url.pathExtension, "m3u8")
     }
 
-    /// Every demo stream and picture really answers: HLS manifests list their qualities, videos and images answer
-    /// with the right type. Skipped when the test machine is offline.
+    /// Opt-in integration probe: CDN availability is independent of fixture-based unit behavior.
+    /// Run with CINEMA_LIVE_NETWORK_TESTS=1 or the manual Demo CDN probe workflow.
     func testDemoStreamsAndArtworkAreReachable() async throws {
+        guard ProcessInfo.processInfo.environment["CINEMA_LIVE_NETWORK_TESTS"] == "1" else {
+            throw XCTSkip("External CDN probe requires CINEMA_LIVE_NETWORK_TESTS=1")
+        }
         var streams: [URL] = []
         for id in ["big-buck-bunny", "sintel", "tears-of-steel", "elephants-dream", "apple-hls"] {
             streams += try await SourceClient().streams(Media(id: "ext:demo:" + id, title: id)).map(\.url)
