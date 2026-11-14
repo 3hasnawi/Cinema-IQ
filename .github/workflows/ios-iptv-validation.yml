@@ -118,7 +118,8 @@ jobs:
           device = os.environ['IOS_TEST_DEVICE']
           try:
               # Xcode generates and signs the simulator entitlements; no invented team or profile.
-              subprocess.run(['xcrun','simctl','launch',device,'com.cinemaplus.rebuilt.ios',
+              subprocess.run(['xcrun','simctl','launch','--stdout='+os.environ['RUNNER_TEMP']+'/iptv-app.log',
+                              '--stderr='+os.environ['RUNNER_TEMP']+'/iptv-app-error.log',device,'com.cinemaplus.rebuilt.ios',
                               '-ios.contentSource.v1','ext:demo','--cinema-ui-testing-iptv',
                               '--cinema-ui-testing-iptv-reset','--cinema-ui-testing-iptv-snapshot'], check=True, timeout=60)
               container = pathlib.Path(subprocess.check_output(['xcrun','simctl','get_app_container',device,
@@ -179,5 +180,7 @@ jobs:
             ${{ runner.temp }}/ios-evidence
             ${{ runner.temp }}/simulator-ready.png
             ${{ runner.temp }}/iptv-channels.png
+            ${{ runner.temp }}/iptv-app.log
+            ${{ runner.temp }}/iptv-app-error.log
           retention-days: 1
           if-no-files-found: warn

@@ -4,7 +4,7 @@ import SwiftUI
 import CinemaCore
 
 /// One local Keychain item. It never participates in the app's library or Firebase synchronization.
-struct IPTVKeychainVault {
+struct IPTVKeychainVault: Sendable {
     let service: String
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
@@ -16,6 +16,7 @@ struct IPTVKeychainVault {
         request[kSecMatchLimit as String] = kSecMatchLimitOne
         var value: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &value)
+        trace("read", status)
         if status == errSecItemNotFound { return [] }
         guard status == errSecSuccess, let data = value as? Data else { throw VaultError.unavailable }
         do { return try JSONDecoder().decode([IPTVSource].self, from: data) }
@@ -26,10 +27,18 @@ struct IPTVKeychainVault {
         let attributes: [String: Any] = [kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
+        trace("update", status)
         if status == errSecItemNotFound {
             let inserted = query.merging(attributes) { _, new in new }
-            guard SecItemAdd(inserted as CFDictionary, nil) == errSecSuccess else { throw VaultError.unavailable }
+            let added = SecItemAdd(inserted as CFDictionary, nil)
+            trace("add", added)
+            guard added == errSecSuccess else { throw VaultError.unavailable }
         } else if status != errSecSuccess { throw VaultError.unavailable }
+    }
+    private func trace(_ operation: String, _ status: OSStatus) {
+#if DEBUG
+        if service.hasSuffix(".uitests") { print("CINEMA_IPTV_VAULT \(operation) \(status)") }
+#endif
     }
     enum VaultError: LocalizedError {
         case unavailable, unreadable, sourceLimit
@@ -56,6 +65,7 @@ struct IPTVKeychainVault {
     @Published private(set) var loading = false
     @Published private(set) var message: String?
     @Published private(set) var storageAvailable = false
+    @Published private(set) var storageLoading = true
     private let vault: IPTVKeychainVault
     private let defaults: UserDefaults
     private let selectionKey: String
@@ -63,6 +73,7 @@ struct IPTVKeychainVault {
     private var cache: [String: (Date, IPTVCatalog)] = [:]
     private var requestID = UUID()
     private var inFlightSourceID: String?
+    private var storageTask: Task<Void, Never>?
     var selected: IPTVSource? { sources.first { $0.id == selectedID } }
     var loadKey: String { (selectedID ?? "") + sourceRevision.uuidString }
 
@@ -73,14 +84,6 @@ struct IPTVKeychainVault {
         vault = IPTVKeychainVault(service: testing ? "com.cinemaplus.rebuilt.ios.iptv.uitests" : "com.cinemaplus.rebuilt.ios.iptv")
         selectionKey = testing ? "ios.iptv.uitests.selected.v1" : "ios.iptv.selected.v1"
         client = testing ? IPTVClient(transport: IPTVFixtureTransport()) : IPTVClient()
-        if testing && ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-iptv-reset") { try? vault.write([]) }
-        if IPTVFixtureSupport.snapshot,
-           let source = try? IPTVSource(id: "iptv-snapshot-playlist", name: "قنوات تجريبية", kind: .playlist,
-                                        address: URL(string: "https://iptv.example/channels.m3u")!) {
-            // Only the isolated UI-test Keychain service is populated, never the user's real sources.
-            try? vault.write([source])
-            defaults.set(source.id, forKey: selectionKey)
-        }
 #else
         vault = IPTVKeychainVault(service: "com.cinemaplus.rebuilt.ios.iptv")
         selectionKey = "ios.iptv.selected.v1"
@@ -90,12 +93,39 @@ struct IPTVKeychainVault {
         readSources()
     }
     func readSources() {
-        do {
-            sources = try vault.read(); storageAvailable = true; message = nil
-            sourceRevision = UUID()
-            if !sources.contains(where: { $0.id == selectedID }) { selectedID = sources.first?.id }
-        } catch {
-            storageAvailable = false; message = error.localizedDescription
+        guard storageTask == nil else { return }
+        storageLoading = true
+        let vault = self.vault
+        // Security's IPC must never block the app's first frame or its launch watchdog.
+        storageTask = Task { @MainActor [weak self] in
+            let result = await Task.detached(priority: .userInitiated) {
+                Result {
+#if DEBUG
+                    let arguments = ProcessInfo.processInfo.arguments
+                    if arguments.contains("--cinema-ui-testing-iptv") && arguments.contains("--cinema-ui-testing-iptv-reset") {
+                        try vault.write([])
+                    }
+                    if IPTVFixtureSupport.snapshot {
+                        let source = try IPTVSource(id: "iptv-snapshot-playlist", name: "قنوات تجريبية", kind: .playlist,
+                                                    address: URL(string: "https://iptv.example/channels.m3u")!)
+                        try vault.write([source])
+                    }
+#endif
+                    return try vault.read()
+                }
+            }.value
+            guard let self else { return }
+            defer { self.storageLoading = false; self.storageTask = nil }
+            do {
+                self.sources = try result.get(); self.storageAvailable = true; self.message = nil
+                self.sourceRevision = UUID()
+#if DEBUG
+                if IPTVFixtureSupport.snapshot { self.selectedID = self.sources.first?.id }
+#endif
+                if !self.sources.contains(where: { $0.id == self.selectedID }) { self.selectedID = self.sources.first?.id }
+            } catch {
+                self.storageAvailable = false; self.message = self.safeMessage(error)
+            }
         }
     }
     func reload(force: Bool = false) async {

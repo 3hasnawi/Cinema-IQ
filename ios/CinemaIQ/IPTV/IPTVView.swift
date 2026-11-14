@@ -16,7 +16,9 @@ struct IPTVView: View {
     private var filterKey: FilterKey { FilterKey(revision: store.catalogRevision, query: query, group: group) }
     var body: some View {
         List {
-            if !store.storageAvailable {
+            if store.storageLoading {
+                Section { HStack { ProgressView(); Text("جارٍ قراءة مصادر IPTV…") } }
+            } else if !store.storageAvailable {
                 Section {
                     Text(store.message ?? "تعذّر الوصول إلى البيانات الآمنة.")
                     Button("إعادة المحاولة") { store.readSources() }
