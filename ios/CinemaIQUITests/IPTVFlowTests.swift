@@ -51,16 +51,16 @@ final class IPTVFlowTests: XCTestCase {
         waitFor { !self.element("ios.iptv.player.close").exists }
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         waitFor { self.element("ios.iptv.player.close").exists }
-        showPlayerControls(); element("ios.iptv.player.next").tap()
+        tapPlayerControl("next")
         waitFor { self.element("ios.iptv.player.title").label == "قناة الرياضة" }
-        showPlayerControls(); element("ios.iptv.player.previous").tap()
+        tapPlayerControl("previous")
         waitFor { self.element("ios.iptv.player.title").label == "قناة الأخبار" }
-        showPlayerControls(); element("ios.iptv.player.channels").tap()
+        tapPlayerControl("channels")
         XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 15)); screenshot("floating-guide")
         let doc = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "ios.iptv.guide.channel.", "قناة الوثائقيات")).firstMatch
         XCTAssertTrue(doc.waitForExistence(timeout: 10)); doc.tap()
         waitFor { self.element("ios.iptv.player.title").label == "قناة الوثائقيات" }
-        showPlayerControls(); element("ios.iptv.player.play").tap()
+        tapPlayerControl("play")
         waitFor { self.element("ios.iptv.player.status").label == "متوقف مؤقتًا" }
         element("ios.iptv.player.quality").tap()
         let highest = element("ios.iptv.quality.highest")
@@ -76,7 +76,7 @@ final class IPTVFlowTests: XCTestCase {
         showPlayerControls(); inside(element("ios.iptv.player.close"))
         showPlayerControls(); XCTAssertEqual(element("ios.iptv.player.title").label, "قناة الوثائقيات")
         screenshot("playing-landscape")
-        showPlayerControls(); element("ios.iptv.player.close").tap()
+        tapPlayerControl("close")
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.state, .runningForeground)
     }
@@ -107,11 +107,20 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertEqual(app.state, .runningForeground)
     }
     private func showPlayerControls() {
-        let close = element("ios.iptv.player.close")
-        if !close.exists || close.frame.isEmpty {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        // Refresh the real five-second timer rather than spending its remaining time on XCTest queries.
+        if element("ios.iptv.player.close").exists { center.tap() }
+        center.tap()
+        XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 5))
+    }
+    private func tapPlayerControl(_ name: String) {
+        showPlayerControls()
+        let frame = element("ios.iptv.player." + name).frame
+        guard !frame.isEmpty, frame.midX.isFinite, frame.midY.isFinite else {
+            XCTFail("The visible player control must have a finite touch target: " + name); return
         }
-        waitFor { self.element("ios.iptv.player.close").exists }
+        // Tap the measured physical target directly; native element.tap() can retry after the HUD has expired.
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
     }
     private func openIPTV() {
         if tablet {
