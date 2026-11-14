@@ -88,6 +88,22 @@ class IptvTest {
         assertEquals("أخبار", channel.group); assertTrue(channel.url.endsWith("/live/user/fixture/7.m3u8"))
         assertEquals(3, requested.size); assertFalse(channel.toString().contains("fixture"))
     }
+    @Test fun xtreamOptionalCategoriesRespectRateLimitsAndOnlyFallbackOnMissingEndpoint() = runBlocking {
+        val source = IptvSource("x", "Xtream", IptvKind.Xtream, "https://provider.example", "user", "fixture")
+        for (status in listOf(404, 429)) {
+            var calls = 0
+            val client = IptvClient(IptvTransport { url, _ ->
+                calls++
+                when (url.toHttpUrl().queryParameter("action")) {
+                    "get_live_categories" -> throw IptvException(IptvException.Reason.Http, status)
+                    "get_live_streams" -> bytes("""[{"stream_id":7,"name":"News"}]""")
+                    else -> bytes("""{"user_info":{"auth":1,"status":"Active"}}""")
+                }
+            })
+            if (status == 404) { assertEquals("عام", client.load(source).channels.single().group); assertEquals(3, calls) }
+            else { try { client.load(source); fail() } catch (e: IptvException) { assertEquals(429, e.status); assertEquals(2, calls) } }
+        }
+    }
     @Test fun sourceStorageRoundTripsCredentialsAndRejectsCorruptionOrUnknownSchema() {
         val a = source(true).copy(address = "http://provider.example/list?token=fixture")
         val b = IptvSource("b", "Xtream", IptvKind.Xtream, "https://provider.example/base", "u+name", "p&word", output = IptvOutput.TransportStream)

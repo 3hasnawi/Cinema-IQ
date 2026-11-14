@@ -104,7 +104,7 @@ import kotlinx.coroutines.launch
         panel?.let { type ->
             val groups = tracks.groups.filter { it.type == type }
             val first = remember(type) { androidx.compose.ui.focus.FocusRequester() }
-            IptvDialog(when (type) { C.TRACK_TYPE_VIDEO -> "جودة البث"; C.TRACK_TYPE_AUDIO -> "مسار الصوت"; else -> "الترجمة" }, { panel = null }) {
+            IptvDialog(when (type) { C.TRACK_TYPE_VIDEO -> "جودة البث"; C.TRACK_TYPE_AUDIO -> "مسار الصوت"; else -> "الترجمة" }, { panel = null }, first) {
                 IptvButton(if (type == C.TRACK_TYPE_TEXT) "إيقاف الترجمة" else "تلقائي", Modifier.focusRequester(first)) {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverridesOfType(type)
                         .setTrackTypeDisabled(type, type == C.TRACK_TYPE_TEXT).build()
@@ -127,7 +127,6 @@ import kotlinx.coroutines.launch
                 if (groups.isEmpty()) Label("لم يوفّر هذا البث خيارات إضافية من هذا النوع.", 14, Brand.TextTertiary)
                 IptvButton("إغلاق") { panel = null }
             }
-            LaunchedEffect(type) { withFrameNanos { }; runCatching { first.requestFocus() } }
         }
     }
 }

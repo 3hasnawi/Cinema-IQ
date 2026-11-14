@@ -2,7 +2,7 @@ package com.cinemaplus.rebuilt.data.iptv
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.HttpUrl
@@ -78,7 +78,7 @@ class IptvNetworkTransport : IptvTransport, java.io.Closeable {
 
 class IptvClient(private val transport: IptvTransport = IptvNetworkTransport()) : java.io.Closeable {
     override fun close() { (transport as? java.io.Closeable)?.close() }
-    suspend fun load(raw: IptvSource): IptvCatalog = try { withTimeout(60_000) {
+    suspend fun load(raw: IptvSource): IptvCatalog = withTimeoutOrNull(60_000) {
         val source = raw.validated()
         when (source.kind) {
             IptvKind.M3U -> IptvParsers.playlist(transport.get(source.address, source.allowHttp), source)
@@ -86,12 +86,11 @@ class IptvClient(private val transport: IptvTransport = IptvNetworkTransport()) 
                 IptvParsers.authentication(transport.get(apiUrl(source), source.allowHttp))
                 val groups = try { transport.get(apiUrl(source, "get_live_categories"), source.allowHttp) }
                     catch (e: CancellationException) { throw e }
-                    catch (_: IptvException) { null }
+                    catch (e: IptvException) { if (e.reason == IptvException.Reason.Http && e.status == 404) null else throw e }
                 IptvParsers.xtream(transport.get(apiUrl(source, "get_live_streams"), source.allowHttp), groups, source)
             }
         }
-    }
-    } catch (_: kotlinx.coroutines.TimeoutCancellationException) { throw IptvException(IptvException.Reason.Network) }
+    } ?: throw IptvException(IptvException.Reason.Network)
     companion object {
         fun apiUrl(source: IptvSource, action: String? = null): String {
             if (source.kind != IptvKind.Xtream) throw IptvException(IptvException.Reason.InvalidServer)

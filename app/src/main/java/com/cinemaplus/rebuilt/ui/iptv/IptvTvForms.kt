@@ -33,7 +33,13 @@ import com.cinemaplus.rebuilt.ui.*
     }
 }
 
-@Composable internal fun IptvDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun IptvDialog(title: String, onDismiss: () -> Unit, first: FocusRequester? = null, content: @Composable ColumnScope.() -> Unit) {
+    LaunchedEffect(first) {
+        if (first != null) repeat(12) {
+            withFrameNanos { }
+            if (runCatching { first.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+        }
+    }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Surface(Modifier.fillMaxWidth(.67f).heightIn(max = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .88f).dp), color = Panel.copy(alpha = .98f),
@@ -57,7 +63,7 @@ import com.cinemaplus.rebuilt.ui.*
     var output by rememberSaveable { mutableStateOf(existing?.output ?: IptvOutput.Hls) }
     var error by remember { mutableStateOf<String?>(null) }
     val first = remember { FocusRequester() }
-    IptvDialog(if (existing == null) "إضافة مصدر IPTV" else "تعديل المصدر", cancel) {
+    IptvDialog(if (existing == null) "إضافة مصدر IPTV" else "تعديل المصدر", cancel, first) {
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             IptvButton(if (kind == IptvKind.M3U) "✓ M3U" else "M3U", Modifier.focusRequester(first), !state.busy) { kind = IptvKind.M3U }
             IptvButton(if (kind == IptvKind.Xtream) "✓ Xtream" else "Xtream", enabled = !state.busy) { kind = IptvKind.Xtream }
@@ -90,5 +96,4 @@ import com.cinemaplus.rebuilt.ui.*
         }
         Label("تحفظ بيانات المصدر مشفّرة على هذا الجهاز، دون مزامنتها مع الحساب. Xtream للقنوات المباشرة فقط.", 12, Brand.TextTertiary)
     }
-    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
 }

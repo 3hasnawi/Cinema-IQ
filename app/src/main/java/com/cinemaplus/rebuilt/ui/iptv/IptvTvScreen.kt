@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,7 +30,16 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
 
 @Composable internal fun IptvTvScreen(onExit: () -> Unit, vm: IptvTvViewModel = viewModel()) {
     val state by vm.state.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val logos = remember {
+        coil.ImageLoader.Builder(context).allowRgb565(true).crossfade(false)
+            .diskCachePolicy(coil.request.CachePolicy.DISABLED)
+            .memoryCache { coil.memory.MemoryCache.Builder(context).maxSizeBytes(8 * 1024 * 1024).build() }
+            .okHttpClient { okhttp3.OkHttpClient.Builder().followSslRedirects(false).build() }.build()
+    }
+    DisposableEffect(logos) { onDispose { logos.shutdown() } }
     var panel by remember { mutableStateOf<IptvPanel?>(null) }
+    val dialogFirst = remember(panel) { FocusRequester() }
     var editing by remember { mutableStateOf<IptvSource?>(null) }
     var playing by remember { mutableStateOf<IptvChannel?>(null) }
     var returnId by remember { mutableStateOf<String?>(null) }
@@ -90,7 +101,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
             LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid, modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 items(state.visible, key = { it.id }) { channel ->
-                    IptvChannelCard(channel, if (channel.id == targetId) Modifier.focusRequester(cardFocus) else Modifier,
+                    IptvChannelCard(channel, logos, if (channel.id == targetId) Modifier.focusRequester(cardFocus) else Modifier,
                         focused = { focusedId = channel.id }) { playing = channel }
                 }
             }
@@ -99,9 +110,9 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
             IptvPanel.Form -> key(editing?.id ?: "new") { IptvSourceForm(editing, state, ::dismiss) { source ->
                 vm.connect(source) { panel = null; returnId = null; returnEpoch++ }
             } }
-            IptvPanel.Sources -> IptvDialog("المصادر", { panel = null; restoreControl() }) {
-                state.sources.forEach { source ->
-                    IptvButton((if (source.id == state.selectedId) "✓ " else "") + source.name) {
+            IptvPanel.Sources -> IptvDialog("المصادر", { panel = null; restoreControl() }, dialogFirst) {
+                state.sources.forEachIndexed { index, source ->
+                    IptvButton((if (source.id == state.selectedId) "✓ " else "") + source.name, if (index == 0) Modifier.focusRequester(dialogFirst) else Modifier) {
                         panel = null; returnId = null; vm.select(source)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -112,16 +123,18 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
                 }
                 IptvButton("إغلاق") { panel = null; restoreControl() }
             }
-            IptvPanel.Groups -> IptvDialog("تصنيفات القنوات", { panel = null; restoreControl() }) {
-                IptvButton("كل القنوات") { panel = null; returnId = null; vm.group(null) }
-                groups.forEach { group -> IptvButton(group) { panel = null; returnId = null; vm.group(group) } }
+            IptvPanel.Groups -> IptvDialog("تصنيفات القنوات", { panel = null; restoreControl() }, dialogFirst) {
+                IptvButton("كل القنوات", Modifier.focusRequester(dialogFirst)) { panel = null; returnId = null; vm.group(null) }
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(groups, key = { it }) { group -> IptvButton(group) { panel = null; returnId = null; vm.group(group) } }
+                }
                 IptvButton("إغلاق") { panel = null; restoreControl() }
             }
-            IptvPanel.Delete -> IptvDialog("حذف المصدر", { panel = null; restoreControl() }) {
+            IptvPanel.Delete -> IptvDialog("حذف المصدر", { panel = null; restoreControl() }, dialogFirst) {
                 Label("هل تريد حذف ${editing?.name.orEmpty()} من هذا الجهاز؟", 17)
                 state.message?.let { Label(it, 13, Brand.Danger) }
                 IptvButton("حذف", enabled = !state.busy) { editing?.let { vm.remove(it) { panel = null; returnId = null; returnEpoch++ } } }
-                IptvButton("إلغاء", enabled = !state.busy) { panel = null; restoreControl() }
+                IptvButton("إلغاء", Modifier.focusRequester(dialogFirst), enabled = !state.busy) { panel = null; restoreControl() }
             }
             null -> Unit
         }
@@ -137,7 +150,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     }
 }
 
-@Composable private fun IptvChannelCard(channel: IptvChannel, modifier: Modifier, focused: () -> Unit, open: () -> Unit) {
+@Composable private fun IptvChannelCard(channel: IptvChannel, logos: coil.ImageLoader, modifier: Modifier, focused: () -> Unit, open: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
     Surface(modifier.fillMaxWidth().height(112.dp)
         .onFocusChanged { hasFocus = it.isFocused; if (it.isFocused) focused() }.clip(RoundedCornerShape(18.dp))
@@ -146,7 +159,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
         border = BorderStroke(if (hasFocus) 2.dp else 1.dp, if (hasFocus) Accent else Brand.BorderStrong)) {
         Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Glass), contentAlignment = Alignment.Center) {
-                if (channel.logo != null) AsyncImage(channel.logo, null, Modifier.fillMaxSize().padding(5.dp), contentScale = ContentScale.Fit)
+                if (channel.logo != null) AsyncImage(channel.logo, null, Modifier.fillMaxSize().padding(5.dp), contentScale = ContentScale.Fit, imageLoader = logos)
                 else Label("TV", 16, bold = true)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
