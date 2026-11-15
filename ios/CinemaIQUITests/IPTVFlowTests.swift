@@ -54,7 +54,7 @@ final class IPTVFlowTests: XCTestCase {
         app.buttons["رياضة"].tap()
         waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
         app.buttons["ios.iptv.groups"].tap()
-        app.buttons["كل القنوات"].firstMatch.tap()
+        element("ios.iptv.groupPicker.all").tap()
         screenshot("m3u-categories")
         // Keep the isolated Keychain service, remove only the reset launch flag, then relaunch.
         app.terminate(); app.launchArguments = baseArguments; app.launch(); openIPTV()

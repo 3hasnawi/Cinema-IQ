@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -23,11 +24,13 @@ import kotlinx.coroutines.withContext
     val groups = remember(channels, current.sourceId) { IptvNavigation.categories(channels, current.sourceId) }
     val numbering = remember(channels, current.sourceId) { IptvNavigation.numbers(channels, current.sourceId) }
     val logos = rememberIptvLogos()
+    val listState = rememberLazyListState()
     var visible by remember { mutableStateOf(emptyList<IptvChannel>()) }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
+            val categoryWidth = (maxWidth * .39f).coerceIn(132.dp, 210.dp)
             Row(Modifier.fillMaxSize()) {
-                LazyColumn(Modifier.width((maxWidth * .39f).coerceIn(132.dp, 210.dp)).fillMaxHeight().background(Ink)) {
+                LazyColumn(Modifier.width(categoryWidth).fillMaxHeight().background(Ink)) {
                     item { IptvBrowserCategory("◷  الأخيرة", section == IptvChannelSection.Recent) { selectSection(IptvChannelSection.Recent) } }
                     item { IptvBrowserCategory("★  المفضلة", section == IptvChannelSection.Favorites) { selectSection(IptvChannelSection.Favorites) } }
                     item { IptvBrowserCategory("▣  كل القنوات", section == IptvChannelSection.All) { selectSection(IptvChannelSection.All) } }
@@ -35,7 +38,7 @@ import kotlinx.coroutines.withContext
                         IptvBrowserCategory(entry.key + " · " + entry.value, section == IptvChannelSection.Group(entry.key)) { selectSection(IptvChannelSection.Group(entry.key)) }
                     }
                 }
-                LazyColumn(Modifier.weight(1f).fillMaxHeight().background(Panel), verticalArrangement = Arrangement.spacedBy(3.dp), contentPadding = PaddingValues(4.dp)) {
+                LazyColumn(Modifier.weight(1f).fillMaxHeight().background(Panel), state = listState, verticalArrangement = Arrangement.spacedBy(3.dp), contentPadding = PaddingValues(4.dp)) {
                     items(visible, key = { it.id }) { channel -> IptvChannelRow(channel, numbering[channel.id] ?: 0, channel.id == current.id, logos) { choose(channel) } }
                     if (visible.isEmpty()) item { Text("لا توجد قنوات في هذا القسم.", Modifier.padding(18.dp), color = Brand.TextTertiary) }
                 }
@@ -44,6 +47,7 @@ import kotlinx.coroutines.withContext
     }
     LaunchedEffect(channels, collection, section, query) {
         visible = withContext(Dispatchers.Default) { collection.channels(channels, current.sourceId, section, query) }
+        if (visible.isNotEmpty()) listState.scrollToItem(visible.indexOfFirst { it.id == current.id }.coerceAtLeast(0))
     }
 }
 @Composable private fun IptvBrowserCategory(title: String, selected: Boolean, choose: () -> Unit) {
