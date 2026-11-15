@@ -1,0 +1,20 @@
+Cinema iQ Windows uses unmodified dynamically linked VideoLAN LibVLC 3.0.24
+and LibVLCSharp 3.10.2. LGPL 2.1-or-later license notices supplied by their
+packages are installed with the application. Source and license:
+https://code.videolan.org/videolan/vlc/-/tree/3.0.24
+https://code.videolan.org/videolan/LibVLCSharp
+https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+Recipients may inspect and modify these libraries, reverse engineer their
+use for debugging modifications, replace compatible dynamic DLLs/plugins
+in the installation folder and run the application with those replacements.
+Cinema iQ imposes no additional restriction on those LGPL rights.
+
+Cairo fonts: SIL Open Font License 1.1, included in Assets/Fonts/OFL.txt.
+https://github.com/google/fonts/tree/main/ofl/cairo
+
+AngleSharp 1.10.3: MIT license.
+https://github.com/AngleSharp/AngleSharp/blob/main/LICENSE
+
+.NET runtime / WPF: Microsoft .NET MIT license and notices included in the
+self-contained runtime distribution. https://github.com/dotnet/runtime

@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+artifacts/
+src/CinemaIQ.Windows/appsettings.json
+*.user
+*.pfx
+*.cer

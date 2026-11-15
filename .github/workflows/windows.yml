@@ -1,0 +1,55 @@
+name: Windows desktop validation and installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [chatgpt/windows-desktop]
+    paths: ['windows/**', '.github/workflows/windows.yml']
+permissions:
+  contents: read
+concurrency:
+  group: windows-desktop-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+      OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+      YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+      FIREBASE_WINDOWS_API_KEY: ${{ secrets.FIREBASE_WINDOWS_API_KEY }}
+      FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test and build self-contained installer
+        shell: pwsh
+        run: ./windows/scripts/build.ps1 -Installer
+      - name: Install the single EXE and verify installed native playback
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Resolve-Path windows/artifacts/installer/Cinema-iQ-Windows-0.1.0-Setup.exe
+          $target = Join-Path $env:RUNNER_TEMP CinemaIQInstalled
+          $process = Start-Process $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$target") -Wait -PassThru
+          if ($process.ExitCode) { throw 'Installer failed' }
+          $media = (Resolve-Path windows/tests/Fixtures/compatibility-pattern.mkv).Path
+          $evidence = Join-Path $env:RUNNER_TEMP WindowsEvidence
+          $app = Join-Path $target CinemaIQ.Windows.exe
+          $test = Start-Process $app -ArgumentList "--smoke-test --smoke-output `"$evidence`" --smoke-media `"$media`"" -PassThru
+          if (-not $test.WaitForExit(120000)) { Stop-Process $test.Id -Force; throw 'Installed application smoke test timed out' }
+          if ($test.ExitCode) { throw 'Installed application smoke test failed' }
+          $result = Get-Content -Raw "$evidence/result.json" | ConvertFrom-Json
+          if (-not $result.success -or -not $result.nativePlayback) { throw 'Native decoder or UI smoke failed' }
+          Write-Output ($result | ConvertTo-Json)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Cinema-iQ-Windows-${{ github.run_id }}
+          path: |
+            windows/artifacts/installer/
+            ${{ runner.temp }}/WindowsEvidence/
+          retention-days: 1
