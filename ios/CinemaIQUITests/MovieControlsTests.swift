@@ -32,9 +32,8 @@ final class MovieControlsTests: XCTestCase {
         shot("automatic-hide")
         centerTap()
         XCTAssertTrue(element("ios.player.close").waitForExistence(timeout: 10), "A real centre tap must restore controls after their production timeout")
+        pauseForInspection()
         let pause = element("ios.player.playPause")
-        pause.tap()
-        waitFor { pause.label == "تشغيل" }
         shot("controls-restored-paused")
         element("ios.player.options").tap()
         XCTAssertTrue(element("ios.player.options.panel").waitForExistence(timeout: 10))
@@ -46,9 +45,32 @@ final class MovieControlsTests: XCTestCase {
         waitFor { !self.element("ios.player.close").exists }
         centerTap()
         XCTAssertTrue(element("ios.player.close").waitForExistence(timeout: 10))
+        pauseForInspection()
         shot("landscape-controls-restored")
         element("ios.player.close").tap()
         XCTAssertTrue(start.waitForExistence(timeout: 15))
+    }
+    private func pauseForInspection() {
+        // Cache one snapshot before restarting the real HUD timer. Slow live AX queries must not
+        // consume its four seconds between locating Pause and actually touching the screen.
+        var point: CGPoint?
+        for _ in 0..<4 {
+            if let root = try? app.snapshot() {
+                var nodes = [root]
+                while let node = nodes.popLast() {
+                    if node.identifier == "ios.player.playPause", !node.frame.isEmpty {
+                        point = CGPoint(x: node.frame.midX, y: node.frame.midY); break
+                    }
+                    nodes.append(contentsOf: node.children)
+                }
+            }
+            if point != nil { break }; centerTap()
+        }
+        guard let point else { XCTFail("Pause must be present in the restored HUD"); return }
+        waitFor { !self.element("ios.player.close").exists }
+        centerTap()
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+        waitFor { self.element("ios.player.playPause").label == "تشغيل" }
     }
     private func centerTap() { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
     private func seconds(_ element: XCUIElement) -> Int {
