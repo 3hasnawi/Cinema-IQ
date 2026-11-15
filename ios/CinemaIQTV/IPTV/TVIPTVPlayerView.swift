@@ -25,7 +25,9 @@ struct TVIPTVPlayerView: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
-                videoLayer(in: geometry).zIndex(guide ? 2 : 0).allowsHitTesting(false)
+                // Geometry coordinates are physical; keep video transforms LTR inside the Arabic UI.
+                videoLayer(in: geometry).environment(\.layoutDirection, .leftToRight)
+                    .zIndex(guide ? 2 : 0).allowsHitTesting(false)
                 Button { guide = true } label: { Color.clear.contentShape(Rectangle()) }
                     // PlainButtonStyle paints a screen-sized focus backdrop on tvOS; artwork style draws only the clear label.
                     .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")

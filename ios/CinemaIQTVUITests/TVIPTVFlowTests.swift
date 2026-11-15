@@ -166,7 +166,8 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertGreaterThan(fraction, 0.70, "Focused playback must show the video, without a screen-sized button backdrop")
     }
     private func assertPreviewVideoVisible(_ name: String) throws {
-        let preview = element("tv.iptv.guide.preview")
+        // The guide's container identifier propagates to non-control children on tvOS.
+        let preview = app.otherElements.matching(NSPredicate(format: "label == %@", "معاينة القناة")).firstMatch
         XCTAssertTrue(preview.waitForExistence(timeout: 15))
         let frame = preview.frame, window = app.frame
         var capture = XCUIScreen.main.screenshot(), fraction = 0.0

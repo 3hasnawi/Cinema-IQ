@@ -131,6 +131,13 @@ final class IPTVFlowTests: XCTestCase {
         screenshot("xtream-search")
         XCTAssertEqual(app.state, .runningForeground)
     }
+    private func showPlayerControls() {
+        for _ in 0..<4 {
+            if element("ios.iptv.player.close").exists { return }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(element("ios.iptv.player.close").exists)
+    }
     private func tapPlayerControl(_ name: String) {
         let identifier = "ios.iptv.player." + name
         let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
