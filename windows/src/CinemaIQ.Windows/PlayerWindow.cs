@@ -56,13 +56,14 @@ public sealed partial class PlayerWindow : Window
         var settings = services.Library.State.Settings;
         lib = new LibVLC("--quiet", "--no-video-title-show", "--no-sub-autodetect-file", "--freetype-fontsize=" + Math.Clamp(settings.SubtitleSize, 14, 48), "--freetype-background-opacity=" + Math.Clamp(settings.SubtitleBackground, 0, 255), "--freetype-background-color=0", "--sub-language=" + settings.SubtitleLanguage);
         Player = new MediaPlayer(lib) { EnableHardwareDecoding = settings.HardwareDecoding && !services.Smoke, Volume = 90 };
-        video = new VideoView { MediaPlayer = Player, Content = overlay }; Content = video;
+        TextOptions.SetTextRenderingMode(overlay, TextRenderingMode.Grayscale); video = new VideoView { MediaPlayer = Player, Content = overlay }; Content = video;
         title.HorizontalAlignment = HorizontalAlignment.Right; title.VerticalAlignment = VerticalAlignment.Top; title.Margin = new Thickness(48); overlay.Children.Add(title);
         details.HorizontalAlignment = HorizontalAlignment.Right; details.VerticalAlignment = VerticalAlignment.Bottom; details.Width = 760; details.MaxHeight = 160; details.TextTrimming = TextTrimming.CharacterEllipsis; details.Margin = new Thickness(40, 0, 48, 200); overlay.Children.Add(details);
         message.HorizontalAlignment = HorizontalAlignment.Center; message.VerticalAlignment = VerticalAlignment.Center; message.MaxWidth = 800; overlay.Children.Add(message);
         var play = Ui.Button("⏯", Toggle); play.ToolTip = "تشغيل أو إيقاف مؤقت";
         var volume = new Slider { Minimum = 0, Maximum = 100, Value = 90, Width = 130, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12) }; volume.ValueChanged += (_, _) => Player.Volume = (int)volume.Value;
-        var buttons = Ui.Row(Ui.Button("إغلاق", Close), Ui.Button("القنوات / الحلقات", OpenGuide), Ui.AsyncButton("الجودة", Quality, Error), Ui.Button("الترجمة", Subtitles), Ui.Button("الصوت", Audio), Ui.Button("السرعة", Speed), Ui.Button("−10", () => Seek(-10000)), play, Ui.Button("+10", () => Seek(10000)), volume);
+        var buttonRow = Ui.Row(Ui.Button("إغلاق", Close), Ui.Button("القنوات / الحلقات", OpenGuide), Ui.AsyncButton("الجودة", Quality, Error), Ui.Button("الترجمة", Subtitles), Ui.Button("الصوت", Audio), Ui.Button("السرعة", Speed), Ui.Button("−10", () => Seek(-10000)), play, Ui.Button("+10", () => Seek(10000)), volume);
+        var buttons = new WrapPanel { FlowDirection = FlowDirection.RightToLeft, HorizontalAlignment = HorizontalAlignment.Stretch }; foreach (var button in buttonRow.Children.Cast<UIElement>().ToArray()) { buttonRow.Children.Remove(button); buttons.Children.Add(button); }
         controls.Children.Add(timeline); controls.Children.Add(clock); controls.Children.Add(buttons); controls.Margin = new Thickness(35, 10, 35, 20); controls.VerticalAlignment = VerticalAlignment.Bottom;
         var panel = Ui.Card(controls, 8); panel.VerticalAlignment = VerticalAlignment.Bottom; panel.Margin = new Thickness(32); overlay.Children.Add(panel);
         skip = Ui.Button("تخطي المقدمة", () => { if (introEnd > Player.Time) Player.Time = introEnd; }); next = Ui.Button("الحلقة التالية  ▶", () => { if (LibraryStore.Next(item, this.episodes) is { } following) _ = PlayItem(following); });
@@ -147,7 +148,8 @@ public sealed partial class PlayerWindow : Window
     {
         if (closing) return; var live = channel != null;
         var visible = guide != null || !Player.IsPlaying || DateTime.UtcNow - lastInteraction < TimeSpan.FromSeconds(5);
-        panel.Visibility = title.Visibility = visible ? Visibility.Visible : Visibility.Collapsed; details.Visibility = !live && !Player.IsPlaying ? Visibility.Visible : Visibility.Collapsed;
+        panel.Visibility = title.Visibility = visible && guide == null ? Visibility.Visible : Visibility.Collapsed; details.Visibility = !live && !Player.IsPlaying && guide == null ? Visibility.Visible : Visibility.Collapsed;
+        details.Margin = new Thickness(40, 0, 48, Math.Max(200, panel.ActualHeight + 65));
         timeline.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
         if (!dragging) { settingTimeline = true; timeline.Maximum = Math.Max(1, Player.Length); timeline.Value = Math.Max(0, Player.Time); settingTimeline = false; }
         clock.Text = live ? (Player.IsPlaying ? "بث مباشر" : "متوقف مؤقتًا") : Format(Player.Time) + " / " + Format(Player.Length);
@@ -211,14 +213,15 @@ public sealed partial class PlayerWindow : Window
     private void OpenGuide()
     {
         if (guide != null) { overlay.Children.Remove(guide); guide = null; return; }
-        var rows = new StackPanel(); var list = new ListBox { Background = Ui.Panel, Foreground = Brushes.White, FontSize = 21, DisplayMemberPath = channel == null ? "EpisodeLabel" : "Name", FlowDirection = FlowDirection.RightToLeft, Height = Math.Max(350, ActualHeight - 250) };
-        var search = Ui.Input("ابحث عن قناة"); var categories = new ComboBox { MinWidth = 180, ItemsSource = new[] { "كل القنوات" }.Concat(channels.Select(c => c.Group).Distinct().Order()).ToArray(), SelectedIndex = group == null ? 0 : 1 + channels.Select(c => c.Group).Distinct().Order().ToList().IndexOf(group) };
+        var rows = new Grid { Height = Math.Max(360, ActualHeight - 140) }; rows.RowDefinitions.Add(new() { Height = GridLength.Auto }); rows.RowDefinitions.Add(new() { Height = GridLength.Auto }); rows.RowDefinitions.Add(new()); rows.RowDefinitions.Add(new() { Height = GridLength.Auto }); var list = new ListBox { Background = Ui.Panel, Foreground = Brushes.White, FontSize = 21, DisplayMemberPath = channel == null ? "EpisodeLabel" : "Name", FlowDirection = FlowDirection.RightToLeft };
+        var search = Ui.Input("ابحث عن قناة"); var categories = new ComboBox { Width = 180, ItemsSource = new[] { "كل القنوات" }.Concat(channels.Select(c => c.Group).Distinct().Order()).ToArray(), SelectedIndex = group == null ? 0 : 1 + channels.Select(c => c.Group).Distinct().Order().ToList().IndexOf(group) };
         void Filter() { list.ItemsSource = channel == null ? episodes : channels.Where(c => (categories.SelectedIndex == 0 || c.Group == categories.SelectedItem?.ToString()) && c.Name.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase)).ToArray(); list.SelectedItem = channel == null ? episodes.FirstOrDefault(e => e.Id == item.Id) : channels.FirstOrDefault(c => c.Id == channel.Id); if (list.SelectedItem == null && list.Items.Count > 0) list.SelectedIndex = 0; list.ScrollIntoView(list.SelectedItem); }
         async Task Choose() { try { if (list.SelectedItem is Channel c) { group = categories.SelectedIndex == 0 ? null : categories.SelectedItem?.ToString(); if (c.Id != channel?.Id) await TuneChannel(c); } else if (list.SelectedItem is MediaItem e) await PlayItem(e); if (guide != null) OpenGuide(); } catch (Exception e) { Error(Ui.Message(e)); } }
         list.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Choose(); } }; list.MouseDoubleClick += async (_, _) => await Choose();
         search.TextChanged += (_, _) => Filter(); categories.SelectionChanged += (_, _) => Filter();
-        rows.Children.Add(Ui.Row(Ui.Text(channel == null ? "الحلقات" : "القنوات", 28), Ui.Button("إغلاق", OpenGuide))); if (channel != null) rows.Children.Add(Ui.Row(search, categories)); rows.Children.Add(list); rows.Children.Add(Ui.AsyncButton("مشاهدة", Choose, Error, true));
-        guide = Ui.Card(rows, 20); guide.Width = channel == null ? 650 : 760; guide.MaxHeight = ActualHeight - 60; guide.HorizontalAlignment = HorizontalAlignment.Right; guide.VerticalAlignment = VerticalAlignment.Center; guide.Margin = new Thickness(30); overlay.Children.Add(guide); Filter(); list.Focus();
+        void Add(UIElement child, int row) { Grid.SetRow(child, row); rows.Children.Add(child); }
+        Add(Ui.Row(Ui.Text(channel == null ? "الحلقات" : "القنوات", 28), Ui.Button("إغلاق", OpenGuide)), 0); if (channel != null) Add(Ui.Row(search, categories), 1); Add(list, 2); Add(Ui.AsyncButton("مشاهدة", Choose, Error, true), 3);
+        guide = Ui.Card(rows, 20); guide.Width = Math.Min(channel == null ? 650 : 760, Math.Max(500, ActualWidth * 0.6)); guide.MaxHeight = ActualHeight - 60; guide.HorizontalAlignment = HorizontalAlignment.Right; guide.VerticalAlignment = VerticalAlignment.Center; guide.Margin = new Thickness(30); overlay.Children.Add(guide); Filter(); list.Focus();
     }
     private async void Keys(object sender, KeyEventArgs e)
     {

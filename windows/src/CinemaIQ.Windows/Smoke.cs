@@ -93,7 +93,8 @@ public sealed partial class PlayerWindow
         if (!services.Smoke || channel == null) throw new InvalidOperationException("IPTV smoke mode required");
         var originalVideoParent = Content; OpenGuide(); overlay.UpdateLayout();
         if (guide == null || guide.ActualWidth > overlay.ActualWidth || !ReferenceEquals(Content, originalVideoParent)) throw new InvalidOperationException("Guide changed the video surface or exceeded the window");
-        var panel = (StackPanel)guide.Child; var list = panel.Children.OfType<ListBox>().Single();
+        var panel = (Grid)guide.Child; var list = panel.Children.OfType<ListBox>().Single();
+        var footer = panel.Children.OfType<Button>().Last(); var corner = footer.TranslatePoint(new Point(footer.ActualWidth, footer.ActualHeight), overlay); if (corner.X > overlay.ActualWidth || corner.Y > overlay.ActualHeight) throw new InvalidOperationException("Guide footer clipped outside player");
         if (list.Items.Count != channels.Count || !list.IsKeyboardFocusWithin) throw new InvalidOperationException("Guide did not focus the channels");
         OpenGuide(); await Surf(1); var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline && (loadingMedia || !Player.IsPlaying)) await Task.Delay(100);
