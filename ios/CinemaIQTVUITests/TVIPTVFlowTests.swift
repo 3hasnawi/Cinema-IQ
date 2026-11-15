@@ -71,7 +71,7 @@ final class TVIPTVFlowTests: XCTestCase {
         remote.press(.down)
         XCTAssertEqual(player.label, "قناة الأخبار", "Moving focus must not change the playing stream")
         remote.press(.select)
-        waitFor { self.element("tv.iptv.guide.title").label == "قناة الرياضة" }
+        waitFor { player.label == "قناة الرياضة" }
         XCTAssertTrue(element("tv.iptv.guide").exists, "A new channel first plays in the browser preview")
         try assertPreviewVideoVisible("new-channel-preview")
         remote.press(.select)
@@ -90,7 +90,7 @@ final class TVIPTVFlowTests: XCTestCase {
         let documentary = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "tv.iptv.guide.channel.", "قناة الوثائقيات")).firstMatch
         expectFocus(element("tv.iptv.guide.group.وثائقيات"))
         remote.press(.left); expectFocus(documentary); remote.press(.select)
-        waitFor { self.element("tv.iptv.guide.title").label == "قناة الوثائقيات" }
+        waitFor { player.label == "قناة الوثائقيات" }
         remote.press(.select); expectFocus(player)
         remote.press(.select); remote.press(.menu)
         XCTAssertTrue(player.exists); XCTAssertFalse(element("tv.iptv.guide").exists)

@@ -46,7 +46,7 @@ struct IPTVView: View {
                     Section {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
-                                Button("كل القنوات") { group = nil; query = "" }.tint(group == nil ? Theme.accent : .secondary)
+                                Button("كل القنوات · \(numbering.count)") { group = nil; query = "" }.tint(group == nil ? Theme.accent : .secondary)
                                 ForEach(categories, id: \.name) { item in
                                     Button("\(item.name) · \(item.count)") { group = item.name; query = "" }.tint(group == item.name ? Theme.accent : .secondary)
                                         .accessibilityIdentifier("ios.iptv.category." + item.name)

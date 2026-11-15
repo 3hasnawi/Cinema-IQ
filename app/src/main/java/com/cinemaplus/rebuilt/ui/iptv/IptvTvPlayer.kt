@@ -145,7 +145,7 @@ import kotlinx.coroutines.*
                     transformOrigin = TransformOrigin(0f, 0f); scaleX = frame.width / viewport.width; scaleY = frame.height / viewport.height
                     translationX = frame.left; translationY = frame.top
                 }
-            }
+            } else { alpha = 1f; scaleX = 1f; scaleY = 1f; translationX = 0f; translationY = 0f }
         })
         Box(Modifier.fillMaxSize().focusRequester(surface).focusProperties { canFocus = !guide && panel == null }.onPreviewKeyEvent { event ->
             val key = event.nativeKeyEvent

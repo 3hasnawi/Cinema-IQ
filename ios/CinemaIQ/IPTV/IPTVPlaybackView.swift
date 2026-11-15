@@ -56,6 +56,7 @@ struct IPTVPlaybackView: View {
                             control("captions.bubble", "الترجمة", id: "subtitles") { panel = .subtitles }
                         }.padding(.horizontal, 18).padding(.vertical, 12)
                     }.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+                        .simultaneousGesture(DragGesture(minimumDistance: 4).onChanged { _ in interaction += 1 }.onEnded { _ in interaction += 1 })
                         .accessibilityIdentifier("ios.iptv.player.controls")
                 }.padding(16)
             }

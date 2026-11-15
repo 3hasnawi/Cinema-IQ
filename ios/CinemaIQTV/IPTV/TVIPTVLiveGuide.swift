@@ -72,28 +72,31 @@ struct TVIPTVLiveGuide: View {
                         let values = session.channels, source = session.sourceID, group = browsingGroup, text = query
                         let result = await Task.detached { IPTVNavigation.channels(values, sourceID: source, group: group, query: text) }.value
                         guard !Task.isCancelled else { return }; visible = result
-                        guard focus != "search", focus?.hasPrefix("group.") != true else { return }
                         await Task.yield()
                         let id = IPTVNavigation.entry(currentID: session.channel.id, in: result)
                         if let id { proxy.scrollTo(id, anchor: .center) }
+                        guard focus != "search", focus?.hasPrefix("group.") != true else { return }
                         do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
                         focus = id.map { "channel." + $0 } ?? groupID
                     }
                 }
                 Divider()
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 12) {
                     Color.clear.aspectRatio(16 / 9, contentMode: .fit)
                         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("tv.iptv.player.space")) }, action: previewChanged)
                         .accessibilityElement().accessibilityLabel("معاينة القناة")
                         .accessibilityIdentifier("tv.iptv.guide.preview")
-                    Text(session.channel.name).font(.title3.bold()).lineLimit(2).accessibilityIdentifier("tv.iptv.guide.title")
-                    Text(session.channel.group).font(.system(size: 23)).foregroundStyle(.secondary)
-                    Text(session.status).font(.system(size: 22)).foregroundStyle(.secondary)
-                    Button("ملء الشاشة", action: selected).accessibilityIdentifier("tv.iptv.guide.fullscreen")
-                    Text("اختر قناة لمعاينتها هنا. اضغط عليها مرة أخرى لملء الشاشة. الرجوع يواصل البث.")
-                        .font(.system(size: 20)).foregroundStyle(.secondary)
+                    Text(session.channel.name).font(.system(size: 24, weight: .semibold)).lineLimit(2).accessibilityIdentifier("tv.iptv.guide.title")
+                    Text(session.channel.group).font(.system(size: 20)).foregroundStyle(.secondary)
+                    if let problem = session.problem {
+                        Text(problem.replacingOccurrences(of: "على iOS", with: "على Apple TV")).font(.system(size: 18)).foregroundStyle(.secondary).lineLimit(2)
+                        Button("إعادة المحاولة") { session.retry() }.font(.system(size: 22)).disabled(session.retrying)
+                    } else {
+                        Text(session.status).font(.system(size: 20)).foregroundStyle(.secondary)
+                        Button("ملء الشاشة", action: selected).font(.system(size: 22)).accessibilityIdentifier("tv.iptv.guide.fullscreen")
+                    }
                     Spacer()
-                }.frame(maxWidth: .infinity).frame(width: 460).padding(8)
+                }.frame(maxWidth: .infinity).frame(width: 520).padding(8)
             }
         }
         .buttonStyle(.bordered).padding(32)

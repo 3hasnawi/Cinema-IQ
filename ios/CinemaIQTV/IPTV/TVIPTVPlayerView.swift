@@ -84,7 +84,7 @@ struct TVIPTVPlayerView: View {
                 if guide {
                     HStack {
                         TVIPTVLiveGuide(session: session, selected: { closePanel() }, previewChanged: { previewFrame = $0 })
-                            .frame(width: min(1740, geometry.size.width * 0.94), height: geometry.size.height * 0.82)
+                            .frame(width: min(1740, geometry.size.width * 0.94), height: geometry.size.height * 0.9)
                         Spacer(minLength: 0)
                     }.padding(.horizontal, 54).zIndex(1)
                 }

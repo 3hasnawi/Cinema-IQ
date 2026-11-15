@@ -103,9 +103,10 @@ import kotlinx.coroutines.withContext
     LaunchedEffect(channels, browsingGroup, query) {
         val result = withContext(Dispatchers.Default) { IptvNavigation.channels(channels, current.sourceId, browsingGroup, query) }
         visible = result
-        if (television && !searching && !categoryFocused) {
+        if (television) {
             val index = result.indexOfFirst { it.id == IptvNavigation.entry(result, current.id) }
             if (index >= 0) scroll.scrollToItem(index)
+            if (searching || categoryFocused) return@LaunchedEffect
             repeat(12) {
                 withFrameNanos { }
                 if (runCatching { if (index >= 0) entryFocus.requestFocus() else categoryFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
