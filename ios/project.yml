@@ -1,6 +1,6 @@
 name: CinemaIQ
 options:
-  preGenCommand: bash scripts/prepare-cast.sh && bash scripts/prepare-vlc.sh
+  preGenCommand: bash scripts/prepare-vlc.sh
   bundleIdPrefix: com.cinemaplus.rebuilt
   deploymentTarget:
     iOS: "18.0"
@@ -23,8 +23,6 @@ targets:
       - path: SharedIPTV
     dependencies:
       - package: CinemaCore
-      - framework: .build/cast/GoogleCastSDK-ios-4.8.6_dynamic_xcframework/GoogleCast.xcframework
-        embed: true
       - framework: .build/vlc/MobileVLCKit-binary/MobileVLCKit.xcframework
         embed: true
     scheme:
@@ -52,10 +50,7 @@ targets:
         OMDbAPIKey: "5b9c7295"
         # From the TMDB_API_KEY secret at build time (never stored in the repository); empty builds skip TMDB.
         TMDBAPIKey: "$(TMDB_API_KEY)"
-        NSLocalNetworkUsageDescription: للعثور على أجهزة Chromecast والاتصال بمصادر IPTV داخل شبكتك.
-        NSBonjourServices:
-          - _googlecast._tcp
-          - _CC1AD845._googlecast._tcp
+        NSLocalNetworkUsageDescription: للاتصال بمصادر IPTV داخل شبكتك.
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIApplicationSceneManifest:
