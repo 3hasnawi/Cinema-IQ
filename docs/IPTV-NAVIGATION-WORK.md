@@ -32,3 +32,26 @@ Scope: IPTV UI and navigation models/tests only. No provider authentication,
 subscription handling, movie transport, existing storage keys or version numbers
 are changed. No APK/IPA export, public publication or merge was requested.
 Validation results and remaining platform limits are recorded in the PR.
+
+The user then supplied the iPhone reference screenshot: an inline video at the top,
+physical left category list and right channel list below, with Recent, Favorites,
+a heart and a fullscreen action. iPhone/iPad and Android phones now enter this
+embedded browser rather than requiring fullscreen before browsing. In landscape,
+the preview sits beside the two lists so neither list collapses below the video.
+A new channel plays in place; choosing the current channel or the fullscreen icon
+expands the same player. Closing fullscreen returns to the lists.
+
+Recent channels are recorded only when playback starts, deduplicated and capped at
+100; favorites are capped at 2000. Records contain channel IDs only, are device-local,
+filter within the active source and do not change movie history or cloud sync.
+Persistence is additive: Apple uses `<existing selectionKey>.channels.v1` in
+UserDefaults, Android uses `iptv_channel_collection_v1` / `ids` in SharedPreferences.
+All existing source selection and credential keys are retained. Fresh fixture runs
+reset only the added channel collection for repeatable tests.
+
+The Android and Swift pure-model suites cover source isolation, recency, missing
+channels, toggling, provider order, search and bounds; Swift also tests the bounded
+JSON round trip. Native touch flow tests cover inline tuning, Recent/Favorites,
+search, fullscreen/return, M3U persistence, Xtream and the compatibility decoder's
+audio/subtitles and rotation. Final outcomes are recorded in PR #136, including
+which runs use simulator fixtures and which device checks were not performed.
