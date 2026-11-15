@@ -7,7 +7,7 @@ on:
       scenario:
         description: Layout tour or production movie controls regression
         type: choice
-        options: [all, movie_controls]
+        options: [all, movie_controls, movie_controls_apple]
         default: all
 
 permissions:
@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: ${{ inputs.scenario == 'movie_controls' && fromJSON('["iphone"]') || fromJSON('["iphone","ipad"]') }}
+        device: ${{ startsWith(inputs.scenario, 'movie_controls') && fromJSON('["iphone"]') || fromJSON('["iphone","ipad"]') }}
     env:
       IOS_TEST_KIND: ${{ matrix.device }}
     steps:
@@ -120,6 +120,7 @@ jobs:
           set -o pipefail
           test_id=CinemaIQUITests/AdaptiveLayoutTests
           if [ "$UI_TEST_SCENARIO" = movie_controls ]; then test_id=CinemaIQUITests/MovieControlsTests; fi
+          if [ "$UI_TEST_SCENARIO" = movie_controls_apple ]; then test_id=CinemaIQUITests/MovieControlsTests/testAppleControlsReturnAfterAutomaticHide; fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
             -only-testing:"$test_id" \

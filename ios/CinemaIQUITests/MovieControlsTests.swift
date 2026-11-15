@@ -8,6 +8,12 @@ final class MovieControlsTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-player-controls"]
         if name.contains("Compatibility") { app.launchArguments.append("--cinema-ui-testing-compatibility") }
+        if !name.contains("Compatibility") {
+            // Separate first-install hydration/accessibility startup from the player regression.
+            app.launch()
+            XCTAssertTrue(element("ios.home.hero").waitForExistence(timeout: 25))
+            app.terminate()
+        }
         app.launch()
     }
     override func tearDown() {
