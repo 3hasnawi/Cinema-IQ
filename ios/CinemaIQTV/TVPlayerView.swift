@@ -76,7 +76,7 @@ struct TVPlayerView: View {
             }
             if !controller.playing && !controller.buffering && !loading && !controller.ended &&
                 controller.position > 0 && failure == nil {
-                TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo)
+                TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo, bottomPadding: controller.usesCompatibility ? 330 : 220)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }

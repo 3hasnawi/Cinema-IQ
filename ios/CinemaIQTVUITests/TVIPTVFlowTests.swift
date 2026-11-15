@@ -48,7 +48,7 @@ final class TVIPTVFlowTests: XCTestCase {
         expectFocus(element("tv.home.showcase"))
         XCTAssertEqual(app.state, .runningForeground)
     }
-    func testRemoteChannelSurfingAndFloatingGuide() {
+    func testRemoteChannelSurfingAndFloatingGuide() throws {
         // Hosted Intel XCTest snapshots can take several seconds per remote move in this longer flow.
         executionTimeAllowance = 360
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
@@ -70,7 +70,7 @@ final class TVIPTVFlowTests: XCTestCase {
         remote.press(.select)
         XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 10))
         let sport = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "tv.iptv.guide.channel.", "قناة الرياضة")).firstMatch
-        expectFocus(sport); shot("floating-guide-playing")
+        expectFocus(sport); try assertPreviewVideoVisible("floating-guide-playing")
         remote.press(.right)
         focus(element("tv.iptv.guide.group.وثائقيات"), direction: .down); remote.press(.select)
         let documentary = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "tv.iptv.guide.channel.", "قناة الوثائقيات")).firstMatch
@@ -123,7 +123,7 @@ final class TVIPTVFlowTests: XCTestCase {
         expectFocus(player); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
         try assertReferenceVideoVisible("compatibility-paused-highest-quality")
         remote.press(.select)
-        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15)); shot("compatibility-guide-preview")
+        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15)); try assertPreviewVideoVisible("compatibility-guide-preview")
         let current = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'tv.iptv.guide.channel.' AND label CONTAINS %@", "قناة الأخبار")).firstMatch
         expectFocus(current); remote.press(.select); expectFocus(player)
         XCTAssertEqual(player.value as? String, "متوقف مؤقتًا", "Selecting the current preview must not restart or resume the channel")
@@ -165,8 +165,28 @@ final class TVIPTVFlowTests: XCTestCase {
         let attachment = XCTAttachment(screenshot: capture); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
         XCTAssertGreaterThan(fraction, 0.70, "Focused playback must show the video, without a screen-sized button backdrop")
     }
+    private func assertPreviewVideoVisible(_ name: String) throws {
+        let preview = element("tv.iptv.guide.preview")
+        XCTAssertTrue(preview.waitForExistence(timeout: 15))
+        let frame = preview.frame, window = app.frame
+        var capture = XCUIScreen.main.screenshot(), fraction = 0.0
+        let deadline = Date().addingTimeInterval(8)
+        repeat {
+            capture = XCUIScreen.main.screenshot()
+            let full = try XCTUnwrap(capture.image.cgImage)
+            let scaleX = CGFloat(full.width) / window.width, scaleY = CGFloat(full.height) / window.height
+            let crop = CGRect(x: (frame.minX - window.minX) * scaleX, y: (frame.minY - window.minY) * scaleY,
+                              width: frame.width * scaleX, height: frame.height * scaleY)
+            fraction = try saturatedFraction(XCTUnwrap(full.cropping(to: crop)))
+            if fraction > 0.7 { break }; Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        let attachment = XCTAttachment(screenshot: capture); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        XCTAssertGreaterThan(fraction, 0.7, "The guide preview must retain actual decoded video pixels even while paused")
+    }
     private func saturatedFraction(_ capture: XCUIScreenshot) throws -> Double {
-        let image = try XCTUnwrap(capture.image.cgImage)
+        try saturatedFraction(XCTUnwrap(capture.image.cgImage))
+    }
+    private func saturatedFraction(_ image: CGImage) throws -> Double {
         XCTAssertGreaterThan(image.width, 100)
         // The bundled SMPTE clip has saturated bars in the middle, away from all transport/title overlays.
         // A system focus backdrop washes those bars white even though accessibility/remote tests still pass.

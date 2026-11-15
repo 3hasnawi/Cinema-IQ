@@ -5,6 +5,7 @@ import CinemaCore
 struct TVIPTVLiveGuide: View {
     @ObservedObject var session: IPTVPlayerSession
     let selected: () -> Void
+    let previewChanged: (CGRect) -> Void
     @State private var query = ""
     @State private var visible: [IPTVChannel] = []
     @FocusState private var focus: String?
@@ -64,9 +65,9 @@ struct TVIPTVLiveGuide: View {
                 }
                 Divider()
                 VStack(alignment: .leading, spacing: 22) {
-                    PlaybackVideoSurface(controller: session.controller)
-                        .aspectRatio(16 / 9, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 16)).allowsHitTesting(false)
+                    Color.clear.aspectRatio(16 / 9, contentMode: .fit)
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("tv.iptv.player.space")) }, action: previewChanged)
+                        .accessibilityElement().accessibilityLabel("معاينة القناة")
                         .accessibilityIdentifier("tv.iptv.guide.preview")
                     Text(session.channel.name).font(.title3.bold()).lineLimit(2)
                     Text(session.channel.group).font(.system(size: 23)).foregroundStyle(.secondary)

@@ -8,6 +8,7 @@ struct TVIPTVPlayerView: View {
     @Environment(\.scenePhase) private var phase
     @StateObject private var session: IPTVPlayerSession
     @State private var guide = false
+    @State private var previewFrame: CGRect?
     @State private var controls = true
     @State private var pane: String?
     @State private var interaction = 0
@@ -24,7 +25,7 @@ struct TVIPTVPlayerView: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
-                if !guide { PlaybackVideoSurface(controller: session.controller).ignoresSafeArea().allowsHitTesting(false) }
+                videoLayer(in: geometry).zIndex(guide ? 2 : 0).allowsHitTesting(false)
                 Button { guide = true } label: { Color.clear.contentShape(Rectangle()) }
                     // PlainButtonStyle paints a screen-sized focus backdrop on tvOS; artwork style draws only the clear label.
                     .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")
@@ -40,7 +41,7 @@ struct TVIPTVPlayerView: View {
                         default: break
                         }
                     }
-                if controls || !session.playing || session.tuning {
+                if (controls || !session.playing || session.tuning) && !guide && pane == nil {
                     VStack {
                         HStack {
                             VStack(alignment: .leading, spacing: 10) {
@@ -80,13 +81,13 @@ struct TVIPTVPlayerView: View {
                 }
                 if guide {
                     HStack {
-                        TVIPTVLiveGuide(session: session) { closePanel() }
+                        TVIPTVLiveGuide(session: session, selected: { closePanel() }, previewChanged: { previewFrame = $0 })
                             .frame(width: min(1740, geometry.size.width * 0.94), height: geometry.size.height * 0.82)
                         Spacer(minLength: 0)
-                    }.padding(.horizontal, 54)
+                    }.padding(.horizontal, 54).zIndex(1)
                 }
                 if let pane { trackPanel(pane).frame(width: min(900, geometry.size.width * 0.65), height: geometry.size.height * 0.8) }
-            }
+            }.coordinateSpace(name: "tv.iptv.player.space")
         }
         .defaultFocus($focus, "surface")
         .onAppear { session.attach(store); focus = "surface" }
@@ -99,6 +100,23 @@ struct TVIPTVPlayerView: View {
             guard controls, focus == "surface", session.playing, !guide, pane == nil else { return }
             do { try await Task.sleep(for: .seconds(5)) } catch { return }; controls = false
         }
+    }
+    private func videoLayer(in geometry: GeometryProxy) -> some View {
+        let insets = geometry.safeAreaInsets
+        let full = CGRect(x: -insets.leading, y: -insets.top,
+                          width: geometry.size.width + insets.leading + insets.trailing,
+                          height: geometry.size.height + insets.top + insets.bottom)
+        let destination = guide ? (previewFrame ?? full) : full
+        let scale = min(destination.width / full.width, destination.height / full.height)
+        // Keep one full-size drawable in one window. Resizing/reparenting a paused GL drawable can erase
+        // its image; a compositor transform preserves the actual last decoded frame in the live guide.
+        return PlaybackVideoSurface(controller: session.controller)
+            .frame(width: full.width, height: full.height)
+            .clipShape(RoundedRectangle(cornerRadius: guide ? 16 / max(scale, 0.001) : 0))
+            .scaleEffect(scale, anchor: .topLeading)
+            .offset(x: destination.minX, y: destination.minY)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            .opacity(guide && previewFrame == nil ? 0 : 1)
     }
     private func action(_ title: String, id: String, run: @escaping () -> Void) -> some View {
         Button(title, action: run).focused($focus, equals: "control." + id).accessibilityIdentifier("tv.iptv.player." + id)
