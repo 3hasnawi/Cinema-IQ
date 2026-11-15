@@ -142,7 +142,7 @@ struct PlaybackView: View {
         .task(id: "\(controlsVisible)-\(controller.playing)-\(scrubbing == nil)-\(optionsPage == nil)") {
             #if DEBUG
             // Keep controls inspectable during UI tests; Release retains its normal timer.
-            guard !UITestSupport.playerFixtureEnabled else { return }
+            guard !UITestSupport.playerFixtureEnabled || ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-player-controls") else { return }
             #endif
             // The controls must not fade while the options are open: that removed the panel under the finger.
             guard controlsVisible, controller.playing, scrubbing == nil, optionsPage == nil else { return }
