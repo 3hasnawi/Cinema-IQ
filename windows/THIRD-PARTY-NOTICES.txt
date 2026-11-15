@@ -13,8 +13,8 @@ Cinema iQ imposes no additional restriction on those LGPL rights.
 Cairo fonts: SIL Open Font License 1.1, included in Assets/Fonts/OFL.txt.
 https://github.com/google/fonts/tree/main/ofl/cairo
 
-AngleSharp 1.10.3: MIT license.
+AngleSharp 1.10.3: MIT license, included in Assets/Licenses/AngleSharp-MIT.txt.
 https://github.com/AngleSharp/AngleSharp/blob/main/LICENSE
 
-.NET runtime / WPF: Microsoft .NET MIT license and notices included in the
-self-contained runtime distribution. https://github.com/dotnet/runtime
+.NET runtime / WPF: Microsoft .NET MIT license and notices included under
+Assets/Licenses. https://github.com/dotnet/runtime

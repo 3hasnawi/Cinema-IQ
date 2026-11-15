@@ -104,11 +104,12 @@ cross-compiled on Linux with `EnableWindowsTargeting`, but it cannot be run ther
 
 The Windows workflow tests the **installed** app: real WPF rendering and focus
 routes, offline recovery, DPAPI roundtrip, LibVLC playback of a local CC0 MKV,
-two audio tracks, one subtitle track, pause/resume, native frame capture and clean
+two audio tracks, one subtitle track, pause/resume, native frame capture, the IPTV guide, channel switching and clean
 decoder shutdown. `windows-home.png` and other UI images are real WPF
 RenderTargetBitmap captures with clearly labeled fixture titles; the
 `windows-decoded-video.png` file is a separate actual decoder snapshot, not a
-composited screenshot. Fixture files are excluded from the installer.
+composited screenshot. Player/guide captures show their real WPF overlay only;
+the separate native video frame is not pasted into them. Fixture files are excluded from the installer.
 
 See the PR and workflow result for the checks that actually passed. These automated
 checks are not a physical Windows-device test, a real IPTV subscription test,

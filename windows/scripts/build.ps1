@@ -7,6 +7,19 @@ if ($LASTEXITCODE) { throw 'Windows Core tests failed' }
 & "$PSScriptRoot/configure.ps1"
 dotnet publish "$root/src/CinemaIQ.Windows" -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o "$output/publish" --nologo
 if ($LASTEXITCODE) { throw 'Windows publish failed' }
+$assets = Get-Content -Raw "$root/src/CinemaIQ.Windows/obj/project.assets.json" | ConvertFrom-Json -AsHashtable
+foreach ($library in $assets.libraries.Keys) {
+ if ($library -match '^Microsoft\.(NETCore|WindowsDesktop)\.App\.Runtime\.win-x64/') {
+  foreach ($packageRoot in $assets.packageFolders.Keys) {
+   $package = Join-Path $packageRoot $library.ToLowerInvariant()
+   if (Test-Path $package) {
+    foreach ($notice in Get-ChildItem $package -File | Where-Object { $_.Name -match 'LICENSE|THIRD.?PARTY.?NOTICES' }) {
+     Copy-Item $notice.FullName (Join-Path "$output/publish/Assets/Licenses" ($library.Split('/')[0] + '-' + $notice.Name)) -Force
+    }
+   }
+  }
+ }
+}
 foreach ($file in @('CinemaIQ.Windows.exe','coreclr.dll','libvlc/win-x64/libvlc.dll','libvlc/win-x64/libvlccore.dll','Assets/VideoLAN-LGPL-2.1.txt','Assets/Fonts/OFL.txt')) {
  if (-not (Test-Path (Join-Path "$output/publish" $file))) { throw "Missing packaged component: $file" }
 }
