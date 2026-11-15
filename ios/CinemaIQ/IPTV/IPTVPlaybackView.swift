@@ -143,37 +143,62 @@ private struct IPTVLiveGuide: View {
     let selected: () -> Void
     @State private var query = ""
     @State private var visible: [IPTVChannel] = []
-    private var key: String { session.catalogRevision.uuidString + "|" + (session.group ?? "") + "|" + query }
+    @State private var browsingGroup: String?
+    init(session: IPTVPlayerSession, selected: @escaping () -> Void) {
+        self.session = session; self.selected = selected; _browsingGroup = State(initialValue: session.group)
+    }
+    private var key: String { session.catalogRevision.uuidString + "|" + (browsingGroup ?? "") + "|" + query }
     var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                Section {
-                    Picker("التصنيف", selection: $session.group) {
-                        Text("كل القنوات").tag(Optional<String>.none)
-                        ForEach(session.groups, id: \.self) { Text($0).tag(Optional($0)) }
-                    }.pickerStyle(.menu).accessibilityIdentifier("ios.iptv.guide.groups")
-                }
-                Section("\(visible.count) قناة") {
-                    ForEach(visible) { channel in
-                        Button { if channel.id != session.channel.id { session.tune(channel) }; selected() } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: channel.id == session.channel.id ? "waveform" : "tv").foregroundStyle(Theme.accent)
-                                VStack(alignment: .leading) { Text(channel.name).foregroundStyle(.primary); Text(channel.group).font(.caption).foregroundStyle(.secondary) }
-                                Spacer(); if channel.id == session.channel.id { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
-                            }.padding(.vertical, 4)
-                        }.id(channel.id).accessibilityLabel(channel.name).accessibilityIdentifier("ios.iptv.guide.channel." + channel.id)
+        let numbering = IPTVNavigation.numbers(session.channels, sourceID: session.sourceID)
+        let groups = IPTVNavigation.categories(session.channels, sourceID: session.sourceID)
+        return ScrollViewReader { proxy in
+            HStack(alignment: .top, spacing: 0) {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        category("كل القنوات", group: nil, count: numbering.count)
+                        ForEach(groups, id: \.name) { category($0.name, group: $0.name, count: $0.count) }
+                    }.padding(8)
+                }.frame(width: 112).background(Color.primary.opacity(0.04))
+                List {
+                    Section("\(visible.count) قناة") {
+                        ForEach(visible) { channel in
+                            Button {
+                                session.group = browsingGroup
+                                if channel.id != session.channel.id { session.tune(channel) }; selected()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Text(String(numbering[channel.id] ?? 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 18)
+                                    ZStack {
+                                        RoundedRectangle(cornerRadius: 8).fill(.primary.opacity(0.05))
+                                        Image(systemName: "tv").foregroundStyle(.secondary)
+                                        if let logo = channel.logo { AsyncImage(url: logo) { if let image = $0.image { image.resizable().scaledToFit().padding(3) } } }
+                                    }.frame(width: 36, height: 32).accessibilityHidden(true)
+                                    VStack(alignment: .leading, spacing: 3) { Text(channel.name).foregroundStyle(.primary).lineLimit(2); Text(channel.group).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                    Spacer(minLength: 0)
+                                    if channel.id == session.channel.id { Image(systemName: "waveform").foregroundStyle(Theme.accent) }
+                                }.padding(.vertical, 4)
+                            }.id(channel.id).accessibilityLabel(channel.name).accessibilityIdentifier("ios.iptv.guide.channel." + channel.id)
+                                .listRowBackground(channel.id == session.channel.id ? Theme.accent.opacity(0.12) : Color.clear)
+                        }
+                        if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.") }
                     }
-                    if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.") }
-                }
+                }.listStyle(.plain)
             }
             .searchable(text: $query, prompt: "ابحث عن قناة").scrollDismissesKeyboard(.interactively)
             .task(id: key) {
-                let values = session.channels, source = session.sourceID, group = session.group, text = query
+                let values = session.channels, source = session.sourceID, group = browsingGroup, text = query
                 let result = await Task.detached { IPTVNavigation.channels(values, sourceID: source, group: group, query: text) }.value
                 guard !Task.isCancelled else { return }; visible = result
                 if query.isEmpty, let id = IPTVNavigation.entry(currentID: session.channel.id, in: result) { proxy.scrollTo(id, anchor: .center) }
             }
         }
         .accessibilityIdentifier("ios.iptv.guide")
+    }
+    private func category(_ title: String, group: String?, count: Int) -> some View {
+        Button { browsingGroup = group; query = "" } label: {
+            VStack(alignment: .leading, spacing: 4) { Text(title).font(.subheadline.weight(.medium)).lineLimit(3); Text(String(count)).font(.caption).foregroundStyle(.secondary) }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                .background(browsingGroup == group ? Theme.accent.opacity(0.15) : Color.clear, in: RoundedRectangle(cornerRadius: 12))
+        }.buttonStyle(.plain).accessibilityIdentifier("ios.iptv.guide.group." + (group ?? "all"))
     }
 }

@@ -12,6 +12,8 @@ struct TVIPTVView: View {
     @State private var playing: IPTVChannel?
     @State private var returningFromPlayer = false
     @State private var lastChannel: String?
+    @State private var previewedSource: String?
+    @State private var startInGuide = false
     @State private var lastControl = "add"
     @State private var modalSource: String?
     @State private var modalGroup: String?
@@ -62,7 +64,7 @@ struct TVIPTVView: View {
                     ScrollView {
                         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 32) {
                             ForEach(visible) { channel in
-                                Button { lastChannel = channel.id; playing = channel } label: { card(channel) }
+                                Button { startInGuide = false; lastChannel = channel.id; playing = channel } label: { card(channel) }
                                     .buttonStyle(.card)
                                     .focused($focus, equals: "channel." + channel.id)
                                     .prefersDefaultFocus(visible.first?.id == channel.id, in: gridScope)
@@ -92,6 +94,10 @@ struct TVIPTVView: View {
             guard !Task.isCancelled else { return }
             let changed = visible.map(\.id) != result.map(\.id)
             visible = result
+            if previewedSource != store.selectedID, !result.isEmpty, sheet == nil, playing == nil {
+                previewedSource = store.selectedID; startInGuide = true
+                playing = result.first(where: { $0.id == lastChannel }) ?? result.first
+            }
             // A cache refresh on returning from AVKit must not override the restored channel focus.
             if changed, !editingSearch, sheet == nil, playing == nil {
                 if returningFromPlayer { restoreAfterPlayer() } else { focusFirstChannel() }
@@ -115,7 +121,7 @@ struct TVIPTVView: View {
             .environment(\.layoutDirection, .rightToLeft)
         }
         .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in
-            TVIPTVPlayerView(initial: channel, group: group) { value, selectedGroup in
+            TVIPTVPlayerView(initial: channel, group: group, startInGuide: startInGuide) { value, selectedGroup in
                 lastChannel = value.id; returningFromPlayer = true; group = selectedGroup; query = ""
             }.environmentObject(store).environment(\.layoutDirection, .rightToLeft)
         }

@@ -14,8 +14,8 @@ struct TVIPTVPlayerView: View {
     @State private var interaction = 0
     @FocusState private var focus: String?
     let onReturn: (IPTVChannel, String?) -> Void
-    init(initial: IPTVChannel, group: String? = nil, onReturn: @escaping (IPTVChannel, String?) -> Void = { _, _ in }) {
-        self.onReturn = onReturn
+    init(initial: IPTVChannel, group: String? = nil, startInGuide: Bool = false, onReturn: @escaping (IPTVChannel, String?) -> Void = { _, _ in }) {
+        self.onReturn = onReturn; _guide = State(initialValue: startInGuide)
         let preference = VideoQuality(rawValue: UserDefaults.standard.string(forKey: TVPlaybackPreference.qualityKey) ?? "auto") ?? .automatic
         _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group, preferredMaximumHeight: preference.height))
     }
@@ -30,7 +30,7 @@ struct TVIPTVPlayerView: View {
                     .zIndex(guide ? 2 : 0).allowsHitTesting(false)
                 Button { guide = true } label: { Color.clear.contentShape(Rectangle()) }
                     // PlainButtonStyle paints a screen-sized focus backdrop on tvOS; artwork style draws only the clear label.
-                    .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")
+                    .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().disabled(guide || pane != nil).focused($focus, equals: "surface")
                     .accessibilityLabel(session.channel.name).accessibilityValue(session.status)
                     .accessibilityIdentifier("tv.iptv.player.native")
                     .onMoveCommand { direction in
@@ -92,7 +92,7 @@ struct TVIPTVPlayerView: View {
             }.coordinateSpace(name: "tv.iptv.player.space")
         }
         .defaultFocus($focus, "surface")
-        .onAppear { session.attach(store); focus = "surface" }
+        .onAppear { session.attach(store); if !guide { focus = "surface" } }
         .onDisappear { session.close() }
         .onChange(of: phase) { _, value in if value != .active { session.pause() } }
         .onChange(of: session.channel.id) { _, _ in controls = true; if !guide && pane == nil { focus = "surface" } }

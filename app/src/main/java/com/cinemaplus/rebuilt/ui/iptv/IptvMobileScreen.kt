@@ -39,6 +39,8 @@ private enum class MobileIptvPanel { Add, Manage, Groups, Delete }
     var panel by remember { mutableStateOf<MobileIptvPanel?>(null) }
     var returned by remember { mutableStateOf<String?>(null) }
     val scroll = rememberLazyListState()
+    val logos = rememberIptvLogos()
+    val numbers = remember(state.channels, state.selectedId) { IptvNavigation.numbers(state.channels, state.selectedId.orEmpty()) }
     DisposableEffect(playing != null) {
         activity?.requestedOrientation = if (playing != null) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         activity?.let {
@@ -74,11 +76,7 @@ private enum class MobileIptvPanel { Add, Manage, Groups, Delete }
         LazyColumn(state = scroll, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (!state.storageLoading && state.sources.isEmpty()) item { Label("أضف قائمة M3U أو حساب Xtream من مزوّدك.", 16, Brand.TextTertiary) }
             items(state.visible, key = { it.id }) { channel ->
-                Surface(Modifier.fillMaxWidth().clickable { playing = channel }, color = Panel, shape = RoundedCornerShape(16.dp)) {
-                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Label(channel.name, 17, bold = true, lines = 2); Label(channel.group, 12, Brand.TextTertiary, lines = 1)
-                    }
-                }
+                IptvChannelRow(channel, numbers[channel.id] ?: 0, false, logos) { playing = channel }
             }
         }
     }

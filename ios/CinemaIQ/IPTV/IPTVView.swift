@@ -15,7 +15,9 @@ struct IPTVView: View {
     private struct FilterKey: Hashable { let revision: UUID; let query: String; let group: String? }
     private var filterKey: FilterKey { FilterKey(revision: store.catalogRevision, query: query, group: group) }
     var body: some View {
-        List {
+        let numbering = IPTVNavigation.numbers(store.catalog.channels, sourceID: store.selectedID ?? "")
+        let categories = IPTVNavigation.categories(store.catalog.channels, sourceID: store.selectedID ?? "")
+        return List {
             if store.storageLoading {
                 Section { HStack { ProgressView(); Text("جارٍ قراءة مصادر IPTV…") } }
             } else if !store.storageAvailable {
@@ -40,6 +42,19 @@ struct IPTVView: View {
                         HStack { Label("التصنيف", systemImage: "line.3.horizontal.decrease"); Spacer(); Text(group ?? "كل القنوات").foregroundStyle(.secondary).lineLimit(1) }
                     }.disabled(store.loading || store.catalog.channels.isEmpty).accessibilityIdentifier("ios.iptv.groups")
                 }
+                if !categories.isEmpty {
+                    Section {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                Button("كل القنوات") { group = nil; query = "" }.tint(group == nil ? Theme.accent : .secondary)
+                                ForEach(categories, id: \.name) { item in
+                                    Button("\(item.name) · \(item.count)") { group = item.name; query = "" }.tint(group == item.name ? Theme.accent : .secondary)
+                                        .accessibilityIdentifier("ios.iptv.category." + item.name)
+                                }
+                            }.buttonStyle(.bordered)
+                        }
+                    }
+                }
                 if store.loading {
                     Section { HStack { ProgressView(); Text("جارٍ تحميل القنوات…") } }
                 } else if let message = store.message {
@@ -52,6 +67,7 @@ struct IPTVView: View {
                         ForEach(visible) { channel in
                             Button { playing = channel } label: {
                                 HStack(spacing: 12) {
+                                    Text(String(numbering[channel.id] ?? 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 22)
                                     channelLogo(channel)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(channel.name).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(2)

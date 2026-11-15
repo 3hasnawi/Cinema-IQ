@@ -19,6 +19,17 @@ final class IPTVNavigationTests: XCTestCase {
         XCTAssertEqual(IPTVNavigation.neighbor(of: "A", step: -1, in: [values[0]])?.id, "A")
         XCTAssertNil(IPTVNavigation.neighbor(of: "A", step: 1, in: []))
     }
+    func testCatalogNumbersStayStableAcrossFiltersWithoutCrossSourceOrDuplicateIds() {
+        let values = [channel("A"), channel("Foreign", source: "two"), channel("B", "Sport"), channel("A"), channel("C")]
+        let numbers = IPTVNavigation.numbers(values, sourceID: "one")
+        XCTAssertEqual(numbers, ["A": 1, "B": 2, "C": 3])
+        let filtered = IPTVNavigation.channels(values, sourceID: "one", group: "Sport")
+        XCTAssertEqual(filtered.compactMap { numbers[$0.id] }, [2])
+        let groups = IPTVNavigation.categories(values, sourceID: "one")
+        XCTAssertEqual(groups.map(\.name), ["News", "Sport"])
+        XCTAssertEqual(groups.map(\.count), [3, 1])
+        XCTAssertEqual(values.map(\.id), ["A", "Foreign", "B", "A", "C"])
+    }
     func testGuideEntryRestoresPlayingChannelOrFirstResult() {
         let values = [channel("A"), channel("B")]
         XCTAssertEqual(IPTVNavigation.entry(currentID: "B", in: values), "B")
