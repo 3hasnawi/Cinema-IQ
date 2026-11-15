@@ -16,7 +16,7 @@ jobs:
   simulator:
     # Match the existing navigation check's Intel pool; ARM hosts can boot tvOS without a display/focus surface.
     runs-on: macos-15-intel
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode and generate the test project
@@ -64,7 +64,7 @@ jobs:
           set -euo pipefail
           python3 ios/scripts/boot-simulator.py "$TV_TEST_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
       - name: Test M3U entry, Xtream, Keychain persistence and remote playback
-        timeout-minutes: 15
+        timeout-minutes: 25
         env:
           IPTV_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |

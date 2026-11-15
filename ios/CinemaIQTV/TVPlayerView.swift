@@ -56,7 +56,7 @@ struct TVPlayerView: View {
             if failure == nil {
             if controller.usesCompatibility {
                 TVCompatibilityTransport(controller: controller, close: { dismiss() }) { compatibilityOptions }
-            } else {
+            } else if controller.hasItem {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
@@ -66,6 +66,12 @@ struct TVPlayerView: View {
                 // Arabic labels retain their natural text direction; only the system chrome is LTR.
                 .environment(\.layoutDirection, .leftToRight)
                 .ignoresSafeArea()
+            } else {
+                // Do not mount an empty AVKit controller before resolving a compatibility stream: its
+                // disappearing focus context can steal the new transport's initial focus.
+                Button { dismiss() } label: { Color.clear.contentShape(Rectangle()) }
+                    .buttonStyle(TVArtworkButtonStyle()).accessibilityLabel("إلغاء التحميل")
+                    .onExitCommand { dismiss() }
             }
             }
             if !controller.playing && !controller.buffering && !loading && !controller.ended &&

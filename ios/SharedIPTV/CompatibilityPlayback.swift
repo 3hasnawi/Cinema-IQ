@@ -16,6 +16,11 @@ import CinemaCore
     }
     private var engine: VLCMediaPlayer?
     private weak var surface: UIView?
+    // Preserve the actual video view/layer while moving between full-screen and guide, even when paused.
+    private lazy var canvas: UIView = {
+        let value = UIView(); value.backgroundColor = .black; value.isUserInteractionEnabled = false
+        value.autoresizingMask = [.flexibleWidth, .flexibleHeight]; return value
+    }()
     private var generation = UUID()
     private var task: Task<Void, Never>?
     private var update: ((Snapshot) -> Void)?
@@ -72,7 +77,7 @@ import CinemaCore
             if let maximumHeight { options["adaptive-maxheight"] = maximumHeight }
             if highest { options["adaptive-logic"] = "highest" }
             media.addOptions(options)
-            engine = value; value.delegate = self; value.drawable = surface; value.media = media
+            engine = value; value.delegate = self; value.drawable = canvas; value.media = media
             diagnostic("media attached; drawable=\(surface != nil)")
             value.play(); value.rate = desiredRate
             diagnostic("play requested")
@@ -89,10 +94,11 @@ import CinemaCore
         }
     }
     func attach(_ view: UIView) {
-        guard surface !== view else { return }; surface = view; engine?.drawable = view
+        guard surface !== view || canvas.superview !== view else { return }
+        surface = view; canvas.removeFromSuperview(); canvas.frame = view.bounds; view.addSubview(canvas)
     }
     func detach(_ view: UIView) {
-        guard surface === view else { return }; engine?.drawable = nil; surface = nil
+        guard surface === view else { return }; canvas.removeFromSuperview(); surface = nil
     }
     func play() { wantsPlay = true; engine?.play() }
     func pause() { wantsPlay = false; engine?.pause() }
@@ -184,9 +190,19 @@ struct CompatibilityVideoSurface: UIViewRepresentable {
 }
 
 struct PlaybackVideoSurface: View {
-    @ObservedObject var controller: PlaybackController
+    let controller: PlaybackController
+    @State private var usesCompatibility: Bool
+    init(controller: PlaybackController) {
+        self.controller = controller
+        _usesCompatibility = State(initialValue: controller.usesCompatibility)
+    }
     var body: some View {
-        if controller.usesCompatibility { CompatibilityVideoSurface(playback: controller.compatibility) }
-        else { IPTVVideoSurface(player: controller.player) }
+        Group {
+            if usesCompatibility { CompatibilityVideoSurface(playback: controller.compatibility) }
+            else { IPTVVideoSurface(player: controller.player) }
+        }
+        // A preview has no progress UI. Observing the entire 4 Hz playback clock rebuilds its accessibility
+        // tree continuously and makes remote focus/snapshots sluggish while a guide is open.
+        .onReceive(controller.$usesCompatibility.removeDuplicates()) { usesCompatibility = $0 }
     }
 }

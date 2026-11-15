@@ -37,6 +37,7 @@ struct MediaOption: Identifiable, Hashable {
     private var highest = false
     private var fallbackAttempted = false
     private var wantsPlay = true
+    private var restartOnResume = false
     var hasItem: Bool { currentURL != nil }
 
     /// Remote playback has its own progress clock; never overwrite it with the paused local item.
@@ -94,7 +95,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func openNative(url: URL, resume: Double, playing shouldPlay: Bool = true) {
-        usesCompatibility = false; ended = false; wantsPlay = shouldPlay
+        usesCompatibility = false; ended = false; wantsPlay = shouldPlay; restartOnResume = false
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -146,7 +147,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func startCompatibility(resume: Double, playing shouldPlay: Bool) {
-        wantsPlay = shouldPlay
+        wantsPlay = shouldPlay; restartOnResume = false
         let chosenAudio = audioID, chosenSubtitle = subtitleID
         releaseNative(); usesCompatibility = true; error = nil; lastFailure = nil; ended = false
         if subtitleID?.hasPrefix("emb:") == true { subtitleID = nil }
@@ -176,12 +177,19 @@ struct MediaOption: Identifiable, Hashable {
         guard mode != value || error != nil else { return }
         let resume = position, shouldPlay = wantsPlay || error != nil
         persist(); mode = value; UserDefaults.standard.set(value.rawValue, forKey: "apple.playback.engine.v1")
-        guard let url = currentURL else { return }
+        guard currentURL != nil else { return }
         error = nil; lastFailure = nil; fallbackAttempted = false
-        if value.startsWithCompatibility(url) { startCompatibility(resume: resume, playing: shouldPlay) }
+        if shouldPlay { restart(resume: resume) }
+        else { restartOnResume = true }
+    }
+
+    private func restart(resume: Double) {
+        guard let url = currentURL else { return }
+        restartOnResume = false
+        if mode.startsWithCompatibility(url) { startCompatibility(resume: resume, playing: true) }
         else {
             if subtitleID?.hasPrefix("vlcs:") == true { subtitleID = nil }
-            compatibility.close(); releaseNative(); openNative(url: url, resume: resume, playing: shouldPlay)
+            compatibility.close(); releaseNative(); openNative(url: url, resume: resume, playing: true)
         }
     }
 
@@ -189,7 +197,11 @@ struct MediaOption: Identifiable, Hashable {
         let changed = self.maximumHeight != maximumHeight || self.highest != highest
         self.maximumHeight = maximumHeight; self.highest = highest
         if usesCompatibility {
-            if changed { startCompatibility(resume: position, playing: wantsPlay) }
+            if changed {
+                // Keep the paused decoder/frame intact. Reopening a paused VLC input need not render a frame.
+                if wantsPlay { startCompatibility(resume: position, playing: true) }
+                else { restartOnResume = true }
+            }
         } else { applyNativeQuality(bandwidth: bandwidth) }
     }
     private func applyNativeQuality(bandwidth: Double = 0) {
@@ -197,7 +209,13 @@ struct MediaOption: Identifiable, Hashable {
         player.currentItem?.preferredPeakBitRate = bandwidth
     }
     func pause() { wantsPlay = false; if usesCompatibility { compatibility.pause() } else { player.pause() }; playing = false }
-    func play() { wantsPlay = true; if usesCompatibility { compatibility.play() } else { player.play() }; playing = true }
+    func play() {
+        wantsPlay = true
+        if restartOnResume { restart(resume: position) }
+        else if usesCompatibility { compatibility.play() }
+        else { player.play() }
+        playing = true
+    }
     private func updateCue() {
         let line = cues.isEmpty ? nil : SubtitleCatalog.cue(at: position, in: cues)?.text
         if line != cue { cue = line }
@@ -227,7 +245,7 @@ struct MediaOption: Identifiable, Hashable {
 
     func togglePlay() {
         if usesCompatibility {
-            if ended { ended = false; startCompatibility(resume: 0, playing: true) }
+            if ended { ended = false; position = 0; restartOnResume = true; play() }
             else if playing { pause() } else { play() }
             return
         }
@@ -312,7 +330,7 @@ struct MediaOption: Identifiable, Hashable {
 
     func close() {
         persist(); compatibility.close(); releaseNative(); usesCompatibility = false
-        currentURL = nil; save = nil; playing = false; buffering = false
+        currentURL = nil; save = nil; playing = false; buffering = false; restartOnResume = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

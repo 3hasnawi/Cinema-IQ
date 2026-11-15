@@ -5,6 +5,8 @@ struct TVCompatibilityTransport<Options: View>: View {
     @ObservedObject var controller: PlaybackController
     let close: () -> Void
     @ViewBuilder let options: () -> Options
+    @Namespace private var focusScope
+    @Environment(\.resetFocus) private var resetFocus
     @State private var controls = true
     @State private var interaction = 0
     @FocusState private var focus: String?
@@ -13,6 +15,7 @@ struct TVCompatibilityTransport<Options: View>: View {
             PlaybackVideoSurface(controller: controller).ignoresSafeArea().allowsHitTesting(false)
             Button { controls = true; focus = "play"; interaction += 1 } label: { Color.clear.contentShape(Rectangle()) }
                 .buttonStyle(TVArtworkButtonStyle()).focused($focus, equals: "surface")
+                .prefersDefaultFocus(true, in: focusScope)
                 .accessibilityLabel("عرض أدوات التشغيل").accessibilityValue(controller.buffering ? "جارٍ التحميل" : controller.playing ? "تشغيل" : "متوقف مؤقتًا").accessibilityIdentifier("tv.compatibility.surface")
                 .onMoveCommand { direction in
                     if direction == .left { controller.skip(-10) }
@@ -23,6 +26,7 @@ struct TVCompatibilityTransport<Options: View>: View {
             if controls || !controller.playing {
                 VStack(spacing: 24) {
                     ProgressView(value: controller.position, total: max(1, controller.duration)).tint(.white)
+                        .environment(\.layoutDirection, .leftToRight)
                     HStack {
                         Text(clock(controller.position)); Spacer(); Text(clock(controller.duration))
                     }.font(.system(size: 22)).monospacedDigit().environment(\.layoutDirection, .leftToRight)
@@ -35,13 +39,15 @@ struct TVCompatibilityTransport<Options: View>: View {
                         options()
                         Button("إخفاء") { controls = false; focus = "surface" }
                     }.buttonStyle(.bordered).buttonBorderShape(.capsule).focusSection()
+                        .environment(\.layoutDirection, .leftToRight)
                 }
                 .padding(30).background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
                 .padding(.horizontal, 80).padding(.bottom, 42)
             }
         }
+        .focusScope(focusScope)
         .defaultFocus($focus, "surface")
-        .onAppear { focus = "surface" }
+        .task { await Task.yield(); focus = "surface"; resetFocus(in: focusScope) }
         .onPlayPauseCommand { controller.togglePlay(); controls = true; interaction += 1 }
         .onExitCommand { if controls && focus != "surface" { controls = false; focus = "surface" } else { close() } }
         .task(id: "\(controller.playing)|\(focus ?? "")|\(interaction)") {
