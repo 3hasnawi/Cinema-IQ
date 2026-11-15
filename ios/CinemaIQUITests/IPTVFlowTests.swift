@@ -34,17 +34,33 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["قناة الرياضة"].exists)
         screenshot("m3u-channels")
+        // A different channel tunes in place; the current channel opens full screen on a second tap.
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        app.buttons["قناة الرياضة"].tap()
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        XCTAssertFalse(element("ios.iptv.player.close").exists, "Browsing another channel must keep both lists visible")
+        element("ios.iptv.browser.favorite").tap()
+        XCTAssertEqual(element("ios.iptv.browser.favorite").value as? String, "محدد")
+        element("ios.iptv.browser.section.المفضلة").tap()
+        waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
+        screenshot("embedded-preview-favorites")
+        element("ios.iptv.browser.section.الأخيرة").tap()
+        XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
+        screenshot("embedded-preview-recent")
+        element("ios.iptv.browser.section.كل القنوات").tap()
+
         app.buttons["ios.iptv.groups"].tap()
         XCTAssertTrue(app.buttons["رياضة"].waitForExistence(timeout: 10))
         app.buttons["رياضة"].tap()
         waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
         app.buttons["ios.iptv.groups"].tap()
-        app.buttons["كل القنوات"].tap()
+        app.buttons["كل القنوات"].firstMatch.tap()
         screenshot("m3u-categories")
         // Keep the isolated Keychain service, remove only the reset launch flag, then relaunch.
         app.terminate(); app.launchArguments = baseArguments; app.launch(); openIPTV()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20), "The saved source must reload from Keychain")
         app.buttons["قناة الأخبار"].tap()
+        if !element("ios.iptv.player.close").exists { app.buttons["قناة الأخبار"].tap() }
         XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 20))
         // Playback status stays accessible after the production HUD timer hides its labels.
         waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
@@ -79,6 +95,8 @@ final class IPTVFlowTests: XCTestCase {
         screenshot("playing-landscape")
         tapPlayerControl("close")
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
+        inside(app.buttons["قناة الأخبار"]); inside(element("ios.iptv.browser.fullscreen"))
+        screenshot("embedded-preview-landscape")
         XCTAssertEqual(app.state, .runningForeground)
     }
     func testCompatibilityDecoderWithTracksAndRotation() throws {

@@ -53,7 +53,7 @@ import kotlinx.coroutines.withContext
 }
 
 @Composable internal fun IptvFullscreenButton(click: () -> Unit) {
-    androidx.compose.material3.IconButton(click) {
+    androidx.compose.material3.IconButton(click, modifier = Modifier.semantics { contentDescription = "ملء الشاشة" }) {
         androidx.compose.foundation.Canvas(Modifier.size(23.dp)) {
             val color = androidx.compose.ui.graphics.Color.White; val edge = size.width * .1f; val arm = size.width * .25f; val stroke = 2.dp.toPx()
             for (x in listOf(edge, size.width - edge)) for (y in listOf(edge, size.height - edge)) {
