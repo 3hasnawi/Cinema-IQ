@@ -140,22 +140,25 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func tapPlayerControl(_ name: String) {
         showPlayerControls()
-        let target = element("ios.iptv.player." + name)
-        let strip = app.scrollViews["ios.iptv.player.controls"]
-        if name != "close" {
-            for _ in 0..<4 {
-                let frame = target.frame, bounds = strip.frame
-                if bounds.insetBy(dx: 4, dy: 0).contains(CGPoint(x: frame.midX, y: bounds.midY)) { break }
-                if frame.midX > bounds.maxX { strip.swipeLeft() } else { strip.swipeRight() }
+        let identifier = "ios.iptv.player." + name
+        for _ in 0..<4 {
+            // Read one atomic UI snapshot. Repeated live frame queries can consume the real HUD timeout
+            // between locating a button and pressing it, especially on a busy hosted simulator.
+            guard let root = try? app.snapshot() else { XCTFail("Player snapshot unavailable"); return }
+            var pending = [root], nodes: [any XCUIElementSnapshot] = []
+            while let node = pending.popLast() { nodes.append(node); pending.append(contentsOf: node.children) }
+            guard let target = nodes.first(where: { $0.identifier == identifier }) else { showPlayerControls(); continue }
+            let frame = target.frame, point = CGPoint(x: frame.midX, y: frame.midY)
+            let clip = name == "close" ? root.frame :
+                (nodes.first(where: { $0.identifier == "ios.iptv.player.controls" })?.frame ?? root.frame.insetBy(dx: 16, dy: 0))
+            if !frame.isEmpty && point.x.isFinite && point.y.isFinite && root.frame.contains(point) && clip.insetBy(dx: 2, dy: 0).contains(point) {
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+                return
             }
+            let strip = element("ios.iptv.player.controls")
+            if point.x > clip.maxX { strip.swipeLeft() } else { strip.swipeRight() }
         }
-        let frame = target.frame
-        guard !frame.isEmpty, frame.midX.isFinite, frame.midY.isFinite,
-              app.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) else {
-            XCTFail("The visible player control must have a finite on-screen touch target: " + name); return
-        }
-        // Tap the measured physical target directly; native element.tap() can retry after the HUD has expired.
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()
+        XCTFail("The player control must be on screen before a real touch: " + name)
     }
     private func openIPTV() {
         if tablet {
