@@ -33,6 +33,13 @@ final class IPTVFlowTests: XCTestCase {
         connect()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["قناة الرياضة"].exists)
+        // The two lists must stay above the system tab bar, including their last visible row.
+        if !tablet {
+            let tab = app.tabBars.firstMatch.frame
+            for row in app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.iptv.channel.")).allElementsBoundByIndex where row.isHittable {
+                XCTAssertLessThanOrEqual(row.frame.maxY, tab.minY + 1)
+            }
+        }
         screenshot("m3u-channels")
         // A different channel tunes in place; the current channel opens full screen on a second tap.
         waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }

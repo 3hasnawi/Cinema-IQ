@@ -41,7 +41,7 @@ struct IPTVBrowserPanels: View {
                                         if channel.id == session.channel.id { Image(systemName: "waveform").foregroundStyle(Theme.accent).font(.caption) }
                                         else { Text(String(numbering[channel.id] ?? 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
                                     }.padding(.horizontal, 12).frame(minHeight: 62)
-                                        .background(channel.id == session.channel.id ? Theme.accent.opacity(0.12) : Color.clear)
+                                        .background(channel.id == session.channel.id ? Theme.accent.opacity(0.12) : Color.clear).contentShape(Rectangle())
                                 }.buttonStyle(.plain).id(channel.id).accessibilityLabel(channel.name)
                                     .accessibilityIdentifier("ios.iptv.channel." + channel.id)
                             }
@@ -59,6 +59,7 @@ struct IPTVBrowserPanels: View {
             }
             // Match the reference's physical columns while Arabic paragraphs keep their own direction.
             .environment(\.layoutDirection, .leftToRight)
+            .frame(width: geometry.size.width, height: geometry.size.height).clipped()
         }
         .task(id: session.catalogRevision) {
             let values = session.channels, source = session.sourceID
@@ -73,7 +74,7 @@ struct IPTVBrowserPanels: View {
                 Text(value.title).font(.system(size: 15, weight: .medium)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                 if let count { Text(String(count)).font(.caption2).foregroundStyle(.secondary) }
             }.padding(.horizontal, 12).frame(minHeight: 60)
-                .background(section == value ? Color.white.opacity(0.1) : Color.clear)
+                .background(section == value ? Color.white.opacity(0.1) : Color.clear).contentShape(Rectangle())
         }.buttonStyle(.plain).accessibilityIdentifier("ios.iptv.browser.section." + value.title).accessibilityLabel(value.title).accessibilityValue(section == value ? "محدد" : "غير محدد")
     }
 }
