@@ -71,8 +71,13 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 10))
         let sport = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "tv.iptv.guide.channel.", "قناة الرياضة")).firstMatch
         expectFocus(sport); try assertPreviewVideoVisible("floating-guide-playing")
-        remote.press(.right)
-        focus(element("tv.iptv.guide.group.وثائقيات"), direction: .down); remote.press(.select)
+        remote.press(.right); expectFocus(element("tv.iptv.guide.group.all"))
+        // Assert every fixture category using actual remote presses. Repeated geometry/cell queries
+        // for a distant target can exhaust the test deadline without a navigation failure.
+        for group in ["أخبار", "أطفال", "ترفيه", "ثقافة", "رياضة", "وثائقيات"] {
+            remote.press(.down); expectFocus(element("tv.iptv.guide.group." + group))
+        }
+        remote.press(.select)
         let documentary = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "tv.iptv.guide.channel.", "قناة الوثائقيات")).firstMatch
         expectFocus(documentary); remote.press(.select)
         waitFor { player.label == "قناة الوثائقيات" }

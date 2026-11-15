@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: Run the full IPTV flow or the quality-controls scenario
+        description: Run all IPTV checks or a focused scenario
         type: choice
-        options: [all, quality, visibility, compatibility]
+        options: [all, quality, visibility, compatibility, guide]
         default: all
 permissions:
   contents: read
@@ -71,6 +71,7 @@ jobs:
           set -o pipefail
           test_id=CinemaIQTVUITests/TVIPTVFlowTests
           if [ "$IPTV_TEST_SCENARIO" = quality ]; then test_id="$test_id/testHighestQualityPreferenceAndAutomaticSelection"; fi
+          if [ "$IPTV_TEST_SCENARIO" = guide ]; then test_id="$test_id/testRemoteChannelSurfingAndFloatingGuide"; fi
           if [ "$IPTV_TEST_SCENARIO" = visibility ]; then test_id="$test_id/testFocusedVideoHasNoButtonBackdrop"; fi
           if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then test_id="$test_id/testCompatibilityDecoderWithRemoteAndTracks"; fi
           extra_tests=()
