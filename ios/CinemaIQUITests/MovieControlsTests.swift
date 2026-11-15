@@ -32,10 +32,10 @@ final class MovieControlsTests: XCTestCase {
         shot("automatic-hide")
         centerTap()
         XCTAssertTrue(element("ios.player.close").waitForExistence(timeout: 10), "A real centre tap must restore controls after their production timeout")
-        shot("controls-restored")
         let pause = element("ios.player.playPause")
-        XCTAssertTrue(pause.isHittable); pause.tap()
+        pause.tap()
         waitFor { pause.label == "تشغيل" }
+        shot("controls-restored-paused")
         element("ios.player.options").tap()
         XCTAssertTrue(element("ios.player.options.panel").waitForExistence(timeout: 10))
         shot("options-reachable")

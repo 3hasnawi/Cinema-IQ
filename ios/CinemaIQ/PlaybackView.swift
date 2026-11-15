@@ -80,11 +80,20 @@ struct PlaybackView: View {
             Color.black.ignoresSafeArea()
             PlaybackVideoSurface(controller: controller)
                 .ignoresSafeArea()
+                .allowsHitTesting(false)
                 .accessibilityElement(children: .ignore)
                 .accessibilityIdentifier("ios.player.video")
                 .accessibilityLabel("الفيديو")
                 .accessibilityValue(clock(controller.position))
-                .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() } }
+            // Decoder views are deliberately noninteractive; a stable SwiftUI layer owns picture taps.
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+            } label: {
+                Color.clear.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).ignoresSafeArea()
+            .accessibilityLabel(controlsVisible ? "إخفاء أدوات المشغل" : "إظهار أدوات المشغل")
+            .accessibilityIdentifier("ios.player.controls.toggle")
             subtitleLayer
             if controlsVisible { controls.transition(.opacity) }
             // Skip the opening: shown during it whether or not the controls are, above the timeline.
@@ -141,8 +150,9 @@ struct PlaybackView: View {
         // Controls fade after four seconds of playback; any change of state starts the wait again.
         .task(id: "\(controlsVisible)-\(controller.playing)-\(scrubbing == nil)-\(optionsPage == nil)") {
             #if DEBUG
-            // Keep controls inspectable during UI tests; Release retains its normal timer.
-            guard !UITestSupport.playerFixtureEnabled || ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-player-controls") else { return }
+            // The layout tour keeps its HUD visible; the controls regression uses the production timeout.
+            guard !UITestSupport.playerFixtureEnabled ||
+                ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-player-controls") else { return }
             #endif
             // The controls must not fade while the options are open: that removed the panel under the finger.
             guard controlsVisible, controller.playing, scrubbing == nil, optionsPage == nil else { return }
