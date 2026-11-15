@@ -7,10 +7,35 @@ public sealed class Cinemana(INetwork network) : IContentProvider
     private const string Root = "https://cinemana.shabakaty.cc/api/android/";
     private Task<JsonElement> Get(string path, CancellationToken token) => network.Json(new Uri(Root + path), "shabakaty.cc", token);
     public static string Image(string raw) => string.IsNullOrWhiteSpace(raw) || raw.StartsWith("http://") ? "" : raw.StartsWith("https://") ? raw : raw.StartsWith("//") ? "https:" + raw : "https://cnth2.shabakaty.cc/" + raw.TrimStart('/');
+    public static List<Subtitle> Subtitles(JsonElement data)
+    {
+        string? Code(string raw)
+        {
+            var text = raw.Trim().ToLowerInvariant();
+            var known = text switch { "ar" or "ara" or "arabic" or "العربية" or "عربي" or "عربية" => "ar", "en" or "eng" or "english" or "الإنجليزية" or "الانجليزية" or "انكليزي" or "الانكليزية" => "en", "fr" or "fra" or "fre" or "french" => "fr", "tr" or "tur" or "turkish" => "tr", "es" or "spa" or "spanish" => "es", "de" or "deu" or "ger" or "german" => "de", "ku" or "kur" or "kurdish" => "ku", _ => "" };
+            if (known.Length > 0) return known;
+            if (System.Text.RegularExpressions.Regex.IsMatch(text, @"^[a-z]{2,3}[-_][a-z]{2,4}$")) return text.Replace('_', '-');
+            return null;
+        }
+        var subtitles = new List<Subtitle>();
+        foreach (var o in data.Rows())
+        {
+            var url = Image(o.Text("file", "url")); if (url.Length == 0) continue;
+            var nested = o.Get("language").ValueKind == JsonValueKind.Object ? o.Get("language") : o.Get("lang");
+            var label = o.Text("languageName", "language_name", "language_title", "langName", "lang_name", "ar_name", "en_name", "ar_title", "en_title", "name", "title", "label");
+            var values = new[] { o.Text("languageCode", "language_code", "langCode", "locale"), nested.Text("code", "iso", "name", "ar_name", "en_name"), o.Text("language", "lang"), label };
+            var language = values.Select(Code).FirstOrDefault(s => s != null);
+            if (language == null && Uri.TryCreate(url, UriKind.Absolute, out var uri)) language = System.Text.RegularExpressions.Regex.Split(Uri.UnescapeDataString(uri.AbsolutePath.Split('/')[^1]), @"[._\-\s]+").Select(Code).FirstOrDefault(s => s != null);
+            language ??= "und";
+            var title = language.Split('-')[0] switch { "ar" => "العربية", "en" => "الإنجليزية", "fr" => "الفرنسية", "tr" => "التركية", "es" => "الإسبانية", "de" => "الألمانية", "ku" => "الكردية", _ => label.Length > 0 && !label.All(char.IsDigit) ? label : "ترجمة " + (subtitles.Count + 1) };
+            subtitles.Add(new(url, title, language));
+        }
+        return subtitles.DistinctBy(s => s.Url).GroupBy(s => s.Title).SelectMany(group => group.Count() == 1 ? group : group.Select((s, i) => s with { Title = s.Title + " · " + (i + 1) })).ToList();
+    }
     public static MediaItem? Parse(JsonElement o, bool series = false)
     {
         var id = o.Text("nb", "videoId", "videoID", "id"); if (string.IsNullOrEmpty(id)) return null;
-        var subs = o.Get("translations").Rows().Select(s => new Subtitle(Image(s.Text("file", "url")), s.Text("languageName", "language_name", "ar_name", "name", "title", "language") is { Length: > 0 } title ? title : "ترجمة", s.Text("languageCode", "language_code", "lang"))).Where(s => s.Url.Length > 0).DistinctBy(s => s.Url).ToList();
+        var subs = Subtitles(o.Get("translations"));
         return new() { Id = id, Title = o.Text("ar_title", "en_title", "title", "name"), EnglishTitle = o.Text("en_title", "title_en"), OriginalTitle = o.Text("original_title", "original_name"), Poster = Image(o.Text("imgMediumThumbObjUrl", "imgThumbObjUrl", "imgObjUrl", "poster")), Backdrop = Image(o.Text("imgObjUrl", "imgLargeThumbObjUrl", "imgMediumThumbObjUrl")), Description = o.Text("ar_content", "ar_description", "description", "content", "en_content"), Year = o.Text("year"), Duration = o.Text("duration"), Rating = o.Rating(), ImdbId = o.Text("imdbId", "imdb_id"), ImdbRating = o.Rating("imdbRate", "imdb_rate", "imdbRating"), IsSeries = series || o.Text("kind", "videoKind") == "2", Season = Math.Max(1, o.Number("season")), Episode = o.Number("episodeNummer", "episodeNumber", "episode"), SeriesId = o.Text("seriesId"), EpisodeTitle = o.Text("episodeTitle"), Quality = o.Text("videoQuality", "quality", "resolution"), Edition = o.Text("videoVersion", "edition", "releaseType"), Trailer = o.Text("trailer", "trailerUrl", "youtube"), Subtitles = subs };
     }
     public static List<MediaItem> Items(JsonElement o, bool series = false) => o.Rows().Select(o => Parse(o, series)).OfType<MediaItem>().DistinctBy(m => m.Id).ToList();

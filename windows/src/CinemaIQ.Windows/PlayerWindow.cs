@@ -54,7 +54,7 @@ public sealed partial class PlayerWindow : Window
         Owner = owner; Title = media.Title; Width = owner.ActualWidth; Height = owner.ActualHeight; WindowState = WindowState.Maximized; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize; Background = Brushes.Black;
         LibVLCSharp.Shared.Core.Initialize(Path.Combine(AppContext.BaseDirectory, "libvlc", "win-x64"));
         var settings = services.Library.State.Settings;
-        lib = new LibVLC("--quiet", "--no-video-title-show", "--no-sub-autodetect-file", "--freetype-rel-fontsize=" + Math.Clamp(120 / settings.SubtitleSize, 2, 8), "--freetype-background-opacity=" + settings.SubtitleBackground, "--freetype-background-color=0", "--sub-language=" + settings.SubtitleLanguage);
+        lib = new LibVLC("--quiet", "--no-video-title-show", "--no-sub-autodetect-file", "--freetype-fontsize=" + Math.Clamp(settings.SubtitleSize, 14, 48), "--freetype-background-opacity=" + Math.Clamp(settings.SubtitleBackground, 0, 255), "--freetype-background-color=0", "--sub-language=" + settings.SubtitleLanguage);
         Player = new MediaPlayer(lib) { EnableHardwareDecoding = settings.HardwareDecoding && !services.Smoke, Volume = 90 };
         video = new VideoView { MediaPlayer = Player, Content = overlay }; Content = video;
         title.HorizontalAlignment = HorizontalAlignment.Right; title.VerticalAlignment = VerticalAlignment.Top; title.Margin = new Thickness(48); overlay.Children.Add(title);
