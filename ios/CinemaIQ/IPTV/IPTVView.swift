@@ -83,7 +83,7 @@ private struct IPTVGroupPicker: View {
             List {
                 Button { selection = nil; dismiss() } label: { row("كل القنوات", selected: selection == nil) }.accessibilityIdentifier("ios.iptv.groupPicker.all")
                 ForEach(groups.filter { search.isEmpty || $0.localizedStandardContains(search) }, id: \.self) { group in
-                    Button { selection = group; dismiss() } label: { row(group, selected: selection == group) }
+                    Button { selection = group; dismiss() } label: { row(group, selected: selection == group) }.accessibilityIdentifier("ios.iptv.groupPicker." + group)
                 }
             }
             .navigationTitle("تصنيفات القنوات").navigationBarTitleDisplayMode(.inline)

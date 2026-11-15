@@ -50,8 +50,8 @@ final class IPTVFlowTests: XCTestCase {
         element("ios.iptv.browser.section.كل القنوات").tap()
 
         app.buttons["ios.iptv.groups"].tap()
-        XCTAssertTrue(app.buttons["رياضة"].waitForExistence(timeout: 10))
-        app.buttons["رياضة"].tap()
+        XCTAssertTrue(element("ios.iptv.groupPicker.رياضة").waitForExistence(timeout: 10))
+        element("ios.iptv.groupPicker.رياضة").tap()
         waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
         app.buttons["ios.iptv.groups"].tap()
         element("ios.iptv.groupPicker.all").tap()
