@@ -40,7 +40,6 @@ struct IPTVPlaybackView: View {
         let phoneGuide = !startInBrowser && panel == .channels && UIDevice.current.userInterfaceIdiom == .phone
         return GeometryReader { geometry in
           ZStack {
-            Color.black.ignoresSafeArea()
             playbackSurface(in: geometry, phoneGuide: phoneGuide).contentShape(Rectangle())
                 .accessibilityElement(children: .ignore).accessibilityLabel("إظهار خيارات المشغل")
                 .accessibilityIdentifier("ios.iptv.player.surface").accessibilityValue(session.status)
@@ -102,8 +101,9 @@ struct IPTVPlaybackView: View {
                     Button("تجربة التوافق الموسّع") { session.controller.chooseEngine(.compatibility) }.secondaryAction()
                 }.padding(24).frame(maxWidth: 500).glass(in: RoundedRectangle(cornerRadius: 24)).padding(24)
             }
-          }
+          }.frame(width: geometry.size.width, height: geometry.size.height)
         }
+        .background(Color.black.ignoresSafeArea())
         .toolbar(fullscreen ? .hidden : .visible, for: .navigationBar, .tabBar)
         .navigationBarBackButtonHidden(fullscreen)
         .buttonStyle(.plain)
