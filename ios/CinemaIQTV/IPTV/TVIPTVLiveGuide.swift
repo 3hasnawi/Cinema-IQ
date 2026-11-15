@@ -1,10 +1,11 @@
 import SwiftUI
 import CinemaCore
 
-/// Two focus sections over the continuing video: categories on the right and a virtualized channel list.
+/// Category/channel browsing with a continuing preview, independently implemented from public IPTV UI references.
 struct TVIPTVLiveGuide: View {
     @ObservedObject var session: IPTVPlayerSession
     let selected: () -> Void
+    let previewChanged: (CGRect) -> Void
     @State private var query = ""
     @State private var visible: [IPTVChannel] = []
     @FocusState private var focus: String?
@@ -26,14 +27,14 @@ struct TVIPTVLiveGuide: View {
                         category("كل القنوات", group: nil)
                         ForEach(session.groups, id: \.self) { category($0, group: $0) }
                     }.padding(10)
-                }.frame(width: 270).focusSection()
+                }.frame(width: 230).focusSection()
                     .onMoveCommand { if $0 == .left { focus = IPTVNavigation.entry(currentID: session.channel.id, in: visible).map { "channel." + $0 } } }
                 Divider()
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 16) {
                             ForEach(visible) { channel in
-                                Button { session.tune(channel); selected() } label: {
+                                Button { if channel.id != session.channel.id { session.tune(channel) }; selected() } label: {
                                     HStack(spacing: 14) {
                                         Image(systemName: channel.id == session.channel.id ? "waveform" : "tv")
                                         VStack(alignment: .leading, spacing: 8) {
@@ -62,6 +63,19 @@ struct TVIPTVLiveGuide: View {
                         focus = id.map { "channel." + $0 } ?? groupID
                     }
                 }
+                Divider()
+                VStack(alignment: .leading, spacing: 22) {
+                    Color.clear.aspectRatio(16 / 9, contentMode: .fit)
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named("tv.iptv.player.space")) }, action: previewChanged)
+                        .accessibilityElement().accessibilityLabel("معاينة القناة")
+                        .accessibilityIdentifier("tv.iptv.guide.preview")
+                    Text(session.channel.name).font(.title3.bold()).lineLimit(2)
+                    Text(session.channel.group).font(.system(size: 23)).foregroundStyle(.secondary)
+                    Text(session.status).font(.system(size: 22)).foregroundStyle(.secondary)
+                    Text("OK يفتح القناة بملء الشاشة. الرجوع يغلق القائمة ويواصل البث.")
+                        .font(.system(size: 20)).foregroundStyle(.secondary)
+                    Spacer()
+                }.frame(maxWidth: .infinity).frame(width: 460).padding(8)
             }
         }
         .buttonStyle(.bordered).padding(32)

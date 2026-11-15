@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 
 /// Real remote navigation and isolated actual Keychain storage; accounts and network responses are fixtures.
 final class TVIPTVFlowTests: XCTestCase {
@@ -47,7 +48,7 @@ final class TVIPTVFlowTests: XCTestCase {
         expectFocus(element("tv.home.showcase"))
         XCTAssertEqual(app.state, .runningForeground)
     }
-    func testRemoteChannelSurfingAndFloatingGuide() {
+    func testRemoteChannelSurfingAndFloatingGuide() throws {
         // Hosted Intel XCTest snapshots can take several seconds per remote move in this longer flow.
         executionTimeAllowance = 360
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
@@ -69,9 +70,14 @@ final class TVIPTVFlowTests: XCTestCase {
         remote.press(.select)
         XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 10))
         let sport = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "tv.iptv.guide.channel.", "قناة الرياضة")).firstMatch
-        expectFocus(sport); shot("floating-guide-playing")
-        remote.press(.right)
-        focus(element("tv.iptv.guide.group.وثائقيات"), direction: .down); remote.press(.select)
+        expectFocus(sport); try assertPreviewVideoVisible("floating-guide-playing")
+        remote.press(.right); expectFocus(element("tv.iptv.guide.group.all"))
+        // Assert every fixture category using actual remote presses. Repeated geometry/cell queries
+        // for a distant target can exhaust the test deadline without a navigation failure.
+        for group in ["أخبار", "أطفال", "ترفيه", "ثقافة", "رياضة", "وثائقيات"] {
+            remote.press(.down); expectFocus(element("tv.iptv.guide.group." + group))
+        }
+        remote.press(.select)
         let documentary = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", "tv.iptv.guide.channel.", "قناة الوثائقيات")).firstMatch
         expectFocus(documentary); remote.press(.select)
         waitFor { player.label == "قناة الوثائقيات" }
@@ -79,6 +85,134 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(player.exists); XCTAssertFalse(element("tv.iptv.guide").exists)
         remote.press(.menu)
         expectFocus(channel("قناة الوثائقيات"))
+    }
+    func testFocusedVideoHasNoButtonBackdrop() throws {
+        executionTimeAllowance = 360
+        app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
+        app.launch(); openIPTV()
+        expectFocus(channel("قناة الأخبار")); remote.press(.select)
+        let player = element("tv.iptv.player.native")
+        expectFocus(player)
+        waitFor { (player.value as? String) == "بث مباشر" }
+        try assertReferenceVideoVisible("focused-video-playing")
+        remote.press(.playPause)
+        waitFor { (player.value as? String) == "متوقف مؤقتًا" }
+        try assertReferenceVideoVisible("focused-video-paused")
+        remote.press(.select)
+        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15))
+        remote.press(.menu); expectFocus(player)
+        try assertReferenceVideoVisible("focused-video-after-guide")
+        remote.press(.playPause)
+        waitFor { (player.value as? String) == "بث مباشر" }
+        remote.press(.down); waitFor { player.label == "قناة الرياضة" }
+        try assertReferenceVideoVisible("focused-video-after-channel-change")
+        remote.press(.menu); expectFocus(channel("قناة الرياضة"))
+    }
+    func testCompatibilityDecoderWithRemoteAndTracks() throws {
+        executionTimeAllowance = 360
+        app.launchArguments = base + ["--cinema-ui-testing-compatibility", "--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
+        app.launch(); openIPTV(); expectFocus(channel("قناة الأخبار")); remote.press(.select)
+        let player = element("tv.iptv.player.native"); expectFocus(player)
+        waitFor { (player.value as? String) == "بث مباشر" }
+        try assertReferenceVideoVisible("compatibility-mpeg2-mp2-playing")
+        remote.press(.playPause); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
+        remote.press(.left); focus(element("tv.iptv.player.audio"), direction: .right); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first")); shot("compatibility-audio-tracks")
+        remote.press(.down); remote.press(.select); expectFocus(player)
+        XCTAssertEqual(player.value as? String, "متوقف مؤقتًا")
+        remote.press(.left); focus(element("tv.iptv.player.subtitles"), direction: .right); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first")); remote.press(.down); remote.press(.select); expectFocus(player)
+        remote.press(.left); focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first")); shot("compatibility-quality-options")
+        remote.press(.down); expectFocus(element("tv.iptv.track.highest")); remote.press(.select)
+        expectFocus(player); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
+        try assertReferenceVideoVisible("compatibility-paused-highest-quality")
+        remote.press(.select)
+        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15)); try assertPreviewVideoVisible("compatibility-guide-preview")
+        let current = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'tv.iptv.guide.channel.' AND label CONTAINS %@", "قناة الأخبار")).firstMatch
+        expectFocus(current); remote.press(.select); expectFocus(player)
+        XCTAssertEqual(player.value as? String, "متوقف مؤقتًا", "Selecting the current preview must not restart or resume the channel")
+        try assertReferenceVideoVisible("compatibility-paused-after-guide")
+        remote.press(.playPause); waitFor { (player.value as? String) == "بث مباشر" }
+        remote.press(.down); waitFor { player.label == "قناة الرياضة" }
+        waitFor { (player.value as? String) == "بث مباشر" }
+        try assertReferenceVideoVisible("compatibility-after-channel-change")
+        remote.press(.menu); expectFocus(channel("قناة الرياضة"))
+    }
+    func testCompatibilityMovieTransportAndReturnToDetails() throws {
+        executionTimeAllowance = 360
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-compatibility"]
+        app.launch()
+        let home = element("tv.home.showcase"); XCTAssertTrue(home.waitForExistence(timeout: 30))
+        expectFocus(home); remote.press(.select)
+        let play = app.buttons["tv.detail.play"]; expectFocus(play); remote.press(.select)
+        let surface = element("tv.compatibility.surface"); expectFocus(surface)
+        waitFor { (surface.value as? String) == "تشغيل" }
+        // Hide transport before checking video pixels, then pause using the real remote.
+        try assertReferenceVideoVisible("compatibility-movie-playing")
+        remote.press(.playPause)
+        waitFor { (surface.value as? String) == "متوقف مؤقتًا" }
+        XCTAssertTrue(app.staticTexts["tv.player.pausedTitle"].waitForExistence(timeout: 15))
+        shot("compatibility-movie-paused")
+        remote.press(.playPause); waitFor { (surface.value as? String) == "تشغيل" }
+        remote.press(.menu)
+        XCTAssertTrue(play.waitForExistence(timeout: 15)); expectFocus(play)
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+    private func assertReferenceVideoVisible(_ name: String) throws {
+        var capture = XCUIScreen.main.screenshot()
+        var fraction = try saturatedFraction(capture)
+        let deadline = Date().addingTimeInterval(8)
+        while fraction <= 0.70 && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            capture = XCUIScreen.main.screenshot(); fraction = try saturatedFraction(capture)
+        }
+        let attachment = XCTAttachment(screenshot: capture); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        XCTAssertGreaterThan(fraction, 0.70, "Focused playback must show the video, without a screen-sized button backdrop")
+    }
+    private func assertPreviewVideoVisible(_ name: String) throws {
+        // The guide's container identifier propagates to non-control children on tvOS.
+        let preview = app.otherElements.matching(NSPredicate(format: "label == %@", "معاينة القناة")).firstMatch
+        XCTAssertTrue(preview.waitForExistence(timeout: 15))
+        let frame = preview.frame, window = app.frame
+        var capture = XCUIScreen.main.screenshot(), fraction = 0.0
+        let deadline = Date().addingTimeInterval(8)
+        repeat {
+            capture = XCUIScreen.main.screenshot()
+            let full = try XCTUnwrap(capture.image.cgImage)
+            let scaleX = CGFloat(full.width) / window.width, scaleY = CGFloat(full.height) / window.height
+            let crop = CGRect(x: (frame.minX - window.minX) * scaleX, y: (frame.minY - window.minY) * scaleY,
+                              width: frame.width * scaleX, height: frame.height * scaleY)
+            fraction = try saturatedFraction(XCTUnwrap(full.cropping(to: crop)))
+            if fraction > 0.7 { break }; Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        let attachment = XCTAttachment(screenshot: capture); attachment.name = name; attachment.lifetime = .keepAlways; add(attachment)
+        XCTAssertGreaterThan(fraction, 0.7, "The guide preview must retain actual decoded video pixels even while paused")
+    }
+    private func saturatedFraction(_ capture: XCUIScreenshot) throws -> Double {
+        try saturatedFraction(XCTUnwrap(capture.image.cgImage))
+    }
+    private func saturatedFraction(_ image: CGImage) throws -> Double {
+        XCTAssertGreaterThan(image.width, 100)
+        // The bundled SMPTE clip has saturated bars in the middle, away from all transport/title overlays.
+        // A system focus backdrop washes those bars white even though accessibility/remote tests still pass.
+        let width = 128, height = 72
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        return try rgba.withUnsafeMutableBytes { bytes -> Double in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let pixels = bytes.bindMemory(to: UInt8.self)
+            var saturated = 0, count = 0
+            for y in 24..<48 { for x in 16..<112 {
+                let offset = (y * width + x) * 4
+                let colors = [Int(pixels[offset]), Int(pixels[offset + 1]), Int(pixels[offset + 2])]
+                if colors.max()! - colors.min()! > 100 { saturated += 1 }
+                count += 1
+            } }
+            return Double(saturated) / Double(count)
+        }
     }
     func testAddM3USourceWithNativeKeyboard() {
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset"]

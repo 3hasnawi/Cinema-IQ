@@ -55,14 +55,12 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/build.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)|TEST BUILD (SUCCEEDED|FAILED)' || true
           grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/build.log"
       - name: Install reference clip and boot simulator
-        timeout-minutes: 5
+        timeout-minutes: 9
         run: |
           set -euo pipefail
           cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
             "$RUNNER_TEMP/TVMenus/Build/Products/Debug-appletvsimulator/CinemaIQTV.app/UIPlayerFixture.mp4"
-          xcrun simctl boot "$TV_MENU_DEVICE"
-          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$TV_MENU_DEVICE"
-          xcrun simctl bootstatus "$TV_MENU_DEVICE" -b
+          python3 ios/scripts/boot-simulator.py "$TV_MENU_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
       - name: Test native menus and remote focus
         timeout-minutes: 15
         run: |
@@ -88,6 +86,7 @@ jobs:
           name: tvos-player-menus-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/evidence
+            ${{ runner.temp }}/tvos-display-ready.png
             ${{ runner.temp }}/build.log
             ${{ runner.temp }}/player-menus.log
           retention-days: 1

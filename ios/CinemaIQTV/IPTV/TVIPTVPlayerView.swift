@@ -8,6 +8,7 @@ struct TVIPTVPlayerView: View {
     @Environment(\.scenePhase) private var phase
     @StateObject private var session: IPTVPlayerSession
     @State private var guide = false
+    @State private var previewFrame: CGRect?
     @State private var controls = true
     @State private var pane: String?
     @State private var interaction = 0
@@ -24,9 +25,12 @@ struct TVIPTVPlayerView: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
-                IPTVVideoSurface(player: session.controller.player).ignoresSafeArea().allowsHitTesting(false)
+                // Geometry coordinates are physical; keep video transforms LTR inside the Arabic UI.
+                videoLayer(in: geometry).environment(\.layoutDirection, .leftToRight)
+                    .zIndex(guide ? 2 : 0).allowsHitTesting(false)
                 Button { guide = true } label: { Color.clear.contentShape(Rectangle()) }
-                    .buttonStyle(.plain).focusEffectDisabled().focused($focus, equals: "surface")
+                    // PlainButtonStyle paints a screen-sized focus backdrop on tvOS; artwork style draws only the clear label.
+                    .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")
                     .accessibilityLabel(session.channel.name).accessibilityValue(session.status)
                     .accessibilityIdentifier("tv.iptv.player.native")
                     .onMoveCommand { direction in
@@ -39,7 +43,7 @@ struct TVIPTVPlayerView: View {
                         default: break
                         }
                     }
-                if controls || !session.playing || session.tuning {
+                if (controls || !session.playing || session.tuning) && !guide && pane == nil {
                     VStack {
                         HStack {
                             VStack(alignment: .leading, spacing: 10) {
@@ -71,6 +75,7 @@ struct TVIPTVPlayerView: View {
                         Text(problem.replacingOccurrences(of: "على iOS", with: "على Apple TV")).multilineTextAlignment(.center)
                         HStack(spacing: 28) {
                             Button("إعادة المحاولة") { session.retry(); focus = "surface" }.disabled(session.retrying)
+                            Button("توافق موسّع") { session.controller.chooseEngine(.compatibility); focus = "surface" }
                             Button("القنوات") { guide = true }
                             Button("إغلاق", action: close).accessibilityIdentifier("tv.iptv.player.close")
                         }
@@ -78,13 +83,13 @@ struct TVIPTVPlayerView: View {
                 }
                 if guide {
                     HStack {
-                        TVIPTVLiveGuide(session: session) { closePanel() }
-                            .frame(width: min(1100, geometry.size.width * 0.72), height: geometry.size.height * 0.82)
+                        TVIPTVLiveGuide(session: session, selected: { closePanel() }, previewChanged: { previewFrame = $0 })
+                            .frame(width: min(1740, geometry.size.width * 0.94), height: geometry.size.height * 0.82)
                         Spacer(minLength: 0)
-                    }.padding(.horizontal, 54)
+                    }.padding(.horizontal, 54).zIndex(1)
                 }
                 if let pane { trackPanel(pane).frame(width: min(900, geometry.size.width * 0.65), height: geometry.size.height * 0.8) }
-            }
+            }.coordinateSpace(name: "tv.iptv.player.space")
         }
         .defaultFocus($focus, "surface")
         .onAppear { session.attach(store); focus = "surface" }
@@ -97,6 +102,23 @@ struct TVIPTVPlayerView: View {
             guard controls, focus == "surface", session.playing, !guide, pane == nil else { return }
             do { try await Task.sleep(for: .seconds(5)) } catch { return }; controls = false
         }
+    }
+    private func videoLayer(in geometry: GeometryProxy) -> some View {
+        let insets = geometry.safeAreaInsets
+        let full = CGRect(x: -insets.leading, y: -insets.top,
+                          width: geometry.size.width + insets.leading + insets.trailing,
+                          height: geometry.size.height + insets.top + insets.bottom)
+        let destination = guide ? (previewFrame ?? full) : full
+        let scale = min(destination.width / full.width, destination.height / full.height)
+        // Keep one full-size drawable in one window. Resizing/reparenting a paused GL drawable can erase
+        // its image; a compositor transform preserves the actual last decoded frame in the live guide.
+        return PlaybackVideoSurface(controller: session.controller)
+            .frame(width: full.width, height: full.height)
+            .clipShape(RoundedRectangle(cornerRadius: guide ? 16 / max(scale, 0.001) : 0))
+            .scaleEffect(scale, anchor: .topLeading)
+            .offset(x: destination.minX, y: destination.minY)
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+            .opacity(guide && previewFrame == nil ? 0 : 1)
     }
     private func action(_ title: String, id: String, run: @escaping () -> Void) -> some View {
         Button(title, action: run).focused($focus, equals: "control." + id).accessibilityIdentifier("tv.iptv.player." + id)
@@ -123,6 +145,13 @@ struct TVIPTVPlayerView: View {
                         }
                         Text("الجودات المتاحة من البث فقط؛ الاختيار يحدد الحد الأقصى، والتلقائي يتكيّف مع الشبكة.").font(.system(size: 22)).foregroundStyle(.secondary)
                         Text("أعلى جودة بحسب البث والشبكة وقدرة الجهاز.").font(.system(size: 22)).foregroundStyle(.secondary)
+                        Divider()
+                        Text("محرك التشغيل").font(.headline)
+                        ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
+                            trackButton(mode.title, id: "engine." + mode.rawValue, selected: session.engineMode == mode) { session.controller.chooseEngine(mode) }
+                        }
+                        Text(session.usesCompatibility ? "المحرك الحالي: التوافق الموسّع" : "المحرك الحالي: Apple").font(.system(size: 22)).foregroundStyle(.secondary)
+                        Text("VideoLAN VLCKit · LGPL 2.1 أو أحدث\ncode.videolan.org/videolan/VLCKit").font(.system(size: 18)).foregroundStyle(.secondary)
                     } else if value == "audio" {
                         ForEach(Array(session.audio.enumerated()), id: \.element.id) { index, option in
                             trackButton(option.title, id: index == 0 ? "track.first" : option.id, selected: session.audioID == option.id) { session.chooseAudio(option.id) }

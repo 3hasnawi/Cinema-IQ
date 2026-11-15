@@ -6,6 +6,7 @@ struct TVPauseInformation: View {
     let media: Media
     let series: Media?
     let info: OMDbInfo?
+    var bottomPadding: CGFloat = 220
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -26,7 +27,7 @@ struct TVPauseInformation: View {
             }
         }
         .frame(maxWidth: 920, maxHeight: .infinity, alignment: .leading)
-        .padding(.top, 75).padding(.bottom, 220).padding(.horizontal, 85)
+        .padding(.top, 75).padding(.bottom, bottomPadding).padding(.horizontal, 85)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .environment(\.layoutDirection, .rightToLeft)
     }

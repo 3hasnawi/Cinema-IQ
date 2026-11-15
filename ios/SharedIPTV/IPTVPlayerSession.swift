@@ -11,6 +11,8 @@ import CinemaCore
     @Published private(set) var channels: [IPTVChannel] = []
     @Published var group: String?
     @Published private(set) var catalogRevision = UUID()
+    @Published private(set) var engineMode = IPTVPlaybackMode.automatic
+    @Published private(set) var usesCompatibility = false
     @Published private(set) var playing = false
     @Published private(set) var buffering = false
     @Published private(set) var ended = false
@@ -40,6 +42,8 @@ import CinemaCore
     init(initial: IPTVChannel, group: String?, preferredMaximumHeight: Int? = nil) {
         channel = initial; sourceID = initial.sourceID; self.group = group
         maximumHeight = preferredMaximumHeight
+        controller.$mode.removeDuplicates().sink { [weak self] in self?.engineMode = $0 }.store(in: &observers)
+        controller.$usesCompatibility.removeDuplicates().sink { [weak self] in self?.usesCompatibility = $0 }.store(in: &observers)
         controller.$playing.removeDuplicates().sink { [weak self] in self?.playing = $0 }.store(in: &observers)
         controller.$buffering.removeDuplicates().sink { [weak self] in self?.buffering = $0 }.store(in: &observers)
         controller.$ended.removeDuplicates().sink { [weak self] in self?.ended = $0 }.store(in: &observers)
@@ -81,7 +85,8 @@ import CinemaCore
 #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         if args.contains("--cinema-ui-testing-player") || args.contains("--cinema-tv-ui-testing-iptv-player") {
-            guard let fixture = Bundle.main.url(forResource: "UIPlayerFixture", withExtension: "mp4") else {
+            let compatible = args.contains("--cinema-ui-testing-compatibility")
+            guard let fixture = Bundle.main.url(forResource: compatible ? "UICompatibilityFixture" : "UIPlayerFixture", withExtension: compatible ? "mkv" : "mp4") else {
                 problem = "تعذّر العثور على فيديو الاختبار المحلي."; tuning = false; return
             }
             url = fixture
@@ -92,10 +97,7 @@ import CinemaCore
         controller.resetSubtitles(preferred: language == "off" ? nil : language)
         controller.open(media, url: url, resume: 0) { _, _, _ in }
         // Retain the existing TV default and the user's session choice across channel changes.
-        controller.player.currentItem?.preferredMaximumResolution = maximumHeight.map {
-            CGSize(width: Double($0) * 16 / 9, height: Double($0))
-        } ?? .zero
-        controller.player.currentItem?.preferredPeakBitRate = 0
+        controller.setQuality(maximumHeight: maximumHeight, highest: prefersHighestQuality)
         tuning = false
         guard url.scheme == "https" || url.scheme == "http", (url.pathExtension.lowercased() == "m3u8" || (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).contains { ["ext", "format", "type", "mime"].contains($0.name.lowercased()) && ($0.value?.lowercased().contains("m3u8") == true || $0.value?.lowercased().contains("mpegurl") == true) }) else { return }
         let allowHTTP = store?.sources.first(where: { $0.id == sourceID })?.allowHTTP ?? false
@@ -125,14 +127,12 @@ import CinemaCore
     private func applyQuality(_ value: IPTVStreamQuality?) {
         quality = value
         maximumHeight = value.flatMap { $0.height > 0 ? $0.height : nil }
-        // AVPlayer's public rendition controls are caps: keep the master so alternate audio remains available.
-        controller.player.currentItem?.preferredMaximumResolution = value.map { CGSize(width: Double($0.width), height: Double($0.height)) } ?? .zero
-        controller.player.currentItem?.preferredPeakBitRate = value?.bandwidth ?? 0
+        controller.setQuality(maximumHeight: maximumHeight, bandwidth: value?.bandwidth ?? 0, highest: prefersHighestQuality)
     }
     func chooseAudio(_ id: String) { controller.selectAudio(id) }
     func chooseSubtitle(_ id: String?) { controller.selectSubtitle(id, external: []) }
     func toggle() { controller.togglePlay() }
-    func pause() { controller.player.pause() }
+    func pause() { controller.pause() }
     func retry() {
         guard !retrying, let store else { return }
         tuneTask?.cancel(); retryTask?.cancel(); qualityTask?.cancel()

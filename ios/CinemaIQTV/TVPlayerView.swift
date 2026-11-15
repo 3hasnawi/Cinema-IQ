@@ -54,6 +54,9 @@ struct TVPlayerView: View {
             Color.black.ignoresSafeArea()
             // On an error the system player is taken away, so the remote reaches the panel's buttons and Menu.
             if failure == nil {
+            if controller.usesCompatibility {
+                TVCompatibilityTransport(controller: controller, close: { dismiss() }) { compatibilityOptions }
+            } else if controller.hasItem {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
@@ -63,10 +66,17 @@ struct TVPlayerView: View {
                 // Arabic labels retain their natural text direction; only the system chrome is LTR.
                 .environment(\.layoutDirection, .leftToRight)
                 .ignoresSafeArea()
+            } else {
+                // Do not mount an empty AVKit controller before resolving a compatibility stream: its
+                // disappearing focus context can steal the new transport's initial focus.
+                Button { dismiss() } label: { Color.clear.contentShape(Rectangle()) }
+                    .buttonStyle(TVArtworkButtonStyle()).accessibilityLabel("إلغاء التحميل")
+                    .onExitCommand { dismiss() }
+            }
             }
             if !controller.playing && !controller.buffering && !loading && !controller.ended &&
                 controller.position > 0 && failure == nil {
-                TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo)
+                TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo, bottomPadding: controller.usesCompatibility ? 330 : 220)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
@@ -78,7 +88,7 @@ struct TVPlayerView: View {
                 }
             }
             .allowsHitTesting(false)
-            if loading && resolutionError == nil && controller.error == nil { ProgressView().allowsHitTesting(false) }
+            if (loading || controller.buffering) && resolutionError == nil && controller.error == nil { ProgressView().allowsHitTesting(false) }
             if let message = failure {
                 VStack(spacing: 28) {
                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 60)).foregroundStyle(TVTheme.accent)
@@ -92,6 +102,7 @@ struct TVPlayerView: View {
                         if let next {
                             Button("الحلقة \(next.episode)") { active = next }
                         }
+                        Menu("محرك التشغيل") { engineChoices }
                         Button("إغلاق") { dismiss() }
                     }
                 }
@@ -140,6 +151,7 @@ struct TVPlayerView: View {
         parts.append(controller.audioOptions.map(\.id).joined(separator: ","))
         parts.append(controller.audioID ?? "")
         parts.append(String(controller.rate))
+        parts.append(controller.mode.rawValue)
         return parts.joined(separator: "|")
     }
 
@@ -191,7 +203,44 @@ struct TVPlayerView: View {
                 controller.setRate(value)
             }
         }))
+        items.append(UIMenu(title: "محرك التشغيل", image: UIImage(systemName: "play.rectangle"), children: IPTVPlaybackMode.allCases.map { mode in
+            UIAction(title: mode.title, state: controller.mode == mode ? .on : .off) { _ in controller.chooseEngine(mode) }
+        } + [UIAction(title: "VideoLAN VLCKit · LGPL 2.1+", attributes: .disabled) { _ in }]))
         return items
+    }
+
+    @ViewBuilder private var engineChoices: some View {
+        ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
+            Button(mode.title + (mode == controller.mode ? " ✓" : "")) { controller.chooseEngine(mode) }
+        }
+        Text("VideoLAN VLCKit · LGPL 2.1+")
+    }
+    private var compatibilityOptions: some View {
+        Group {
+            Menu("الجودة") {
+                Button("تلقائي") { chooseQuality(.automatic) }
+                if streams.contains(where: VideoQuality.looksLikeHLS) {
+                    ForEach(VideoQuality.allCases.filter { $0 != .automatic }, id: \.rawValue) { mode in Button(mode.title) { chooseQuality(mode) } }
+                } else { ForEach(streams) { stream in Button(stream.quality) { choose(stream) } } }
+            }
+            Menu("الترجمة") {
+                Button("بدون ترجمة") { controller.selectSubtitle(nil, external: externalTracks) }
+                ForEach(externalTracks) { track in Button(track.title) { controller.selectSubtitle("ext:" + track.id, external: externalTracks) } }
+                ForEach(controller.embeddedSubtitles) { track in Button(track.title) { controller.selectSubtitle(track.id, external: externalTracks) } }
+                Menu("الحجم") { ForEach(SubtitlePreference.sizes, id: \.0) { option in Button(option.0) { subtitleSize = option.1 } } }
+                Menu("الخلفية") { ForEach(SubtitlePreference.backgrounds, id: \.0) { option in Button(option.0) { subtitleBackground = option.1 } } }
+            }
+            Menu("الصوت") { ForEach(controller.audioOptions) { option in Button(option.title) { controller.selectAudio(option.id) } } }
+            Menu("المزيد") {
+                Menu("محرك التشغيل") { engineChoices }
+                Menu("السرعة") {
+                    ForEach([Float(0.75), 1, 1.25, 1.5, 2], id: \.self) { value in Button(String(format: "%gx", value)) { controller.setRate(value) } }
+                }
+                if queue.count > 1 { Menu("الحلقات") { ForEach(queue) { episode in Button("الموسم \(episode.season) · الحلقة \(episode.episode) · \(episode.title)") { active = episode } } } }
+            }
+            if inIntro, let end = skips.introEnd { Button("تخطي المقدمة") { controller.seek(to: end) } }
+            if offerNext, let next { Button("الحلقة \(next.episode)") { active = next } }
+        }
     }
 
     /// The "الحلقات" tab of the info panel (swipe down while playing): the season's episodes, the one playing marked.
@@ -233,19 +282,14 @@ struct TVPlayerView: View {
     }
 
     private func select(_ stream: StreamChoice) {
-        let sameStream = quality == stream.id && controller.error == nil && controller.player.currentItem != nil
+        let sameStream = quality == stream.id && controller.error == nil && controller.hasItem
         quality = stream.id
         if sameStream { applyQualityHint() }
         else { open(current, stream: stream, resume: controller.position) }
     }
 
     private func applyQualityHint() {
-        guard let item = controller.player.currentItem else { return }
-        // Zero removes our cap and leaves HLS adaptation to AVPlayer. Fixed files cannot gain extra renditions.
-        item.preferredMaximumResolution = qualityMode.height.map {
-            CGSize(width: Double($0) * 16 / 9, height: Double($0))
-        } ?? .zero
-        item.preferredPeakBitRate = 0
+        controller.setQuality(maximumHeight: qualityMode.height)
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {

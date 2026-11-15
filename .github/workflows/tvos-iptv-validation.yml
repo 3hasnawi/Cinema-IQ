@@ -3,9 +3,9 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: Run the full IPTV flow or the quality-controls scenario
+        description: Run all IPTV checks or a focused scenario
         type: choice
-        options: [all, quality]
+        options: [all, quality, visibility, compatibility, guide]
         default: all
 permissions:
   contents: read
@@ -16,7 +16,7 @@ jobs:
   simulator:
     # Match the existing navigation check's Intel pool; ARM hosts can boot tvOS without a display/focus surface.
     runs-on: macos-15-intel
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode and generate the test project
@@ -28,6 +28,7 @@ jobs:
           brew install xcodegen
           # Include the licensed local clip before Xcode seals and signs the simulator app.
           cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQTV/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
       - name: Create a TV simulator
@@ -58,40 +59,26 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/tvos-iptv-build.log" | grep -E 'error:|TEST BUILD (SUCCEEDED|FAILED)' || true
           grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/tvos-iptv-build.log"
       - name: Boot TV simulator with a display
-        timeout-minutes: 7
+        timeout-minutes: 9
         run: |
           set -euo pipefail
-          xcrun simctl boot "$TV_TEST_DEVICE"
-          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$TV_TEST_DEVICE"
-          xcrun simctl bootstatus "$TV_TEST_DEVICE" -b
-          osascript -e 'tell application "Simulator" to activate'
-          # A booted runtime can still lack its first display surface. Do not send remote keys to it yet.
-          python3 - <<'PY'
-          import os, pathlib, struct, subprocess, time
-          path = pathlib.Path(os.environ['RUNNER_TEMP'])/'tvos-display-ready.png'
-          deadline = time.monotonic()+60
-          while time.monotonic() < deadline:
-              result = subprocess.run(['xcrun','simctl','io',os.environ['TV_TEST_DEVICE'],'screenshot',str(path)], timeout=20)
-              if result.returncode == 0 and path.exists():
-                  size = struct.unpack('>II',path.read_bytes()[16:24])
-                  if min(size) > 100:
-                      print('TV display ready:',size)
-                      break
-              time.sleep(2)
-          else:
-              raise RuntimeError('The TV simulator display never became ready')
-          PY
+          python3 ios/scripts/boot-simulator.py "$TV_TEST_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
       - name: Test M3U entry, Xtream, Keychain persistence and remote playback
-        timeout-minutes: 15
+        timeout-minutes: 25
         env:
           IPTV_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
           test_id=CinemaIQTVUITests/TVIPTVFlowTests
           if [ "$IPTV_TEST_SCENARIO" = quality ]; then test_id="$test_id/testHighestQualityPreferenceAndAutomaticSelection"; fi
+          if [ "$IPTV_TEST_SCENARIO" = guide ]; then test_id="$test_id/testRemoteChannelSurfingAndFloatingGuide"; fi
+          if [ "$IPTV_TEST_SCENARIO" = visibility ]; then test_id="$test_id/testFocusedVideoHasNoButtonBackdrop"; fi
+          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then test_id="$test_id/testCompatibilityDecoderWithRemoteAndTracks"; fi
+          extra_tests=()
+          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testCompatibilityMovieTransportAndReturnToDetails'); fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
-            -only-testing:"$test_id" \
+            -only-testing:"$test_id" "${extra_tests[@]}" \
             -resultBundlePath "$RUNNER_TEMP/tvos-iptv.xcresult" -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
@@ -100,6 +87,17 @@ jobs:
       - name: Export screenshots and diagnostics
         if: always()
         run: |
+          python3 - <<'PY'
+          import os, pathlib, shutil, subprocess
+          try:
+              container = subprocess.check_output(['xcrun','simctl','get_app_container',os.environ['TV_TEST_DEVICE'],
+                                                   'com.cinemaplus.rebuilt.tv','data'], text=True, timeout=10, stderr=subprocess.DEVNULL).strip()
+              diagnostic = pathlib.Path(container)/'Documents/compatibility-debug.txt'
+              if diagnostic.exists():
+                  shutil.copyfile(diagnostic, pathlib.Path(os.environ['RUNNER_TEMP'])/'compatibility-debug.txt')
+          except (subprocess.SubprocessError, OSError):
+              print('Decoder diagnostics unavailable; continuing to export actual test results')
+          PY
           if [ -d "$RUNNER_TEMP/tvos-iptv.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/tvos-iptv.xcresult" --output-path "$RUNNER_TEMP/tvos-iptv-evidence"
             find "$RUNNER_TEMP/tvos-iptv-evidence" -name '*.mp4' -delete
@@ -110,6 +108,7 @@ jobs:
         with:
           name: tvos-iptv-${{ github.run_id }}
           path: |
+            ${{ runner.temp }}/compatibility-debug.txt
             ${{ runner.temp }}/tvos-iptv-build.log
             ${{ runner.temp }}/tvos-iptv.log
             ${{ runner.temp }}/tvos-iptv-evidence

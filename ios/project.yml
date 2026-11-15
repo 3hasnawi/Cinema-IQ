@@ -1,6 +1,6 @@
 name: CinemaIQ
 options:
-  preGenCommand: bash scripts/prepare-cast.sh
+  preGenCommand: bash scripts/prepare-cast.sh && bash scripts/prepare-vlc.sh
   bundleIdPrefix: com.cinemaplus.rebuilt
   deploymentTarget:
     iOS: "18.0"
@@ -24,6 +24,8 @@ targets:
     dependencies:
       - package: CinemaCore
       - framework: .build/cast/GoogleCastSDK-ios-4.8.6_dynamic_xcframework/GoogleCast.xcframework
+        embed: true
+      - framework: .build/vlc/MobileVLCKit-binary/MobileVLCKit.xcframework
         embed: true
     scheme:
       testTargets:
@@ -108,8 +110,12 @@ targets:
       - path: CinemaIQ/UITestSupport.swift
       - path: CinemaIQ/Resources/GoogleService-Info.plist
         buildPhase: resources
+      - path: CinemaIQ/Resources/VLCKit-LGPL-2.1.txt
+        buildPhase: resources
     dependencies:
       - package: CinemaCore
+      - framework: .build/vlc/TVVLCKit-binary/TVVLCKit.xcframework
+        embed: true
     scheme:
       testTargets:
         - CinemaIQTVUITests

@@ -30,14 +30,14 @@ jobs:
           cd ios
           xcodegen generate --spec project.yml
       - name: Prepare simulator
+        timeout-minutes: 9
         run: |
           set -euo pipefail
           if ! xcrun simctl list runtimes | grep -q tvOS; then xcodebuild -downloadPlatform tvOS; fi
           runtime="$(xcrun simctl list runtimes | grep tvOS | tail -1 | sed -E 's/.* - (com\.apple\.CoreSimulator\.SimRuntime\.[^ ]+).*/\1/')"
           type="$(xcrun simctl list devicetypes | awk '/Apple TV 4K.*\(at 1080p\)/ && !found { print; found=1 }' | sed -E 's/.*\((com\.apple\.[^)]+)\).*/\1/')"
           device="$(xcrun simctl create CinemaTVCheck "$type" "$runtime")"
-          xcrun simctl boot "$device"
-          xcrun simctl bootstatus "$device" -b
+          python3 ios/scripts/boot-simulator.py "$device" "$RUNNER_TEMP/tvos-display-ready.png"
           echo "TV_TEST_DEVICE=$device" >> "$GITHUB_ENV"
       - name: Run focused remote navigation checks
         run: |
@@ -68,5 +68,6 @@ jobs:
           path: |
             ${{ runner.temp }}/tvos-evidence
             ${{ runner.temp }}/tvos-test.log
+            ${{ runner.temp }}/tvos-display-ready.png
           retention-days: 1
           if-no-files-found: warn
