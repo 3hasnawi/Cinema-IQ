@@ -12,7 +12,7 @@ extension IPTVStore {
         self.init(service: testing ? "com.cinemaplus.rebuilt.ios.iptv.uitests" : "com.cinemaplus.rebuilt.ios.iptv",
                   selectionKey: testing ? "ios.iptv.uitests.selected.v1" : "ios.iptv.selected.v1",
                   client: testing ? IPTVClient(transport: IPTVFixtureTransport()) : IPTVClient(),
-                  prepareStorage: { vault in
+                  resetCollection: reset, prepareStorage: { vault in
                       if reset { try vault.write([]) }
                       if snapshot {
                           let source = try IPTVSource(id: "iptv-snapshot-playlist", name: "قنوات تجريبية", kind: .playlist,

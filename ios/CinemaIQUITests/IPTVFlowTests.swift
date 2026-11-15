@@ -97,7 +97,8 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(english.waitForExistence(timeout: 15)); screenshot("compatibility-subtitle-options"); english.tap()
         XCTAssertEqual(element("ios.iptv.player.surface").value as? String, "متوقف مؤقتًا")
         tapPlayerControl("channels")
-        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 15)); screenshot("compatibility-floating-guide")
+        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 15))
+        screenshot("compatibility-floating-guide")
         app.navigationBars.buttons["تم"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft; waitFor { self.app.frame.width > self.app.frame.height }
         screenshot("compatibility-landscape")
@@ -119,12 +120,8 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Xtream News"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["Xtream Sport"].exists)
         screenshot("xtream-channels")
-        var search = app.searchFields.firstMatch
-        if !search.exists {
-            let toggle = app.buttons.matching(NSPredicate(format: "label == 'Search' OR label == 'البحث'")).firstMatch
-            if toggle.exists && toggle.isHittable { toggle.tap() }
-            search = app.searchFields.firstMatch
-        }
+        element("ios.iptv.browser.search.toggle").tap()
+        let search = app.textFields["ios.iptv.browser.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap(); search.typeText("News")
         waitFor { self.app.buttons["Xtream News"].exists && !self.app.buttons["Xtream Sport"].exists }
@@ -208,8 +205,12 @@ final class IPTVFlowTests: XCTestCase {
         }
         XCTAssertGreaterThan(fraction, 0.70, "The decoder must render actual video pixels, not merely report playing")
     }
-    private func saturatedFraction(_ capture: XCUIScreenshot) throws -> Double {
-        let image = try XCTUnwrap(capture.image.cgImage)
+    private func saturatedFraction(_ capture: XCUIScreenshot, portraitPreview: Bool = false) throws -> Double {
+        let full = try XCTUnwrap(capture.image.cgImage)
+        let image: CGImage
+        if portraitPreview {
+            image = try XCTUnwrap(full.cropping(to: CGRect(x: CGFloat(full.width) * 0.15, y: CGFloat(full.height) * 0.16, width: CGFloat(full.width) * 0.7, height: CGFloat(full.height) * 0.12)))
+        } else { image = full }
         let width = 128, height = 72
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
         return try rgba.withUnsafeMutableBytes { bytes -> Double in

@@ -3,112 +3,66 @@ import CinemaCore
 
 struct IPTVView: View {
     @EnvironmentObject private var store: IPTVStore
-    @State private var query = ""
     @State private var group: String?
-    @State private var visible: [IPTVChannel] = []
     @State private var sheet: Sheet?
-    @State private var playing: IPTVChannel?
+    @State private var browserInitial: IPTVChannel?
     private enum Sheet: Identifiable {
         case source(IPTVSource?), manage, groups
         var id: String { switch self { case .source(let source): return source?.id ?? "add"; case .manage: return "manage"; case .groups: return "groups" } }
     }
-    private struct FilterKey: Hashable { let revision: UUID; let query: String; let group: String? }
-    private var filterKey: FilterKey { FilterKey(revision: store.catalogRevision, query: query, group: group) }
     var body: some View {
-        let numbering = IPTVNavigation.numbers(store.catalog.channels, sourceID: store.selectedID ?? "")
-        let categories = IPTVNavigation.categories(store.catalog.channels, sourceID: store.selectedID ?? "")
-        return List {
-            if store.storageLoading {
-                Section { HStack { ProgressView(); Text("جارٍ قراءة مصادر IPTV…") } }
-            } else if !store.storageAvailable {
-                Section {
-                    Text(store.message ?? "تعذّر الوصول إلى البيانات الآمنة.")
-                    Button("إعادة المحاولة") { store.readSources() }
-                }
-            } else if store.sources.isEmpty {
-                ContentUnavailableView {
-                    Label("أضف مصدر IPTV", systemImage: "dot.radiowaves.left.and.right")
-                } description: { Text("أضف رابط قائمة M3U أو اشتراك Xtream لعرض قنواتك وتشغيلها داخل التطبيق.") }
-                actions: { Button("إضافة مصدر") { sheet = .source(nil) }.accessibilityIdentifier("ios.iptv.empty.add") }
-                    .listRowBackground(Color.clear)
+        Group {
+            if let initial = browserInitial, initial.sourceID == store.selectedID {
+                IPTVPlaybackView(initial: initial, group: group, startInBrowser: true).id(initial.sourceID)
             } else {
-                Section {
-                    Picker("المصدر", selection: $store.selectedID) {
-                        ForEach(store.sources) { source in Text(source.name).tag(Optional(source.id)) }
-                    }.accessibilityIdentifier("ios.iptv.source")
-                    Button { sheet = .manage } label: { Label("إدارة المصادر", systemImage: "slider.horizontal.3") }
-                        .accessibilityIdentifier("ios.iptv.manage")
-                    Button { sheet = .groups } label: {
-                        HStack { Label("التصنيف", systemImage: "line.3.horizontal.decrease"); Spacer(); Text(group ?? "كل القنوات").foregroundStyle(.secondary).lineLimit(1) }
-                    }.disabled(store.loading || store.catalog.channels.isEmpty).accessibilityIdentifier("ios.iptv.groups")
-                }
-                if !categories.isEmpty {
-                    Section {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
-                                Button("كل القنوات · \(numbering.count)") { group = nil; query = "" }.tint(group == nil ? Theme.accent : .secondary)
-                                ForEach(categories, id: \.name) { item in
-                                    Button("\(item.name) · \(item.count)") { group = item.name; query = "" }.tint(group == item.name ? Theme.accent : .secondary)
-                                        .accessibilityIdentifier("ios.iptv.category." + item.name)
-                                }
-                            }.buttonStyle(.bordered)
-                        }
-                    }
-                }
-                if store.loading {
-                    Section { HStack { ProgressView(); Text("جارٍ تحميل القنوات…") } }
-                } else if let message = store.message {
-                    Section {
+                List {
+                    if store.storageLoading || store.loading {
+                        HStack { ProgressView(); Text("جارٍ تحميل قنوات IPTV…") }
+                    } else if !store.storageAvailable {
+                        Text(store.message ?? "تعذّر الوصول إلى البيانات الآمنة.")
+                        Button("إعادة المحاولة") { store.readSources() }
+                    } else if store.sources.isEmpty {
+                        ContentUnavailableView {
+                            Label("أضف مصدر IPTV", systemImage: "dot.radiowaves.left.and.right")
+                        } description: { Text("أضف رابط قائمة M3U أو اشتراك Xtream لعرض قنواتك وتشغيلها داخل التطبيق.") }
+                        actions: { Button("إضافة مصدر") { sheet = .source(nil) }.accessibilityIdentifier("ios.iptv.empty.add") }
+                            .listRowBackground(Color.clear)
+                    } else if let message = store.message {
                         Text(message).foregroundStyle(.secondary).accessibilityIdentifier("ios.iptv.error")
                         Button("إعادة المحاولة") { Task { await store.reload(force: true) } }
-                    }
-                } else {
-                    Section("\(visible.count) قناة") {
-                        ForEach(visible) { channel in
-                            Button { playing = channel } label: {
-                                HStack(spacing: 12) {
-                                    Text(String(numbering[channel.id] ?? 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 22)
-                                    channelLogo(channel)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(channel.name).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(2)
-                                        Text(channel.group).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer(minLength: 8)
-                                    Image(systemName: "play.circle.fill").font(.title3).foregroundStyle(Theme.accent)
-                                }.padding(.vertical, 3)
-                            }
-                            .accessibilityLabel(channel.name).accessibilityIdentifier("ios.iptv.channel." + channel.id)
-                        }
-                        if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.").foregroundStyle(.secondary) }
-                    }
+                    } else { Text("لا تتوفر قنوات لهذا المصدر.").foregroundStyle(.secondary) }
                 }
             }
         }
-        .navigationTitle("IPTV")
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "ابحث عن قناة")
-        .scrollDismissesKeyboard(.interactively)
-        .refreshable { await store.reload(force: true) }
+        .navigationTitle("IPTV").navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { sheet = .groups } label: { Image(systemName: "line.3.horizontal.decrease") }
+                    .disabled(store.catalog.channels.isEmpty).accessibilityLabel("التصنيف").accessibilityIdentifier("ios.iptv.groups")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("إدارة المصادر") { sheet = .manage }
+                    Button("تحديث القنوات") { Task { await store.reload(force: true) } }
+                } label: { Image(systemName: "ellipsis.circle") }
+                    .accessibilityLabel("مصادر IPTV").accessibilityIdentifier("ios.iptv.manage")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { sheet = .source(nil) } label: { Label("إضافة مصدر", systemImage: "plus") }
                     .disabled(!store.storageAvailable).accessibilityIdentifier("ios.iptv.add")
             }
         }
         .task(id: store.loadKey) { await store.reload() }
-        .task(id: filterKey) {
-            let values = store.catalog.channels, selected = group, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { do { try await Task.sleep(for: .milliseconds(200)) } catch { return } }
-            let result = await Task.detached(priority: .userInitiated) {
-                values.filter { (selected == nil || $0.group == selected) &&
-                    (text.isEmpty || $0.name.localizedStandardContains(text) || $0.group.localizedStandardContains(text)) }
-            }.value
-            guard !Task.isCancelled else { return }
-            visible = result
+        .onChange(of: store.catalogRevision, initial: true) { _, _ in
+            if browserInitial?.sourceID != store.selectedID, let source = store.selectedID {
+                browserInitial = store.channelCollection.channels(store.catalog.channels, sourceID: source, section: .recent).first
+                    ?? store.catalog.channels.first(where: { $0.sourceID == source })
+            }
 #if DEBUG
-            IPTVFixtureSupport.markReady(channelCount: result.count)
+            IPTVFixtureSupport.markReady(channelCount: store.catalog.channels.count)
 #endif
         }
-        .onChange(of: store.selectedID) { _, _ in group = nil; query = "" }
+        .onChange(of: store.selectedID) { _, _ in group = nil; browserInitial = nil }
         .sheet(item: $sheet) { item in
             switch item {
             case .source(let source): IPTVSourceForm(existing: source).environmentObject(store)
@@ -116,18 +70,6 @@ struct IPTVView: View {
             case .manage: IPTVSourceManager(add: { sheet = .source(nil) }, edit: { sheet = .source($0) }).environmentObject(store)
             }
         }
-        .fullScreenCover(item: $playing) { channel in
-            ResponsiveContainer { IPTVPlaybackView(initial: channel, group: group) { _, selectedGroup in group = selectedGroup; query = "" }.environmentObject(store) }
-        }
-    }
-    private func channelLogo(_ channel: IPTVChannel) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 10).fill(Theme.panel)
-            Image(systemName: "tv").foregroundStyle(.secondary)
-            if let logo = channel.logo {
-                AsyncImage(url: logo) { phase in if let image = phase.image { image.resizable().scaledToFit() } }
-            }
-        }.frame(width: 52, height: 44).clipped().accessibilityHidden(true)
     }
 }
 

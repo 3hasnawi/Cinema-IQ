@@ -73,7 +73,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
         if (playing != null) {
             val channel = playing!!
             IptvTvPlayer(channel, state.channels, state.group, true,
-                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback, startInGuide = startInGuide) { last, selectedGroup ->
+                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback, startInGuide = startInGuide, collection = state.collection, favorite = vm::toggleFavorite, watched = vm::noteWatched) { last, selectedGroup ->
                 playing = null; vm.returnFromPlayer(selectedGroup); returnId = last.id; returnEpoch++
             }
         } else Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {

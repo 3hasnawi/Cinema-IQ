@@ -13,7 +13,7 @@ import CinemaCore
         if reset { UserDefaults.standard.removeObject(forKey: key) }
         return IPTVStore(service: testing ? "com.cinemaplus.rebuilt.tv.iptv.uitests" : "com.cinemaplus.rebuilt.tv.iptv",
                          selectionKey: key, client: testing ? IPTVClient(transport: IPTVDemoTransport()) : IPTVClient(),
-                         prepareStorage: { vault in
+                         resetCollection: reset, prepareStorage: { vault in
                              if reset { try vault.write([]) }
                              if seed {
                                  try vault.write([

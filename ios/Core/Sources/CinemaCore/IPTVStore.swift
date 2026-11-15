@@ -3,6 +3,7 @@ import Foundation
 import Combine
 
 @MainActor public final class IPTVStore: ObservableObject {
+    @Published public private(set) var channelCollection = IPTVChannelCollection()
     @Published public private(set) var sources: [IPTVSource] = []
     @Published public var selectedID: String? {
         didSet { defaults.set(selectedID, forKey: selectionKey) }
@@ -31,11 +32,22 @@ import Combine
     private let prepareStorage: (@Sendable (IPTVKeychainVault) throws -> Void)?
     public init(service: String, selectionKey: String, client: IPTVClient = IPTVClient(),
                 defaults: UserDefaults = .standard,
-                prepareStorage: (@Sendable (IPTVKeychainVault) throws -> Void)? = nil) {
+                resetCollection: Bool = false, prepareStorage: (@Sendable (IPTVKeychainVault) throws -> Void)? = nil) {
         self.defaults = defaults; self.selectionKey = selectionKey; self.client = client
         self.vault = IPTVKeychainVault(service: service); self.prepareStorage = prepareStorage
+        if resetCollection { defaults.removeObject(forKey: selectionKey + ".channels.v1") }
+        if let data = defaults.data(forKey: selectionKey + ".channels.v1"), data.count < 2_000_000,
+           let saved = try? JSONDecoder().decode(IPTVChannelCollection.self, from: data) { channelCollection = saved }
         selectedID = defaults.string(forKey: selectionKey)
         readSources()
+    }
+    public func noteWatched(_ channel: IPTVChannel) {
+        guard channelCollection.recent.first != channel.id else { return }
+        channelCollection.watched(channel.id); saveCollection()
+    }
+    public func toggleFavorite(_ channel: IPTVChannel) { channelCollection.toggle(channel.id); saveCollection() }
+    private func saveCollection() {
+        if let data = try? JSONEncoder().encode(channelCollection) { defaults.set(data, forKey: selectionKey + ".channels.v1") }
     }
     public func readSources() {
         guard storageTask == nil else { return }

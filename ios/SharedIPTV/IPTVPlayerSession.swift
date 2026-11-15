@@ -44,7 +44,9 @@ import CinemaCore
         maximumHeight = preferredMaximumHeight
         controller.$mode.removeDuplicates().sink { [weak self] in self?.engineMode = $0 }.store(in: &observers)
         controller.$usesCompatibility.removeDuplicates().sink { [weak self] in self?.usesCompatibility = $0 }.store(in: &observers)
-        controller.$playing.removeDuplicates().sink { [weak self] in self?.playing = $0 }.store(in: &observers)
+        controller.$playing.removeDuplicates().sink { [weak self] value in
+            guard let self else { return }; self.playing = value
+            if value { self.store?.noteWatched(self.channel) } }.store(in: &observers)
         controller.$buffering.removeDuplicates().sink { [weak self] in self?.buffering = $0 }.store(in: &observers)
         controller.$ended.removeDuplicates().sink { [weak self] in self?.ended = $0 }.store(in: &observers)
         controller.$error.removeDuplicates().sink { [weak self] in self?.problem = $0 }.store(in: &observers)
@@ -148,7 +150,7 @@ import CinemaCore
         }
     }
     func close() {
-        generation = UUID(); tuneTask?.cancel(); retryTask?.cancel(); qualityTask?.cancel()
+        attached = false; generation = UUID(); tuneTask?.cancel(); retryTask?.cancel(); qualityTask?.cancel()
         catalogObserver?.cancel(); controller.close()
     }
 }

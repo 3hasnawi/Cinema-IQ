@@ -8,7 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -37,53 +36,56 @@ private enum class MobileIptvPanel { Add, Manage, Groups, Delete }
     var playing by remember { mutableStateOf<IptvChannel?>(null) }
     var editing by remember { mutableStateOf<IptvSource?>(null) }
     var panel by remember { mutableStateOf<MobileIptvPanel?>(null) }
-    var returned by remember { mutableStateOf<String?>(null) }
-    val scroll = rememberLazyListState()
-    val logos = rememberIptvLogos()
-    val numbers = remember(state.channels, state.selectedId) { IptvNavigation.numbers(state.channels, state.selectedId.orEmpty()) }
-    DisposableEffect(playing != null) {
-        activity?.requestedOrientation = if (playing != null) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    var fullscreen by remember { mutableStateOf(false) }
+    DisposableEffect(activity) {
+        val original = activity?.requestedOrientation
+        onDispose {
+            if (original != null) activity.requestedOrientation = original
+            activity?.let { WindowCompat.getInsetsController(it.window, it.window.decorView).show(WindowInsetsCompat.Type.systemBars()) }
+        }
+    }
+    DisposableEffect(fullscreen) {
+        activity?.requestedOrientation = if (fullscreen) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         activity?.let {
             val bars = WindowCompat.getInsetsController(it.window, it.window.decorView)
-            if (playing != null) bars.hide(WindowInsetsCompat.Type.systemBars()) else bars.show(WindowInsetsCompat.Type.systemBars())
+            if (fullscreen) bars.hide(WindowInsetsCompat.Type.systemBars()) else bars.show(WindowInsetsCompat.Type.systemBars())
         }
         onDispose { }
     }
-    BackHandler(enabled = playing == null && panel == null, onBack = onExit)
-    if (playing != null) {
-        IptvTvPlayer(playing!!, state.channels, state.group, false,
-            state.sources.firstOrNull { it.id == playing!!.sourceId }?.allowHttp == true, vm::refreshPlayback) { last, group ->
-            playing = null; vm.returnFromPlayer(group); returned = last.id
-        }
-    } else Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onExit) { Text("رجوع") }; Label("IPTV", 26, bold = true)
-            TextButton({ editing = null; panel = MobileIptvPanel.Add }, enabled = state.storageReady && !state.busy) { Text("إضافة") }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton({ panel = MobileIptvPanel.Manage }, enabled = state.sources.isNotEmpty() && !state.busy, modifier = Modifier.weight(1f)) {
-                Text(state.selected?.name ?: "المصادر", maxLines = 1)
-            }
-            OutlinedButton({ panel = MobileIptvPanel.Groups }, enabled = state.channels.isNotEmpty(), modifier = Modifier.weight(1f)) { Text(state.group ?: "كل القنوات", maxLines = 1) }
-        }
-        OutlinedTextField(state.query, vm::query, modifier = Modifier.fillMaxWidth(), label = { Text("ابحث عن قناة") }, singleLine = true)
-        if (state.storageLoading || state.busy || state.filtering) LinearProgressIndicator(Modifier.fillMaxWidth())
-        state.message?.let { Label(it, 14, Brand.Danger) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Label("${state.visible.size} قناة", 13, Brand.TextTertiary)
-            TextButton({ vm.reload(true) }, enabled = !state.busy && state.selected != null) { Text("تحديث") }
-        }
-        LazyColumn(state = scroll, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (!state.storageLoading && state.sources.isEmpty()) item { Label("أضف قائمة M3U أو حساب Xtream من مزوّدك.", 16, Brand.TextTertiary) }
-            items(state.visible, key = { it.id }) { channel ->
-                IptvChannelRow(channel, numbers[channel.id] ?: 0, false, logos) { playing = channel }
-            }
+    LaunchedEffect(state.selectedId, state.channels) {
+        if (playing?.sourceId != state.selectedId) {
+            fullscreen = false
+            playing = state.collection.channels(state.channels, state.selectedId.orEmpty(), IptvChannelSection.Recent).firstOrNull()
+                ?: state.channels.firstOrNull { it.sourceId == state.selectedId }
         }
     }
-    LaunchedEffect(state.visible, playing == null) {
-        if (playing == null && returned != null) {
-            val index = state.visible.indexOfFirst { it.id == returned }
-            if (index >= 0) { scroll.scrollToItem(index); returned = null }
+    BackHandler(enabled = playing == null && panel == null, onBack = onExit)
+    Column(Modifier.fillMaxSize().then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))) {
+        if (!fullscreen) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onExit) { Text("رجوع") }; Label("IPTV", 22, bold = true)
+                TextButton({ editing = null; panel = MobileIptvPanel.Add }, enabled = state.storageReady && !state.busy) { Text("إضافة") }
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextButton({ panel = MobileIptvPanel.Manage }, enabled = state.sources.isNotEmpty() && !state.busy, modifier = Modifier.weight(1f)) {
+                    Text(state.selected?.name ?: "المصادر", maxLines = 1)
+                }
+                TextButton({ panel = MobileIptvPanel.Groups }, enabled = state.channels.isNotEmpty()) { Text("التصنيفات") }
+                TextButton({ vm.reload(true) }, enabled = !state.busy && state.selected != null) { Text("تحديث") }
+            }
+            if (state.storageLoading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            state.message?.let { Label(it, 13, Brand.Danger) }
+        }
+        Box(Modifier.weight(1f)) {
+            val initial = playing
+            if (initial != null && initial.sourceId == state.selectedId) {
+                key(initial.sourceId) { IptvTvPlayer(initial, state.channels, state.group, false,
+                    state.sources.firstOrNull { it.id == initial.sourceId }?.allowHttp == true, vm::refreshPlayback,
+                    startInBrowser = true, collection = state.collection, favorite = vm::toggleFavorite, watched = vm::noteWatched,
+                    onFullscreen = { fullscreen = it }) { _, _ -> onExit() } }
+            } else if (!state.storageLoading && !state.busy) {
+                Label("أضف قائمة M3U أو حساب Xtream من مزوّدك.", 16, Brand.TextTertiary)
+            }
         }
     }
     when (panel) {
