@@ -94,8 +94,11 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(arabic.waitForExistence(timeout: 15)); screenshot("compatibility-audio-tracks"); arabic.tap()
         tapPlayerControl("subtitles")
         let english = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'English' OR label CONTAINS 'الإنجليزية'")).firstMatch
-        XCTAssertTrue(english.waitForExistence(timeout: 15)); english.tap()
+        XCTAssertTrue(english.waitForExistence(timeout: 15)); screenshot("compatibility-subtitle-options"); english.tap()
         XCTAssertEqual(element("ios.iptv.player.surface").value as? String, "متوقف مؤقتًا")
+        tapPlayerControl("channels")
+        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 15)); screenshot("compatibility-floating-guide")
+        app.navigationBars.buttons["تم"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft; waitFor { self.app.frame.width > self.app.frame.height }
         screenshot("compatibility-landscape")
         tapPlayerControl("play"); waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
@@ -137,9 +140,19 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func tapPlayerControl(_ name: String) {
         showPlayerControls()
-        let frame = element("ios.iptv.player." + name).frame
-        guard !frame.isEmpty, frame.midX.isFinite, frame.midY.isFinite else {
-            XCTFail("The visible player control must have a finite touch target: " + name); return
+        let target = element("ios.iptv.player." + name)
+        let strip = app.scrollViews["ios.iptv.player.controls"]
+        if name != "close" {
+            for _ in 0..<4 {
+                let frame = target.frame, bounds = strip.frame
+                if bounds.insetBy(dx: 4, dy: 0).contains(CGPoint(x: frame.midX, y: bounds.midY)) { break }
+                if frame.midX > bounds.maxX { strip.swipeLeft() } else { strip.swipeRight() }
+            }
+        }
+        let frame = target.frame
+        guard !frame.isEmpty, frame.midX.isFinite, frame.midY.isFinite,
+              app.frame.contains(CGPoint(x: frame.midX, y: frame.midY)) else {
+            XCTFail("The visible player control must have a finite on-screen touch target: " + name); return
         }
         // Tap the measured physical target directly; native element.tap() can retry after the HUD has expired.
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.midY)).tap()

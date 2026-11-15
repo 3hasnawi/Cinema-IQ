@@ -118,7 +118,8 @@ final class TVIPTVFlowTests: XCTestCase {
         remote.press(.left); focus(element("tv.iptv.player.subtitles"), direction: .right); remote.press(.select)
         expectFocus(element("tv.iptv.track.first")); remote.press(.down); remote.press(.select); expectFocus(player)
         remote.press(.left); focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
-        expectFocus(element("tv.iptv.track.first")); remote.press(.down); expectFocus(element("tv.iptv.track.highest")); remote.press(.select)
+        expectFocus(element("tv.iptv.track.first")); shot("compatibility-quality-options")
+        remote.press(.down); expectFocus(element("tv.iptv.track.highest")); remote.press(.select)
         expectFocus(player); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
         try assertReferenceVideoVisible("compatibility-paused-highest-quality")
         remote.press(.select)
