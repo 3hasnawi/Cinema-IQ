@@ -195,7 +195,8 @@ final class IPTVFlowTests: XCTestCase {
                 if sidebar.exists && sidebar.isHittable { sidebar.tap() }
             }
             XCTAssertTrue(tab.waitForExistence(timeout: 25)); tab.tap()
-            XCTAssertTrue(element("ios.iptv.add").waitForExistence(timeout: 20))
+            // iPad may move Add into its native toolbar overflow beside the tab capsule.
+            XCTAssertTrue(element("ios.iptv.groups").waitForExistence(timeout: 20))
             screenshot("ipad-entry")
             return
         }
@@ -210,7 +211,18 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(element("ios.iptv.add").waitForExistence(timeout: 15))
         screenshot(tablet ? "ipad-entry" : "iphone-entry")
     }
-    private func openAdd() { element("ios.iptv.add").tap(); XCTAssertTrue(element("ios.iptv.form.name").waitForExistence(timeout: 10)) }
+    private func openAdd() {
+        let empty = element("ios.iptv.empty.add")
+        if tablet && empty.exists && empty.isHittable { empty.tap() }
+        else {
+            if tablet && !element("ios.iptv.add").exists {
+                let overflow = app.navigationBars.buttons.matching(NSPredicate(format: "label IN %@", ["More", "المزيد"])).firstMatch
+                XCTAssertTrue(overflow.waitForExistence(timeout: 10)); overflow.tap()
+            }
+            element("ios.iptv.add").tap()
+        }
+        XCTAssertTrue(element("ios.iptv.form.name").waitForExistence(timeout: 10))
+    }
     private func fill(_ id: String, _ value: String) {
         let field = app.textFields[id]
         XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(value)
