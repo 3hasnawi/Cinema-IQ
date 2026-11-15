@@ -17,6 +17,7 @@ struct IPTVPlaybackView: View {
     @State private var browserSection: IPTVChannelSection
     @State private var browserQuery = ""
     @State private var searching = false
+    @FocusState private var searchFocused: Bool
     @State private var panel: Panel?
     @State private var idleSetting = false
     @State private var interaction = 0
@@ -53,14 +54,12 @@ struct IPTVPlaybackView: View {
             if !fullscreen {
                 let wide = geometry.size.width > geometry.size.height
                 let previewWidth = geometry.size.width * (wide ? 0.52 : 1)
-                if wide {
-                    HStack(spacing: 0) {
-                        inlinePreview(width: previewWidth).frame(maxHeight: .infinity, alignment: .top)
-                        browserPanels
-                    }.environment(\.layoutDirection, .leftToRight)
-                } else {
-                    VStack(spacing: 0) { inlinePreview(width: previewWidth); browserPanels }
-                }
+                // Preserve the field and scroll identities when the keyboard changes available height.
+                let arrangement = wide ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+                arrangement {
+                    inlinePreview(width: previewWidth).frame(maxHeight: wide ? .infinity : nil, alignment: .top)
+                    browserPanels
+                }.environment(\.layoutDirection, .leftToRight)
             }
             if fullscreen && !phoneGuide && (controls || session.problem != nil || !session.playing) {
                 VStack(spacing: 16) {
@@ -109,6 +108,7 @@ struct IPTVPlaybackView: View {
         .buttonStyle(.plain)
         .onAppear { idleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true; session.attach(store) }
         .onDisappear { session.close(); UIApplication.shared.isIdleTimerDisabled = idleSetting }
+        .onChange(of: searching) { _, visible in searchFocused = visible }
         .onChange(of: initialGroup) { _, group in browserSection = group.map(IPTVChannelSection.group) ?? .all; browserQuery = "" }
         .onChange(of: verticalSize) { _, _ in controls = true; interaction += 1 }
         .onChange(of: phase) { _, value in
@@ -151,7 +151,8 @@ struct IPTVPlaybackView: View {
         VStack(spacing: 0) {
             if searching {
                 TextField("ابحث عن قناة", text: $browserQuery).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    .submitLabel(.search).padding(12).background(Theme.panel)
+                    .submitLabel(.search).focused($searchFocused).onSubmit { searchFocused = false }
+                    .padding(12).background(Theme.panel)
                     .accessibilityIdentifier("ios.iptv.browser.search")
             }
             IPTVBrowserPanels(session: session, section: $browserSection, query: $browserQuery, choose: chooseInBrowser)
