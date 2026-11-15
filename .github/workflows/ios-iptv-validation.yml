@@ -114,7 +114,11 @@ jobs:
         timeout-minutes: 10
         run: |
           set -euo pipefail
-          python3 ios/scripts/boot-simulator.py "$IOS_TEST_DEVICE" "$RUNNER_TEMP/simulator-ready.png"
+          # Keep the previously verified iOS bootstrap; let migration finish before requesting its display.
+          xcrun simctl boot "$IOS_TEST_DEVICE"
+          open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$IOS_TEST_DEVICE"
+          xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
+          xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Test M3U, Xtream, Keychain persistence and internal playback
         timeout-minutes: 25
         env:
@@ -135,8 +139,17 @@ jobs:
       - name: Export simulator evidence
         if: always()
         run: |
-          container="$(xcrun simctl get_app_container "$IOS_TEST_DEVICE" com.cinemaplus.rebuilt.ios data 2>/dev/null)" || true
-          if [ -f "$container/Documents/compatibility-debug.txt" ]; then cp "$container/Documents/compatibility-debug.txt" "$RUNNER_TEMP/compatibility-debug.txt"; fi
+          python3 - <<'PY'
+          import os, pathlib, shutil, subprocess
+          try:
+              container = subprocess.check_output(['xcrun','simctl','get_app_container',os.environ['IOS_TEST_DEVICE'],
+                                                   'com.cinemaplus.rebuilt.ios','data'], text=True, timeout=10, stderr=subprocess.DEVNULL).strip()
+              diagnostic = pathlib.Path(container)/'Documents/compatibility-debug.txt'
+              if diagnostic.exists():
+                  shutil.copyfile(diagnostic, pathlib.Path(os.environ['RUNNER_TEMP'])/'compatibility-debug.txt')
+          except (subprocess.SubprocessError, OSError):
+              print('Decoder diagnostics unavailable; continuing to export actual test results')
+          PY
           if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
             find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
