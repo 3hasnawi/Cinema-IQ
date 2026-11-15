@@ -66,7 +66,12 @@ public sealed class Services : IDisposable
         } finally { cloudGate.Release(); }
     }
     public async Task SignIn(string email, string password, bool create, CancellationToken token)
-    { await cloudGate.WaitAsync(token); try { await Cloud.SignIn(email, password, create, token); SwitchAccount(); } finally { cloudGate.Release(); } }
+    {
+        await cloudGate.WaitAsync(token); var previous = Cloud.Session;
+        try { await Cloud.SignIn(email, password, create, token); SwitchAccount(); }
+        catch { Cloud.Session = previous; if (previous == null) Secrets.Delete("cloud"); else Secrets.Write("cloud", previous); throw; }
+        finally { cloudGate.Release(); }
+    }
     public async Task SignOut(CancellationToken token)
     { await cloudGate.WaitAsync(token); try { Cloud.Session = null; Secrets.Delete("cloud"); SwitchAccount(); } finally { cloudGate.Release(); } }
     public void Dispose() { Cloud.Dispose(); Network.Dispose(); }

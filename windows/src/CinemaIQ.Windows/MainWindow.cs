@@ -35,8 +35,8 @@ public sealed partial class MainWindow : Window
     private WindowState previousWindowState;
     public MainWindow(Services services)
     {
-        Services = services; Title = "Cinema iQ"; Width = 1440; Height = 900; MinWidth = 1060; MinHeight = 660; WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        var root = new Grid(); root.RowDefinitions.Add(new() { Height = new GridLength(46) }); root.RowDefinitions.Add(new()); root.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        Ui.ApplyWindow(this); Services = services; Title = "Cinema iQ"; Width = 1440; Height = 900; MinWidth = 1060; MinHeight = 660; WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        var root = new Grid { Background = Ui.Ink }; root.RowDefinitions.Add(new() { Height = new GridLength(46) }); root.RowDefinitions.Add(new()); root.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var brand = new Image { Source = new BitmapImage(new Uri("pack://application:,,,/Assets/brand.png")), Width = 30, Height = 30, Margin = new Thickness(10, 0, 10, 0) };
         var top = Ui.Row(Ui.Text("Cinema iQ", 20), brand); top.Margin = new Thickness(10, 0, 24, 0); top.HorizontalAlignment = HorizontalAlignment.Right; root.Children.Add(top);
         var body = new Grid(); body.ColumnDefinitions.Add(new()); body.ColumnDefinitions.Add(new() { Width = GridLength.Auto }); Grid.SetRow(body, 1); root.Children.Add(body); body.Children.Add(page);
@@ -51,7 +51,7 @@ public sealed partial class MainWindow : Window
         sidebar.GotKeyboardFocus += (_, _) => Expand(true); sidebar.LostKeyboardFocus += (_, _) => Dispatcher.BeginInvoke(() => { if (!sidebar.IsKeyboardFocusWithin) Expand(false); });
         status.Margin = new Thickness(20, 0, 24, 6); Grid.SetRow(status, 2); root.Children.Add(status); Content = root;
         PreviewKeyDown += Keys; PreviewMouseDown += (_, _) => lastInput = DateTime.UtcNow;
-        carousel.Tick += async (_, _) => { if (heroButton?.IsKeyboardFocusWithin == true && (scroll?.VerticalOffset ?? 1) < 1 && featured.Count > 1 && DateTime.UtcNow - lastInput > TimeSpan.FromSeconds(8)) { heroIndex = (heroIndex + 1) % featured.Count; await UpdateHero(); lastInput = DateTime.UtcNow; } }; carousel.Start();
+        carousel.Tick += async (_, _) => { if (heroButton?.IsKeyboardFocusWithin == true && (scroll?.VerticalOffset ?? 1) < 1 && featured.Count > 1 && DateTime.UtcNow - lastInput > TimeSpan.FromSeconds(8)) { lastInput = DateTime.UtcNow; heroIndex = (heroIndex + 1) % featured.Count; await UpdateHero(); } }; carousel.Start();
         syncTimer.Tick += async (_, _) => { if (Services.Cloud.Session is { Verified: true }) try { await Services.Sync(request.Token); } catch (OperationCanceledException) { } catch { status.Text = "التغييرات محفوظة محليًا؛ تعذرت المزامنة حاليًا."; } }; if (!services.Smoke) syncTimer.Start();
         Closed += (_, _) => { closed = true; request.Cancel(); request.Dispose(); carousel.Stop(); syncTimer.Stop(); Services.Dispose(); };
     }
@@ -88,7 +88,7 @@ public sealed partial class MainWindow : Window
         hero.Children.Add(new System.Windows.Shapes.Rectangle { Fill = new LinearGradientBrush(new GradientStopCollection { new(Color.FromArgb(0, 24, 29, 37), 0), new(Color.FromArgb(240, 24, 29, 37), 1) }, new Point(0, 0), new Point(0, 1)) });
         heroTitle = Ui.Text("", 50); heroTitle.MaxWidth = 760; heroTitle.FontWeight = FontWeights.Bold;
         heroInfo = Ui.Text("", 17, Ui.Accent); heroDescription = Ui.Text("", 19, Ui.Muted); heroDescription.MaxHeight = 104; heroDescription.TextTrimming = TextTrimming.CharacterEllipsis;
-        var words = Ui.Stack(heroTitle, heroInfo, heroDescription, Ui.Text("← → استعرض الأعمال  ·  Enter افتح العمل  ·  ↓ القوائم", 13, Ui.Muted)); words.Width = 750; words.Margin = new Thickness(45, 35, 45, 50); words.HorizontalAlignment = HorizontalAlignment.Right; words.VerticalAlignment = VerticalAlignment.Bottom; hero.Children.Add(words);
+        var words = Ui.Stack(heroTitle, heroInfo, heroDescription, Ui.Text("← → استعرض الأعمال  ·  Enter افتح العمل  ·  ↓ القوائم", 13, Ui.Muted)); words.MaxWidth = 750; words.Margin = new Thickness(45, 35, 45, 50); words.HorizontalAlignment = HorizontalAlignment.Right; words.VerticalAlignment = VerticalAlignment.Bottom; hero.Children.Add(words);
         heroButton = new Button { Content = hero, Padding = new Thickness(0), Margin = new Thickness(0), Background = Brushes.Transparent, BorderThickness = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Stretch };
         heroButton.Click += (_, _) => ShowDetail(featured[heroIndex]); content.Children.Add(heroButton);
         if (Store.Current.Recent.Count > 0) AddShelf(content, "متابعة المشاهدة", Store.Current.Recent.Values.Reverse().ToArray(), true);
@@ -171,7 +171,7 @@ public sealed partial class MainWindow : Window
         { returnFocus = Keyboard.FocusedElement as Button ?? heroButton; menu[1].Focus(); e.Handled = true; return; }
         if (heroButton?.IsKeyboardFocusWithin == true)
         {
-            if (e.Key is Key.Left or Key.Right && featured.Count > 0) { heroIndex = (heroIndex + (e.Key == Key.Left ? 1 : -1) + featured.Count) % featured.Count; await UpdateHero(); e.Handled = true; }
+            if (e.Key is Key.Left or Key.Right && featured.Count > 0) { e.Handled = true; heroIndex = (heroIndex + (e.Key == Key.Left ? 1 : -1) + featured.Count) % featured.Count; await UpdateHero(); }
             if (e.Key == Key.Down && rails.Count > 0) { rails[0].FirstOrDefault()?.Focus(); e.Handled = true; }
         }
         else if (rails.SelectMany(r => r).FirstOrDefault(b => b.IsKeyboardFocusWithin)?.Tag is ValueTuple<int, int> tag)

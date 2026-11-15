@@ -22,7 +22,7 @@ public sealed class DetailWindow : Window
     private readonly Button play;
     public DetailWindow(MainWindow owner, MediaItem initial)
     {
-        main = owner; services = owner.Services; item = initial; Owner = owner; Title = initial.Title; Width = owner.ActualWidth; Height = owner.ActualHeight; MinWidth = 1000; MinHeight = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner; WindowState = owner.WindowState;
+        Ui.ApplyWindow(this); content.Background = Ui.Ink; main = owner; services = owner.Services; item = initial; Owner = owner; Title = initial.Title; Width = owner.ActualWidth; Height = owner.ActualHeight; MinWidth = 1000; MinHeight = 640; WindowStartupLocation = WindowStartupLocation.CenterOwner; WindowState = owner.WindowState;
         var hero = new Grid { Height = Math.Max(530, owner.ActualHeight - 100), ClipToBounds = true }; hero.Children.Add(backdrop); hero.Children.Add(new System.Windows.Shapes.Rectangle { Fill = new LinearGradientBrush(new GradientStopCollection { new(Color.FromArgb(25, 24, 29, 37), 0), new(Color.FromArgb(248, 24, 29, 37), 1) }, new Point(0, 0), new Point(0, 1)) });
         name.MaxWidth = 830; name.FontWeight = FontWeights.Bold; name.HorizontalAlignment = HorizontalAlignment.Right; name.VerticalAlignment = VerticalAlignment.Top; name.Margin = new Thickness(40, 46, 52, 0); hero.Children.Add(name);
         description.MaxHeight = 115; description.TextTrimming = TextTrimming.CharacterEllipsis;

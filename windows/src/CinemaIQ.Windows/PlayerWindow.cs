@@ -14,7 +14,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 namespace CinemaIQ.Windows;
 
-public sealed class PlayerWindow : Window
+public sealed partial class PlayerWindow : Window
 {
     private readonly Services services;
     private readonly LibVLC lib;
@@ -50,7 +50,7 @@ public sealed class PlayerWindow : Window
     public PlayerWindow(Window owner, Services services, Channel channel, IReadOnlyList<Channel> all, string? group) : this(owner, services, new MediaItem { Id = "iptv:" + channel.Id, Title = channel.Name }, [], channel, all, group) { }
     private PlayerWindow(Window owner, Services services, MediaItem media, MediaItem[] episodes, Channel? channel, IReadOnlyList<Channel> channels, string? group)
     {
-        this.services = services; this.item = media; this.episodes = episodes; this.channel = channel; this.channels = channels; this.group = group;
+        Ui.ApplyWindow(this); this.services = services; this.item = media; this.episodes = episodes; this.channel = channel; this.channels = channels; this.group = group;
         Owner = owner; Title = media.Title; Width = owner.ActualWidth; Height = owner.ActualHeight; WindowState = WindowState.Maximized; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize; Background = Brushes.Black;
         LibVLCSharp.Shared.Core.Initialize(Path.Combine(AppContext.BaseDirectory, "libvlc", "win-x64"));
         var settings = services.Library.State.Settings;
@@ -229,7 +229,7 @@ public sealed class PlayerWindow : Window
         {
             if (e.Key == Key.Space) Toggle(); else if (e.Key == Key.M) Player.Mute = !Player.Mute;
             else if (e.Key == Key.Enter && channel != null) OpenGuide();
-            else if (e.Key is Key.Up or Key.Down && channel != null) await Surf(e.Key == Key.Down ? 1 : -1);
+            else if (e.Key is Key.Up or Key.Down && channel != null) { e.Handled = true; await Surf(e.Key == Key.Down ? 1 : -1); }
             else if (e.Key is Key.Left or Key.Right) Seek(e.Key == Key.Right ? 10000 : -10000); else return;
             e.Handled = true;
         }

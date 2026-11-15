@@ -58,9 +58,15 @@ public static class Smoke
                 player.Player.SetPause(true); await Task.Delay(400); if (player.Player.IsPlaying) throw new InvalidOperationException("Pause failed");
                 var snapshot = Path.Combine(output, "windows-decoded-video.png"); if (!player.Player.TakeSnapshot(0, snapshot, 640, 360)) throw new InvalidOperationException("Native decoded frame unavailable");
                 await Task.Delay(700); if (!File.Exists(snapshot) || new FileInfo(snapshot).Length < 500) throw new InvalidOperationException("Decoded snapshot empty");
-                player.Player.Play(); await Task.Delay(250); player.Close(); var stopDeadline = DateTime.UtcNow.AddSeconds(15); while (player.IsVisible && DateTime.UtcNow < stopDeadline) await Task.Delay(100); if (player.IsVisible) throw new InvalidOperationException("Decoder shutdown did not finish"); native = true;
+                CaptureElement(player.OverlayForSmoke, Path.Combine(output, "windows-player-paused-controls.png"));
+                player.Player.Play(); await Task.Delay(250); await ClosePlayer(player); native = true;
+                var channels = Enumerable.Range(1, 4).Select(i => new Channel { Id = "fixture:" + i, SourceId = "fixture", Name = "قناة الاختبار " + i, Group = i <= 2 ? "مجموعة أولى" : "مجموعة ثانية", Url = new Uri(media).AbsoluteUri }).ToArray();
+                var live = new PlayerWindow(window, services, channels[0], channels, null); live.Show();
+                var liveDeadline = DateTime.UtcNow.AddSeconds(25); while (DateTime.UtcNow < liveDeadline && (!live.Player.IsPlaying || live.Player.Time < 1000)) await Task.Delay(200);
+                if (!live.Player.IsPlaying) throw new InvalidOperationException("IPTV fixture playback did not start");
+                await live.VerifyIptvGuide(); CaptureElement(live.OverlayForSmoke, Path.Combine(output, "windows-iptv-guide-controls.png")); await ClosePlayer(live);
             }
-            File.WriteAllText(Path.Combine(output, "result.json"), JsonSerializer.Serialize(new { success = true, nativePlayback = native, audioTracks = audio, subtitleTracks = subtitles, keyboardFocus = true, sidebarReturn = true, offlineRecovery = true, encryptedSecrets = true, framework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription, os = Environment.OSVersion.VersionString, screenshots = "Actual WPF RenderTargetBitmap captures; decoded-video is a native LibVLC snapshot, not a composite", dataDirectoryIsolated = true }, Json.Options));
+            File.WriteAllText(Path.Combine(output, "result.json"), JsonSerializer.Serialize(new { success = true, nativePlayback = native, audioTracks = audio, subtitleTracks = subtitles, keyboardFocus = true, sidebarReturn = true, offlineRecovery = true, encryptedSecrets = true, iptvGuide = native, channelSwitching = native, framework = System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription, os = Environment.OSVersion.VersionString, screenshots = "Actual WPF RenderTargetBitmap captures. Player/guide captures show the real overlay only; decoded-video is a separate native LibVLC snapshot, not a composite", dataDirectoryIsolated = true }, Json.Options));
             window.Close(); Application.Current.Shutdown(0);
         }
         catch (Exception ex)
@@ -71,7 +77,28 @@ public static class Smoke
     }
     private static void Capture(Window window, string path)
     {
-        window.UpdateLayout(); var view = (FrameworkElement)window.Content; var bitmap = new RenderTargetBitmap(Math.Max(1, (int)view.ActualWidth), Math.Max(1, (int)view.ActualHeight), 96, 96, PixelFormats.Pbgra32); bitmap.Render(view); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(path); encoder.Save(file);
+        window.UpdateLayout(); CaptureElement((FrameworkElement)window.Content, path);
+    }
+    private static void CaptureElement(FrameworkElement view, string path)
+    { view.UpdateLayout(); var bitmap = new RenderTargetBitmap(Math.Max(1, (int)view.ActualWidth), Math.Max(1, (int)view.ActualHeight), 96, 96, PixelFormats.Pbgra32); bitmap.Render(view); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(path); encoder.Save(file); }
+    private static async Task ClosePlayer(PlayerWindow player)
+    { player.Close(); var deadline = DateTime.UtcNow.AddSeconds(15); while (player.IsVisible && DateTime.UtcNow < deadline) await Task.Delay(100); if (player.IsVisible) throw new InvalidOperationException("Decoder shutdown did not finish"); }
+}
+
+public sealed partial class PlayerWindow
+{
+    internal FrameworkElement OverlayForSmoke => services.Smoke ? overlay : throw new InvalidOperationException("Smoke mode required");
+    internal async Task VerifyIptvGuide()
+    {
+        if (!services.Smoke || channel == null) throw new InvalidOperationException("IPTV smoke mode required");
+        var originalVideoParent = Content; OpenGuide(); overlay.UpdateLayout();
+        if (guide == null || guide.ActualWidth > overlay.ActualWidth || !ReferenceEquals(Content, originalVideoParent)) throw new InvalidOperationException("Guide changed the video surface or exceeded the window");
+        var panel = (StackPanel)guide.Child; var list = panel.Children.OfType<ListBox>().Single();
+        if (list.Items.Count != channels.Count || !list.IsKeyboardFocusWithin) throw new InvalidOperationException("Guide did not focus the channels");
+        OpenGuide(); await Surf(1); var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline && (loadingMedia || !Player.IsPlaying)) await Task.Delay(100);
+        if (channel?.Id != channels[1].Id || !Player.IsPlaying) throw new InvalidOperationException("Channel switching failed");
+        OpenGuide(); overlay.UpdateLayout();
     }
 }
 

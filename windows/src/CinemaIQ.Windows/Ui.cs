@@ -10,7 +10,13 @@ public static class Ui
     public static readonly Brush Panel = new SolidColorBrush(Color.FromRgb(31, 37, 46));
     public static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(242, 178, 51));
     public static readonly Brush Muted = new SolidColorBrush(Color.FromRgb(163, 175, 194));
-    public static TextBlock Text(string text, double size = 18, Brush? brush = null) => new() { Text = text, FontSize = size, Foreground = brush ?? Brushes.White, FlowDirection = FlowDirection.RightToLeft, TextAlignment = TextAlignment.Right, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+    public static void ApplyWindow(Window window)
+    {
+        window.Background = Ink; window.Foreground = Brushes.White; window.FontSize = 16;
+        window.FontFamily = new FontFamily(new Uri("pack://application:,,,/"), "./Assets/Fonts/#Cairo");
+        window.Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/Assets/brand.png"));
+    }
+    public static TextBlock Text(string text, double size = 18, Brush? brush = null) => new() { Text = text, FontSize = size, Foreground = brush ?? Brushes.White, FlowDirection = FlowDirection.RightToLeft, TextAlignment = TextAlignment.Right, TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
     public static Button Button(string title, Action action, bool primary = false)
     {
         var button = new Button { Content = Text(title, 17, primary ? Ink : Brushes.White), Background = primary ? Accent : new SolidColorBrush(Color.FromArgb(180, 39, 46, 58)), MinHeight = 42 };
@@ -30,6 +36,7 @@ public static class Ui
     public static Window Dialog(Window owner, string title, UIElement content, double width = 600)
     {
         var window = new Window { Owner = owner, Title = title, Width = width, SizeToContent = SizeToContent.Height, MaxHeight = Math.Max(500, owner.ActualHeight - 60), WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false };
+        ApplyWindow(window);
         var close = Button("إغلاق", () => window.Close());
         window.Content = new ScrollViewer { Content = Stack(Card(Stack(Text(title, 26), content, close))), HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         window.PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { window.Close(); e.Handled = true; } };
