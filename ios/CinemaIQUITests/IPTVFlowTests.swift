@@ -131,23 +131,18 @@ final class IPTVFlowTests: XCTestCase {
         screenshot("xtream-search")
         XCTAssertEqual(app.state, .runningForeground)
     }
-    private func showPlayerControls() {
-        let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        // Refresh the real five-second timer rather than spending its remaining time on XCTest queries.
-        if element("ios.iptv.player.close").exists { center.tap() }
-        center.tap()
-        XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 5))
-    }
     private func tapPlayerControl(_ name: String) {
-        showPlayerControls()
         let identifier = "ios.iptv.player." + name
-        for _ in 0..<4 {
+        let center = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        for _ in 0..<6 {
             // Read one atomic UI snapshot. Repeated live frame queries can consume the real HUD timeout
             // between locating a button and pressing it, especially on a busy hosted simulator.
             guard let root = try? app.snapshot() else { XCTFail("Player snapshot unavailable"); return }
             var pending = [root], nodes: [any XCUIElementSnapshot] = []
             while let node = pending.popLast() { nodes.append(node); pending.append(contentsOf: node.children) }
-            guard let target = nodes.first(where: { $0.identifier == identifier }) else { showPlayerControls(); continue }
+            // A single touch reveals a hidden HUD. Never toggle twice using a stale existence query:
+            // on a busy iPad the first touch may reveal it and the second would immediately hide it.
+            guard let target = nodes.first(where: { $0.identifier == identifier }) else { center.tap(); continue }
             let frame = target.frame, point = CGPoint(x: frame.midX, y: frame.midY)
             let clip = name == "close" ? root.frame :
                 (nodes.first(where: { $0.identifier == "ios.iptv.player.controls" })?.frame ?? root.frame.insetBy(dx: 16, dy: 0))
