@@ -38,6 +38,7 @@ struct MediaOption: Identifiable, Hashable {
     private var fallbackAttempted = false
     private var wantsPlay = true
     private var restartOnResume = false
+    private var pendingMode: IPTVPlaybackMode?
     var hasItem: Bool { currentURL != nil }
 
     /// Remote playback has its own progress clock; never overwrite it with the paused local item.
@@ -95,7 +96,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func openNative(url: URL, resume: Double, playing shouldPlay: Bool = true) {
-        usesCompatibility = false; ended = false; wantsPlay = shouldPlay; restartOnResume = false
+        usesCompatibility = false; ended = false; wantsPlay = shouldPlay; restartOnResume = false; pendingMode = nil
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
@@ -147,7 +148,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func startCompatibility(resume: Double, playing shouldPlay: Bool) {
-        wantsPlay = shouldPlay; restartOnResume = false
+        wantsPlay = shouldPlay; restartOnResume = false; pendingMode = nil
         let chosenAudio = audioID, chosenSubtitle = subtitleID
         releaseNative(); usesCompatibility = true; error = nil; lastFailure = nil; ended = false
         if subtitleID?.hasPrefix("emb:") == true { subtitleID = nil }
@@ -179,14 +180,16 @@ struct MediaOption: Identifiable, Hashable {
         persist(); mode = value; UserDefaults.standard.set(value.rawValue, forKey: "apple.playback.engine.v1")
         guard currentURL != nil else { return }
         error = nil; lastFailure = nil; fallbackAttempted = false
-        if shouldPlay { restart(resume: resume) }
-        else { restartOnResume = true }
+        if shouldPlay { restart(resume: resume, preferred: value) }
+        else { restartOnResume = true; pendingMode = value }
     }
 
-    private func restart(resume: Double) {
+    private func restart(resume: Double, preferred: IPTVPlaybackMode? = nil) {
         guard let url = currentURL else { return }
-        restartOnResume = false
-        if mode.startsWithCompatibility(url) { startCompatibility(resume: resume, playing: true) }
+        // A quality-only restart keeps a working fallback decoder; an explicit engine choice can replace it.
+        let useCompatibility = (preferred ?? pendingMode).map { $0.startsWithCompatibility(url) } ?? usesCompatibility
+        restartOnResume = false; pendingMode = nil
+        if useCompatibility { startCompatibility(resume: resume, playing: true) }
         else {
             if subtitleID?.hasPrefix("vlcs:") == true { subtitleID = nil }
             compatibility.close(); releaseNative(); openNative(url: url, resume: resume, playing: true)
@@ -330,7 +333,7 @@ struct MediaOption: Identifiable, Hashable {
 
     func close() {
         persist(); compatibility.close(); releaseNative(); usesCompatibility = false
-        currentURL = nil; save = nil; playing = false; buffering = false; restartOnResume = false
+        currentURL = nil; save = nil; playing = false; buffering = false; restartOnResume = false; pendingMode = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
