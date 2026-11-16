@@ -4,6 +4,13 @@ package com.cinemaplus.rebuilt.ui.iptv
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.LayoutInflater
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.zIndex
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,6 +26,14 @@ import androidx.compose.ui.focus.*
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.FavoriteBorder
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -37,14 +52,23 @@ import kotlinx.coroutines.*
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable internal fun IptvTvPlayer(initial: IptvChannel, channels: List<IptvChannel>, initialGroup: String?, television: Boolean,
-    allowHttp: Boolean, refresh: suspend (IptvChannel) -> IptvChannel, onExit: (IptvChannel, String?) -> Unit) {
+    allowHttp: Boolean, refresh: suspend (IptvChannel) -> IptvChannel, startInGuide: Boolean = false, startInBrowser: Boolean = false,
+    collection: IptvChannelCollection = IptvChannelCollection(), favorite: (IptvChannel) -> Unit = {},
+    watched: (IptvChannel) -> Unit = {}, onFullscreen: (Boolean) -> Unit = {}, onExit: (IptvChannel, String?) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val view = LocalView.current; val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var fullscreen by remember { mutableStateOf(!startInBrowser) }
+    var browserSection by remember { mutableStateOf<IptvChannelSection>(initialGroup?.let { IptvChannelSection.Group(it) } ?: IptvChannelSection.All) }
+    var browserQuery by remember { mutableStateOf("") }
+    var searching by remember { mutableStateOf(false) }
+    val currentWatched by rememberUpdatedState(watched)
     var channel by remember(initial.id) { mutableStateOf(initial) }
     var group by remember { mutableStateOf(initialGroup) }
     var previousId by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
-    var guide by remember { mutableStateOf(false) }
+    var guide by remember { mutableStateOf(startInGuide) }
+    var previewFrame by remember { mutableStateOf<Rect?>(null) }
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
     var controls by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
     var toolbarFocus by remember { mutableStateOf(false) }
@@ -84,7 +108,10 @@ import kotlinx.coroutines.*
     fun closeTracks() { panel = null; restoreSurface() }
     DisposableEffect(player, lifecycle) {
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(value: Boolean) { isPlaying = value; view.keepScreenOn = value }
+            override fun onIsPlayingChanged(value: Boolean) {
+                isPlaying = value; view.keepScreenOn = value
+                if (value && player.currentMediaItem?.mediaId == channel.id) currentWatched(channel)
+            }
             override fun onTracksChanged(value: Tracks) { tracks = value }
             override fun onPlaybackStateChanged(value: Int) {
                 loading = value == Player.STATE_BUFFERING || value == Player.STATE_IDLE
@@ -108,12 +135,14 @@ import kotlinx.coroutines.*
         player.setMediaItem(MediaItem.Builder().setUri(channel.url).setMediaId(channel.id).build())
         player.prepare(); player.playWhenReady = true
     }
-    LaunchedEffect(Unit) { if (television) { withFrameNanos { }; runCatching { surface.requestFocus() } } }
+    LaunchedEffect(Unit) { if (television && !guide) { withFrameNanos { }; runCatching { surface.requestFocus() } } }
     LaunchedEffect(controls, toolbarFocus, guide, panel, interaction, isPlaying) {
         if (controls && isPlaying && !toolbarFocus && !guide && panel == null) { delay(5000); controls = false }
     }
-    BackHandler(enabled = panel == null && !guide) { onExit(channel, group?.takeIf { it == channel.group }) }
-    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).onPreviewKeyEvent { event ->
+    LaunchedEffect(fullscreen) { onFullscreen(fullscreen) }
+    LaunchedEffect(initialGroup) { if (startInBrowser) browserSection = initialGroup?.let { IptvChannelSection.Group(it) } ?: IptvChannelSection.All }
+    BackHandler(enabled = panel == null && !guide) { if (startInBrowser && fullscreen) fullscreen = false else onExit(channel, group?.takeIf { it == channel.group }) }
+    BoxWithConstraints(Modifier.fillMaxSize().onSizeChanged { viewport = it }.background(androidx.compose.ui.graphics.Color.Black).onPreviewKeyEvent { event ->
         val key = event.nativeKeyEvent
         if (key.keyCode in listOf(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_CHANNEL_DOWN)) {
             if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) when (key.keyCode) {
@@ -124,11 +153,27 @@ import kotlinx.coroutines.*
             true
         } else false
     }) {
-        AndroidView(factory = { ctx -> PlayerView(ctx).apply {
+        val wideBrowser = startInBrowser && !fullscreen && maxWidth > maxHeight
+        val previewWidth = if (wideBrowser) maxWidth * .52f else maxWidth
+        val previewHeight = previewWidth * 9f / 16f
+        val videoModifier = if (startInBrowser) Modifier.width(previewWidth).aspectRatio(16f / 9f)
+            .align(if (fullscreen) Alignment.Center else Alignment.TopCenter)
+            .absoluteOffset(x = if (wideBrowser) -(maxWidth - previewWidth) / 2 else 0.dp) else Modifier.fillMaxSize()
+        AndroidView(factory = { ctx -> (LayoutInflater.from(ctx).inflate(com.cinemaplus.rebuilt.R.layout.iptv_player_surface, null, false) as PlayerView).apply {
             useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             isFocusable = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS; layoutDirection = View.LAYOUT_DIRECTION_LTR
-        } }, update = { it.player = player }, modifier = Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().focusRequester(surface).onPreviewKeyEvent { event ->
+        } }, update = { it.player = player }, modifier = videoModifier.zIndex(if (television && guide) 2f else 0f).graphicsLayer {
+            // Transform one stable TextureView instead of recreating the decoder or its paused frame.
+            val frame = previewFrame
+            if (television && guide) {
+                alpha = if (frame == null) 0f else 1f
+                if (frame != null && viewport.width > 0 && viewport.height > 0) {
+                    transformOrigin = TransformOrigin(0f, 0f); scaleX = frame.width / viewport.width; scaleY = frame.height / viewport.height
+                    translationX = frame.left; translationY = frame.top
+                }
+            } else { alpha = 1f; scaleX = 1f; scaleY = 1f; translationX = 0f; translationY = 0f }
+        })
+        Box(Modifier.fillMaxSize().focusRequester(surface).focusProperties { canFocus = fullscreen && !guide && panel == null }.onPreviewKeyEvent { event ->
             val key = event.nativeKeyEvent
             if (television && key.keyCode in listOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)) {
                 if (key.action == KeyEvent.ACTION_DOWN) when (key.keyCode) {
@@ -139,12 +184,42 @@ import kotlinx.coroutines.*
                 true
             } else false
         }.semantics { contentDescription = if (television) "قائمة القنوات" else "إظهار خيارات المشغل" }
-            .clickable(role = androidx.compose.ui.semantics.Role.Button) { if (television) guide = true else { controls = !controls; interaction++ } }
+            .clickable(enabled = fullscreen && !guide && panel == null, role = androidx.compose.ui.semantics.Role.Button) { if (television) guide = true else { controls = !controls; interaction++ } }
             .pointerInput(channel.id, queue, television) {
                 if (!television) { var delta = 0f; detectVerticalDragGestures(onDragStart = { delta = 0f }, onVerticalDrag = { _, value -> delta += value },
                     onDragEnd = { if (kotlin.math.abs(delta) > 100f) surf(if (delta < 0) 1 else -1) }) }
             })
-        if (controls || !isPlaying || error != null || loading) {
+        if (startInBrowser && !fullscreen) {
+            val panes: @Composable () -> Unit = {
+                Column(Modifier.fillMaxSize()) {
+                    if (searching) androidx.compose.material3.OutlinedTextField(browserQuery, { browserQuery = it.take(200) }, label = { androidx.compose.material3.Text("ابحث عن قناة") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    Box(Modifier.weight(1f)) {
+                        IptvBrowserPanels(channels, channel, collection, browserSection, browserQuery, { browserSection = it; browserQuery = "" }) {
+                            group = (browserSection as? IptvChannelSection.Group)?.name
+                            if (it.id == channel.id) { fullscreen = true; controls = true; interaction++ } else tune(it)
+                        }
+                    }
+                }
+            }
+            if (wideBrowser) CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Row(Modifier.fillMaxSize()) { Box(Modifier.width(previewWidth)); Box(Modifier.weight(1f)) { panes() } }
+            }
+            else Column(Modifier.fillMaxSize()) { Spacer(Modifier.height(previewHeight)); Box(Modifier.weight(1f)) { panes() } }
+            Box(Modifier.width(previewWidth).height(previewHeight).align(Alignment.TopCenter)
+                .absoluteOffset(x = if (wideBrowser) -(maxWidth - previewWidth) / 2 else 0.dp)) {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    Row(Modifier.align(Alignment.BottomEnd).fillMaxWidth().background(Ink.copy(alpha = .6f)).padding(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Label("● LIVE", 11, Accent); Spacer(Modifier.weight(1f))
+                        IconButton({ favorite(channel) }) { Icon(if (channel.id in collection.favorites) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "المفضلة", tint = Accent) }
+                        IptvFullscreenButton { fullscreen = true; controls = true; interaction++ }
+                        IconButton({ searching = !searching }) { Icon(Icons.Rounded.Search, "البحث", tint = androidx.compose.ui.graphics.Color.White) }
+                    }
+                }
+                if (error != null) Label(error!!, 12, Brand.Danger, lines = 3)
+                if (loading) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Accent)
+            }
+        }
+        if (fullscreen && !guide && (controls || !isPlaying || error != null || loading)) {
             Column(Modifier.fillMaxSize().padding(22.dp), verticalArrangement = Arrangement.SpaceBetween) {
                 Column(Modifier.background(Ink.copy(alpha = .75f)).padding(16.dp)) {
                     Label(channel.name, 21, bold = true, lines = 1); Label(if (loading) "جارٍ التحميل…" else if (isPlaying) "بث مباشر · ${channel.group}" else "متوقف مؤقتًا · ${channel.group}", 12, Brand.TextTertiary)
@@ -158,12 +233,12 @@ import kotlinx.coroutines.*
                     IptvButton("الجودة") { panel = C.TRACK_TYPE_VIDEO }
                     IptvButton("الصوت") { panel = C.TRACK_TYPE_AUDIO }
                     IptvButton("الترجمة") { panel = C.TRACK_TYPE_TEXT }
-                    IptvButton("إغلاق") { onExit(channel, group?.takeIf { it == channel.group }) }
+                    IptvButton("إغلاق") { if (startInBrowser) fullscreen = false else onExit(channel, group?.takeIf { it == channel.group }) }
                 }
             }
         }
-        if (loading && error == null) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Accent)
-        if (error != null) Column(Modifier.align(Alignment.Center).widthIn(max = 700.dp).background(Panel).padding(24.dp),
+        if (fullscreen && loading && error == null && !guide) CircularProgressIndicator(Modifier.align(Alignment.Center), color = Accent)
+        if (fullscreen && error != null && !guide) Column(Modifier.align(Alignment.Center).widthIn(max = 700.dp).background(Panel).padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Label(error!!, 16)
             IptvButton(if (refreshing) "جارٍ تحديث الرابط…" else "تحديث الرابط وإعادة المحاولة", enabled = !refreshing) {
@@ -180,8 +255,10 @@ import kotlinx.coroutines.*
             IptvButton("القنوات") { guide = true }
         }
         if (guide) IptvChannelGuide(channels, channel, group, television, { group = it }, {
-            tune(it); guide = false; restoreSurface()
-        }, { guide = false; restoreSurface() })
+            val fullscreen = !television || it.id == channel.id
+            tune(it)
+            if (fullscreen) { guide = false; restoreSurface() }
+        }, { guide = false; restoreSurface() }, previewChanged = { previewFrame = it }, status = error ?: if (loading) "جارٍ التحميل…" else if (isPlaying) "بث مباشر" else "متوقف مؤقتًا")
         panel?.let { type ->
             val groups = tracks.groups.filter { it.type == type }; val first = remember(type) { FocusRequester() }
             IptvDialog(when (type) { C.TRACK_TYPE_VIDEO -> "جودة البث"; C.TRACK_TYPE_AUDIO -> "مسار الصوت"; else -> "الترجمة" }, { closeTracks() }, first) {

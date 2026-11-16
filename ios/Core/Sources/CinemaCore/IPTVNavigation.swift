@@ -7,6 +7,21 @@ public enum IPTVNavigation {
         return values.filter { $0.sourceID == sourceID && (group == nil || $0.group == group) &&
             (text.isEmpty || $0.name.localizedStandardContains(text) || $0.group.localizedStandardContains(text)) }
     }
+    /// Display numbers belong to the source catalog, not the current search/category result.
+    public static func numbers(_ values: [IPTVChannel], sourceID: String) -> [String: Int] {
+        var result: [String: Int] = [:]
+        for channel in values where channel.sourceID == sourceID && result[channel.id] == nil { result[channel.id] = result.count + 1 }
+        return result
+    }
+    /// Preserve the provider's category order and avoid repeated scans for row counts.
+    public static func categories(_ values: [IPTVChannel], sourceID: String) -> [(name: String, count: Int)] {
+        var order: [String] = [], counts: [String: Int] = [:]
+        for channel in values where channel.sourceID == sourceID {
+            if counts[channel.group] == nil { order.append(channel.group) }
+            counts[channel.group, default: 0] += 1
+        }
+        return order.map { ($0, counts[$0] ?? 0) }
+    }
     public static func neighbor(of id: String, step: Int, in channels: [IPTVChannel]) -> IPTVChannel? {
         guard !channels.isEmpty else { return nil }
         guard let index = channels.firstIndex(where: { $0.id == id }) else { return channels.first }

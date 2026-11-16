@@ -13,14 +13,15 @@ internal data class IptvState(
     val channels: List<IptvChannel> = emptyList(), val visible: List<IptvChannel> = emptyList(),
     val query: String = "", val group: String? = null, val busy: Boolean = false,
     val filtering: Boolean = false, val storageReady: Boolean = false, val storageLoading: Boolean = true,
-    val message: String? = null, val focusEpoch: Int = 0
+    val message: String? = null, val focusEpoch: Int = 0, val collection: IptvChannelCollection = IptvChannelCollection()
 ) { val selected: IptvSource? get() = sources.firstOrNull { it.id == selectedId } }
 
 internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
     private val vault = IptvSourceStore(app)
     private val prefs = app.getSharedPreferences("tv_iptv_v1", 0)
     private val client = IptvClient()
-    private val mutable = MutableStateFlow(IptvState())
+    private val collectionStore = IptvCollectionStore(app)
+    private val mutable = MutableStateFlow(IptvState(collection = collectionStore.read()))
     val state = mutable.asStateFlow()
     private var request: Job? = null
     private var filter: Job? = null
@@ -34,6 +35,15 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) { mutable.value = mutable.value.copy(storageLoading = false, message = iptvMessage(e)) }
     } }
+    fun noteWatched(channel: IptvChannel) {
+        if (mutable.value.collection.recent.firstOrNull() == channel.id) return
+        val next = mutable.value.collection.watched(channel.id)
+        collectionStore.write(next); mutable.value = mutable.value.copy(collection = next)
+    }
+    fun toggleFavorite(channel: IptvChannel) {
+        val next = mutable.value.collection.toggle(channel.id)
+        collectionStore.write(next); mutable.value = mutable.value.copy(collection = next)
+    }
     fun select(source: IptvSource) {
         if (mutable.value.busy) return
         prefs.edit().putString("selected", source.id).apply()

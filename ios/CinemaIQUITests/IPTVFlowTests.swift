@@ -33,18 +33,41 @@ final class IPTVFlowTests: XCTestCase {
         connect()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["قناة الرياضة"].exists)
+        // The two lists must stay above the system tab bar, including their last visible row.
+        if !tablet {
+            let tab = app.tabBars.firstMatch.frame
+            for row in app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.iptv.channel.")).allElementsBoundByIndex where row.isHittable {
+                XCTAssertLessThanOrEqual(row.frame.maxY, tab.minY + 1)
+            }
+        }
         screenshot("m3u-channels")
+        // A different channel tunes in place; the current channel opens full screen on a second tap.
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        app.buttons["قناة الرياضة"].tap()
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        XCTAssertFalse(element("ios.iptv.player.close").exists, "Browsing another channel must keep both lists visible")
+        element("ios.iptv.browser.favorite").tap()
+        XCTAssertEqual(element("ios.iptv.browser.favorite").value as? String, "محدد")
+        element("ios.iptv.browser.section.المفضلة").tap()
+        waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
+        screenshot("embedded-preview-favorites")
+        element("ios.iptv.browser.section.الأخيرة").tap()
+        XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
+        screenshot("embedded-preview-recent")
+        element("ios.iptv.browser.section.كل القنوات").tap()
+
         app.buttons["ios.iptv.groups"].tap()
-        XCTAssertTrue(app.buttons["رياضة"].waitForExistence(timeout: 10))
-        app.buttons["رياضة"].tap()
+        XCTAssertTrue(element("ios.iptv.groupPicker.رياضة").waitForExistence(timeout: 10))
+        element("ios.iptv.groupPicker.رياضة").tap()
         waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
         app.buttons["ios.iptv.groups"].tap()
-        app.buttons["كل القنوات"].tap()
+        element("ios.iptv.groupPicker.all").tap()
         screenshot("m3u-categories")
         // Keep the isolated Keychain service, remove only the reset launch flag, then relaunch.
         app.terminate(); app.launchArguments = baseArguments; app.launch(); openIPTV()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20), "The saved source must reload from Keychain")
         app.buttons["قناة الأخبار"].tap()
+        if !element("ios.iptv.player.close").exists { app.buttons["قناة الأخبار"].tap() }
         XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 20))
         // Playback status stays accessible after the production HUD timer hides its labels.
         waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
@@ -79,6 +102,8 @@ final class IPTVFlowTests: XCTestCase {
         screenshot("playing-landscape")
         tapPlayerControl("close")
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 10))
+        inside(app.buttons["قناة الأخبار"]); inside(element("ios.iptv.browser.fullscreen"))
+        screenshot("embedded-preview-landscape")
         XCTAssertEqual(app.state, .runningForeground)
     }
     func testCompatibilityDecoderWithTracksAndRotation() throws {
@@ -97,7 +122,8 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(english.waitForExistence(timeout: 15)); screenshot("compatibility-subtitle-options"); english.tap()
         XCTAssertEqual(element("ios.iptv.player.surface").value as? String, "متوقف مؤقتًا")
         tapPlayerControl("channels")
-        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 15)); screenshot("compatibility-floating-guide")
+        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 15))
+        screenshot("compatibility-floating-guide")
         app.navigationBars.buttons["تم"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft; waitFor { self.app.frame.width > self.app.frame.height }
         screenshot("compatibility-landscape")
@@ -119,12 +145,8 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Xtream News"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["Xtream Sport"].exists)
         screenshot("xtream-channels")
-        var search = app.searchFields.firstMatch
-        if !search.exists {
-            let toggle = app.buttons.matching(NSPredicate(format: "label == 'Search' OR label == 'البحث'")).firstMatch
-            if toggle.exists && toggle.isHittable { toggle.tap() }
-            search = app.searchFields.firstMatch
-        }
+        element("ios.iptv.browser.search.toggle").tap()
+        let search = app.textFields["ios.iptv.browser.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap(); search.typeText("News")
         waitFor { self.app.buttons["Xtream News"].exists && !self.app.buttons["Xtream Sport"].exists }
@@ -173,7 +195,8 @@ final class IPTVFlowTests: XCTestCase {
                 if sidebar.exists && sidebar.isHittable { sidebar.tap() }
             }
             XCTAssertTrue(tab.waitForExistence(timeout: 25)); tab.tap()
-            XCTAssertTrue(element("ios.iptv.add").waitForExistence(timeout: 20))
+            // iPad may move Add into its native toolbar overflow beside the tab capsule.
+            XCTAssertTrue(element("ios.iptv.groups").waitForExistence(timeout: 20))
             screenshot("ipad-entry")
             return
         }
@@ -188,7 +211,18 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(element("ios.iptv.add").waitForExistence(timeout: 15))
         screenshot(tablet ? "ipad-entry" : "iphone-entry")
     }
-    private func openAdd() { element("ios.iptv.add").tap(); XCTAssertTrue(element("ios.iptv.form.name").waitForExistence(timeout: 10)) }
+    private func openAdd() {
+        let empty = element("ios.iptv.empty.add")
+        if tablet && empty.exists && empty.isHittable { empty.tap() }
+        else {
+            if tablet && !element("ios.iptv.add").exists {
+                let overflow = app.navigationBars.buttons.matching(NSPredicate(format: "label IN %@", ["More", "المزيد"])).firstMatch
+                XCTAssertTrue(overflow.waitForExistence(timeout: 10)); overflow.tap()
+            }
+            element("ios.iptv.add").tap()
+        }
+        XCTAssertTrue(element("ios.iptv.form.name").waitForExistence(timeout: 10))
+    }
     private func fill(_ id: String, _ value: String) {
         let field = app.textFields[id]
         XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(value)
@@ -208,8 +242,12 @@ final class IPTVFlowTests: XCTestCase {
         }
         XCTAssertGreaterThan(fraction, 0.70, "The decoder must render actual video pixels, not merely report playing")
     }
-    private func saturatedFraction(_ capture: XCUIScreenshot) throws -> Double {
-        let image = try XCTUnwrap(capture.image.cgImage)
+    private func saturatedFraction(_ capture: XCUIScreenshot, portraitPreview: Bool = false) throws -> Double {
+        let full = try XCTUnwrap(capture.image.cgImage)
+        let image: CGImage
+        if portraitPreview {
+            image = try XCTUnwrap(full.cropping(to: CGRect(x: CGFloat(full.width) * 0.15, y: CGFloat(full.height) * 0.16, width: CGFloat(full.width) * 0.7, height: CGFloat(full.height) * 0.12)))
+        } else { image = full }
         let width = 128, height = 72
         var rgba = [UInt8](repeating: 0, count: width * height * 4)
         return try rgba.withUnsafeMutableBytes { bytes -> Double in

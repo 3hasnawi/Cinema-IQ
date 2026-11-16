@@ -44,6 +44,8 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     val dialogFirst = remember(panel) { FocusRequester() }
     var editing by remember { mutableStateOf<IptvSource?>(null) }
     var playing by remember { mutableStateOf<IptvChannel?>(null) }
+    var previewedSource by remember { mutableStateOf<String?>(null) }
+    var startInGuide by remember { mutableStateOf(false) }
     var returnId by remember { mutableStateOf<String?>(null) }
     var focusedId by remember { mutableStateOf<String?>(null) }
     var returnEpoch by remember { mutableIntStateOf(0) }
@@ -71,7 +73,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
         if (playing != null) {
             val channel = playing!!
             IptvTvPlayer(channel, state.channels, state.group, true,
-                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback) { last, selectedGroup ->
+                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback, startInGuide = startInGuide, collection = state.collection, favorite = vm::toggleFavorite, watched = vm::noteWatched) { last, selectedGroup ->
                 playing = null; vm.returnFromPlayer(selectedGroup); returnId = last.id; returnEpoch++
             }
         } else Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -117,7 +119,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
                 contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 items(state.visible, key = { it.id }) { channel ->
                     IptvChannelCard(channel, logos, if (channel.id == targetId) Modifier.focusRequester(cardFocus) else Modifier,
-                        focused = { focusedId = channel.id }) { playing = channel }
+                        focused = { focusedId = channel.id }) { startInGuide = false; playing = channel }
                 }
             }
         }
@@ -152,6 +154,12 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
                 IptvButton("إلغاء", Modifier.focusRequester(dialogFirst), enabled = !state.busy) { panel = null; restoreControl() }
             }
             null -> Unit
+        }
+    }
+    LaunchedEffect(state.selectedId, state.visible, state.busy, panel) {
+        if (!state.busy && !state.filtering && panel == null && playing == null && previewedSource != state.selectedId && state.visible.isNotEmpty()) {
+            previewedSource = state.selectedId; startInGuide = true
+            playing = state.visible.firstOrNull { it.id == returnId } ?: state.visible.first()
         }
     }
     LaunchedEffect(state.focusEpoch, returnEpoch, playing == null, state.storageLoading, state.busy, state.filtering) {
