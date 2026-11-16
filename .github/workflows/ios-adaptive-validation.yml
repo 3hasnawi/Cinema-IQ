@@ -3,6 +3,12 @@ on:
   # Hosted XCTest accessibility/launch services can time out independently of app assertions.
   # Keep visual evidence collection available on demand; deterministic compile/Core checks stay automatic.
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: Layout tour or production movie controls regression
+        type: choice
+        options: [all, movie_controls, movie_controls_apple]
+        default: all
 
 permissions:
   contents: read
@@ -16,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [iphone, ipad]
+        device: ${{ startsWith(inputs.scenario, 'movie_controls') && fromJSON('["iphone"]') || fromJSON('["iphone","ipad"]') }}
     env:
       IOS_TEST_KIND: ${{ matrix.device }}
     steps:
@@ -34,6 +40,8 @@ jobs:
           sudo xcode-select -s "$chosen/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
+          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQ/Resources/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQ/Resources/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
           # Test the licensed fixture without metadata keys or external catalogue accounts.
@@ -80,13 +88,9 @@ jobs:
           xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/ios-build.log" | grep -E 'error:|BUILD (SUCCEEDED|FAILED)|TEST BUILD (SUCCEEDED|FAILED)' || true
           grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/ios-build.log"
-      - name: Install deterministic Debug playback fixture
-        run: |
-          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
-            "$RUNNER_TEMP/iOSDerived/Build/Products/Debug-iphonesimulator/CinemaIQ.app/UIPlayerFixture.mp4"
       - name: Validate universal device and orientation metadata
         run: |
           python3 - <<'PY'
@@ -110,15 +114,20 @@ jobs:
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Test touch navigation and playback rotation
         timeout-minutes: 25
+        env:
+          UI_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
+          test_id=CinemaIQUITests/AdaptiveLayoutTests
+          if [ "$UI_TEST_SCENARIO" = movie_controls ]; then test_id=CinemaIQUITests/MovieControlsTests; fi
+          if [ "$UI_TEST_SCENARIO" = movie_controls_apple ]; then test_id=CinemaIQUITests/MovieControlsTests/testAppleControlsReturnAfterAutomaticHide; fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
-            -only-testing:CinemaIQUITests/AdaptiveLayoutTests \
+            -only-testing:"$test_id" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
-            CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= \
             2>&1 | tee "$RUNNER_TEMP/ios-layout.log" | grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' || true
           grep -Eq '\*\* TEST( EXECUTE)? SUCCEEDED \*\*' "$RUNNER_TEMP/ios-layout.log"
       - name: Export simulator evidence
