@@ -132,7 +132,7 @@ import kotlinx.coroutines.*
             player.pause(); loading = false
         } else {
             pausedByUser = false
-            if (player.playerError != null || player.playbackState == Player.STATE_ENDED || player.playbackState == Player.STATE_IDLE) {
+            if (player.currentMediaItem?.mediaId != channel.id || player.playerError != null || player.playbackState == Player.STATE_ENDED || player.playbackState == Player.STATE_IDLE) {
                 terminalFailure = false; linkRenewed = false; retryCount = 0; retryFailure = IptvFailure.Temporary; retryAfter = 0; error = null; retryNeeded = true; loading = true
             } else { loading = player.playbackState != Player.STATE_READY; player.play() }
         }
