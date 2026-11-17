@@ -55,7 +55,8 @@ def ime():
 
 
 def focus():
-    return [dict(n.attrib) for n in nodes() if n.get('focused') == 'true']
+    return [dict(n.attrib, labels=[label(child) for child in n.iter() if label(child)])
+        for n in nodes() if n.get('focused') == 'true']
 
 
 def capture(name):
@@ -77,12 +78,13 @@ try:
     r = adb('shell', 'am', 'start', '-W', '-n', 'com.cinemaplus.rebuilt/.ui.iptv.IptvTvActivity')
     if b'SecurityException' in r.stderr or b'Permission Denial' in r.stdout or b'Error' in r.stderr:
         adb('shell','am','start','-W','-n','com.cinemaplus.rebuilt/.MainActivity')
-        tap(find('التلفزيون', timeout=35))
+        tap(find('التلفزيون', timeout=35)); key(23)
     tap(find('إضافة مصدر', timeout=30))
+    if not any('إضافة مصدر IPTV' in label(n) for n in nodes()): key(23)
     find('إضافة مصدر IPTV')
     capture('01-source-dialog')
     record('Source dialog initially owns a source-type focus target', any('M3U' in str(n) or 'Xtream' in str(n) for n in focus()))
-    tap(find('M3U'))
+    tap(find('M3U')); key(23)
     key(20)  # Physical D-pad Down, not a touch on the field.
     time.sleep(1)
     capture('02-name-navigation')
@@ -91,17 +93,32 @@ try:
     time.sleep(1)
     capture('03-explicit-edit')
     record('Explicit field edit opens the real system keyboard', ime())
-    key(4)
+    adb('shell','input','text','CinemaTest')
+    key(66)  # A physical Enter must finish the input session and restore the next form control.
+    time.sleep(.8)
+    capture('04-enter-next')
+    record('Completing the source-name input dismisses IME and focuses the address',
+        not ime() and any('رابط قائمة M3U' in str(n) for n in focus()))
+    if ime(): key(4)
     time.sleep(1)
-    capture('04-keyboard-back')
+    capture('05-keyboard-back')
     record('Back dismisses the real keyboard', not ime())
     # Close a possible separate editor and then the source form, with bounded real Back events.
     for _ in range(4):
         if any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()): break
         key(4)
-    capture('05-form-exit')
+    capture('06-form-exit')
     record('Back can leave the source form and return to its source screen',
         any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()))
+    tap(find('إضافة مصدر'))
+    if not any('إضافة مصدر IPTV' in label(n) for n in nodes()): key(23)
+    tap(find('Xtream')); key(23)
+    for index, field in enumerate(['اسم المصدر','عنوان خادم Xtream','اسم المستخدم','كلمة المرور']):
+        key(20); time.sleep(.5)
+        capture('07-xtream-'+str(index))
+        record('Xtream D-pad traversal reaches '+field+' without opening IME',
+            not ime() and any(field in str(n) for n in focus()))
+        if ime(): key(4)
 except Exception as e:
     error = type(e).__name__ + ': ' + str(e)
     try: capture('failure')
