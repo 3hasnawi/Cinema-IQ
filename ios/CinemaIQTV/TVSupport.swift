@@ -1,9 +1,13 @@
 import SwiftUI
 import CinemaCore
 
-/// Apple TV style: near-black pages under the title's own artwork; Cinema iQ's orange only for progress.
+/// Apple TV surfaces: a quiet slate gradient under artwork; Cinema iQ's orange for progress.
 enum TVTheme {
-    static let ink = Color(red: 0.035, green: 0.03, blue: 0.045)
+    static let ink = LinearGradient(colors: [
+        Color(red: 0.24, green: 0.29, blue: 0.36),
+        Color(red: 0.14, green: 0.19, blue: 0.27),
+        Color(red: 0.07, green: 0.10, blue: 0.17)
+    ], startPoint: .topTrailing, endPoint: .bottomLeading)
     static let panel = Color(white: 0.13)
     static let raised = Color(white: 0.2)
     static let accent = Color(red: 1, green: 0x8A / 255, blue: 0x2B / 255)
@@ -278,7 +282,7 @@ struct ShowcaseBackground: View {
     var body: some View {
         ZStack {
             TVTheme.ink
-            Artwork(url: url)
+            TVHeroArtwork(url: url)
                 .id(url)
                 .transition(.opacity)
             // Physical right edge: titles are RTL even when the device's system language is English.

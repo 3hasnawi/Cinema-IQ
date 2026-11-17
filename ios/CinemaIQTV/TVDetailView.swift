@@ -91,7 +91,12 @@ struct TVDetailView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .defaultFocus($focus, .play)
-        .fullScreenCover(isPresented: $showStory) { storyPage.environment(\.layoutDirection, .rightToLeft) }
+        .fullScreenCover(isPresented: $showStory, onDismiss: {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(100))
+                focus = .story
+            }
+        }) { storyPage.environment(\.layoutDirection, .rightToLeft) }
         .task { await load() }
         .onChange(of: current.id) { _, _ in
             trailerTask?.cancel(); trailerTask = nil; trailerID = nil; trailerLoading = false
@@ -124,12 +129,10 @@ struct TVDetailView: View {
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
             FactsLine(facts: facts)
             if !story.isEmpty {
-                Button { showStory = true } label: {
-                    Text(story).font(.callout).foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(4).multilineTextAlignment(.leading)
-                        .frame(maxWidth: 1000, alignment: .leading)
-                }
-                .buttonStyle(.plain).focused($focus, equals: .story)
+                Text(story).font(.callout).foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(4).multilineTextAlignment(.leading)
+                    .frame(maxWidth: 1000, alignment: .leading)
+                    .focusable(false).accessibilityIdentifier("tv.detail.overview")
             }
             HStack(spacing: 22) {
                 Button { if let target { player.play(target, queue: target.episode > 0 ? queue : [], series: seriesContext) } } label: {
@@ -140,21 +143,32 @@ struct TVDetailView: View {
                 Button(action: requestTrailer) {
                     Group {
                         if trailerLoading { ProgressView() }
-                        else { Image(systemName: "play.rectangle").font(.title3) }
-                    }.frame(width: 70, height: 70)
+                        else { Image(systemName: "play.rectangle.fill").font(.system(size: 28, weight: .semibold)) }
+                    }.frame(width: 76, height: 76).contentShape(Circle())
                 }
                 .accessibilityLabel(trailerLoading ? "جارٍ البحث عن التريلر" : "عرض التريلر على YouTube")
                 .buttonStyle(TVCircleButtonStyle())
+                .focusEffectDisabled()
                 .accessibilityIdentifier("tv.detail.trailer")
                 .focused($focus, equals: .trailer)
                 Button { library.toggle(current) } label: {
                     Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
-                        .font(.title3).frame(width: 70, height: 70)
+                        .font(.system(size: 28, weight: .semibold)).frame(width: 76, height: 76).contentShape(Circle())
                 }
                 .accessibilityLabel(library.isFavorite(current) ? "إزالة من قائمتي" : "أضف إلى قائمتي")
                 .buttonStyle(TVCircleButtonStyle())
+                .focusEffectDisabled()
                 .accessibilityIdentifier("tv.detail.list")
                 .focused($focus, equals: .list)
+                if !story.isEmpty {
+                    Button { showStory = true } label: {
+                        Image(systemName: "info").font(.system(size: 28, weight: .semibold))
+                            .frame(width: 76, height: 76).contentShape(Circle())
+                    }
+                    .buttonStyle(TVCircleButtonStyle()).focusEffectDisabled()
+                    .accessibilityLabel("قراءة الوصف كاملًا").accessibilityIdentifier("tv.detail.story")
+                    .focused($focus, equals: .story)
+                }
             }.focusSection()
             HStack(alignment: .top, spacing: 32) {
                 credit("بطولة", people.prefix(3).map(\.name).joined(separator: "، "))
@@ -223,6 +237,7 @@ struct TVDetailView: View {
             }
             .padding(80)
         }
+        .onExitCommand { showStory = false }
     }
 
     // MARK: Below the fold
