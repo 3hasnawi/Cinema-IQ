@@ -58,6 +58,7 @@ import kotlinx.coroutines.*
     val currentWatched by rememberUpdatedState(watched)
     var channel by remember(initial.id) { mutableStateOf(initial) }
     var group by remember { mutableStateOf(initialGroup) }
+    var televisionSection by remember { mutableStateOf<IptvChannelSection>(initialGroup?.let { IptvChannelSection.Group(it) } ?: IptvChannelSection.All) }
     var previousId by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var guide by remember { mutableStateOf(startInGuide) }
@@ -66,7 +67,10 @@ import kotlinx.coroutines.*
     var toolbarFocus by remember { mutableStateOf(false) }
     val surface = remember { FocusRequester() }; val toolbar = remember { FocusRequester() }
     val scope = rememberCoroutineScope()
-    val queue = remember(channels, group) { IptvNavigation.channels(channels, initial.sourceId, group) }
+    val queue = remember(channels, group, television, televisionSection, collection) {
+        if (television) collection.channels(channels, initial.sourceId, televisionSection)
+        else IptvNavigation.channels(channels, initial.sourceId, group)
+    }
     val channelNumbers = remember(channels, initial.sourceId) { IptvNavigation.numbers(channels, initial.sourceId) }
     val tvLogos = if (television) rememberIptvLogos() else null
     val player = remember(allowHttp) {
@@ -101,6 +105,7 @@ import kotlinx.coroutines.*
                 withFrameNanos { }
                 if (runCatching { target.requestFocus() }.getOrDefault(false)) return@launch
             }
+            if (target !== surface) runCatching { surface.requestFocus() }
         }
     }
     fun tune(next: IptvChannel) {
@@ -149,7 +154,7 @@ import kotlinx.coroutines.*
     }
     LaunchedEffect(fullscreen) { onFullscreen(fullscreen) }
     LaunchedEffect(initialGroup) { if (startInBrowser) browserSection = initialGroup?.let { IptvChannelSection.Group(it) } ?: IptvChannelSection.All }
-    val showControls = fullscreen && !guide && (controls || !isPlaying || error != null || loading)
+    val showControls = fullscreen && !guide && (controls || !isPlaying || error != null || loading || (television && panel != null))
     BackHandler(enabled = panel == null && !guide) { if (startInBrowser && fullscreen) fullscreen = false else onExit(channel, group?.takeIf { it == channel.group }) }
     BoxWithConstraints(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).onPreviewKeyEvent { event ->
         val key = event.nativeKeyEvent
@@ -276,8 +281,9 @@ import kotlinx.coroutines.*
             IptvButton("القنوات") { guide = true }
         }
         if (guide) {
-            if (television) IptvTvChannelOverlay(channels, channel, group, { next, selectedGroup ->
-                group = selectedGroup; tune(next); guide = false; restorePlayerFocus()
+            if (television) IptvTvChannelOverlay(channels, channel, televisionSection, collection, { next, selectedSection ->
+                televisionSection = selectedSection; group = (selectedSection as? IptvChannelSection.Group)?.name
+                tune(next); guide = false; restorePlayerFocus()
             }, { guide = false; restorePlayerFocus() })
             else IptvChannelGuide(channels, channel, group, false, { group = it }, {
                 tune(it); guide = false; restorePlayerFocus()

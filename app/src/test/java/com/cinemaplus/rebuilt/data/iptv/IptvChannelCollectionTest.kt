@@ -28,4 +28,14 @@ class IptvChannelCollectionTest {
         assertEquals(2000, library.favorites.size); assertTrue(original.recent.isEmpty())
         assertEquals(library, library.watched("").toggle("X".repeat(513)))
     }
+    @Test fun tvFavoriteSurfingStaysInSourceAndHandlesRemovingThePlayingChannel() {
+        val catalog = listOf(channel("A"), channel("B"), channel("C"), channel("Foreign", source = "two"))
+        val favorites = IptvChannelCollection().toggle("A").toggle("C").toggle("Foreign")
+        fun queue(collection: IptvChannelCollection) = collection.channels(catalog, "one", IptvChannelSection.Favorites)
+        assertEquals("C", IptvNavigation.neighbor(queue(favorites), "A", 1)?.id)
+        assertEquals("A", IptvNavigation.neighbor(queue(favorites), "C", 1)?.id)
+        val removedCurrent = favorites.toggle("A")
+        assertEquals("C", IptvNavigation.neighbor(queue(removedCurrent), "A", 1)?.id)
+        assertNull(IptvNavigation.neighbor(queue(removedCurrent.toggle("C")), "C", 1))
+    }
 }

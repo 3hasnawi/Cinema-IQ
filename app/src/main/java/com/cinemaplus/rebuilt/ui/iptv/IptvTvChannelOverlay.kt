@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.cinemaplus.rebuilt.data.iptv.IptvChannel
+import com.cinemaplus.rebuilt.data.iptv.IptvChannelCollection
+import com.cinemaplus.rebuilt.data.iptv.IptvChannelSection
 import com.cinemaplus.rebuilt.data.iptv.IptvNavigation
 import com.cinemaplus.rebuilt.ui.*
 import kotlinx.coroutines.Dispatchers
@@ -35,13 +37,18 @@ import kotlinx.coroutines.withContext
 
 /** Same-window translucent panels keep the single, fullscreen decoder surface running underneath. */
 @Composable internal fun IptvTvChannelOverlay(
-    channels: List<IptvChannel>, current: IptvChannel, group: String?,
-    tune: (IptvChannel, String?) -> Unit, close: () -> Unit
+    channels: List<IptvChannel>, current: IptvChannel, section: IptvChannelSection,
+    collection: IptvChannelCollection, tune: (IptvChannel, IptvChannelSection) -> Unit, close: () -> Unit
 ) {
     val groups = remember(channels, current.sourceId) { IptvNavigation.categories(channels, current.sourceId) }
     val numbering = remember(channels, current.sourceId) { IptvNavigation.numbers(channels, current.sourceId) }
     val logos = rememberIptvLogos()
-    var browsingGroup by remember { mutableStateOf(group?.takeIf { it in groups }) }
+    var browsingSection by remember { mutableStateOf(section) }
+    val categories = remember(groups, numbering.size) {
+        listOf(Triple("all", IptvChannelSection.All, "كل القنوات · ${numbering.size}"),
+            Triple("favorites", IptvChannelSection.Favorites, "المفضلة")) +
+            groups.map { Triple("group:${it.key}", IptvChannelSection.Group(it.key), "${it.key} · ${it.value}") }
+    }
     var query by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(emptyList<IptvChannel>()) }
     var filtering by remember { mutableStateOf(true) }
@@ -56,9 +63,9 @@ import kotlinx.coroutines.withContext
     val categoryScroll = rememberLazyListState()
     val target = IptvNavigation.entry(visible, focusedChannelId)
     fun returnToChannels() { categoriesOpen = false; searching = false; focusEpoch++ }
-    fun chooseGroup(value: String?) {
-        if (value != browsingGroup || query.isNotEmpty()) filtering = true
-        browsingGroup = value; query = ""; focusedChannelId = current.id
+    fun chooseSection(value: IptvChannelSection) {
+        if (value != browsingSection || query.isNotEmpty()) filtering = true
+        browsingSection = value; query = ""; focusedChannelId = current.id
         returnToChannels()
     }
     BackHandler { if (categoriesOpen) returnToChannels() else close() }
@@ -101,7 +108,7 @@ import kotlinx.coroutines.withContext
                                         Modifier.testTag("iptv.tv.channel.${channel.id}")
                                             .then(if (channel.id == target) Modifier.focusRequester(channelFocus) else Modifier)
                                             .onFocusChanged { if (it.isFocused) focusedChannelId = channel.id },
-                                        translucent = true) { tune(channel, browsingGroup) }
+                                        translucent = true) { tune(channel, browsingSection) }
                                 }
                                 if (visible.isEmpty() && !filtering) item { Label("لا توجد قنوات تطابق البحث أو التصنيف.", 14, Brand.TextTertiary) }
                             }
@@ -126,13 +133,9 @@ import kotlinx.coroutines.withContext
                                 Label("التصنيفات", 21, bold = true)
                                 LazyColumn(state = categoryScroll, modifier = Modifier.weight(1f).fillMaxWidth(),
                                     verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(5.dp)) {
-                                    item {
-                                        IptvButton((if (browsingGroup == null) "✓ " else "") + "كل القنوات · ${numbering.size}",
-                                            Modifier.fillMaxWidth().then(if (browsingGroup == null) Modifier.focusRequester(categoryFocus) else Modifier)) { chooseGroup(null) }
-                                    }
-                                    items(groups.entries.toList(), key = { it.key }) { entry ->
-                                        IptvButton((if (browsingGroup == entry.key) "✓ " else "") + entry.key + " · " + entry.value,
-                                            Modifier.fillMaxWidth().then(if (browsingGroup == entry.key) Modifier.focusRequester(categoryFocus) else Modifier)) { chooseGroup(entry.key) }
+                                    items(categories, key = { it.first }) { entry ->
+                                        IptvButton((if (browsingSection == entry.second) "✓ " else "") + entry.third,
+                                            Modifier.fillMaxWidth().then(if (browsingSection == entry.second) Modifier.focusRequester(categoryFocus) else Modifier)) { chooseSection(entry.second) }
                                     }
                                 }
                                 IptvButton("رجوع", onClick = ::returnToChannels)
@@ -143,14 +146,19 @@ import kotlinx.coroutines.withContext
             }
         }
     }
-    LaunchedEffect(channels, current.sourceId, browsingGroup, query) {
+    LaunchedEffect(channels, current.sourceId, collection, browsingSection, query) {
         filtering = true
-        visible = withContext(Dispatchers.Default) { IptvNavigation.channels(channels, current.sourceId, browsingGroup, query) }
+        val selectedGroup = (browsingSection as? IptvChannelSection.Group)?.name
+        if (selectedGroup != null && selectedGroup !in groups) {
+            browsingSection = IptvChannelSection.All
+            return@LaunchedEffect
+        }
+        visible = withContext(Dispatchers.Default) { collection.channels(channels, current.sourceId, browsingSection, query) }
         filtering = false
     }
-    LaunchedEffect(visible, categoriesOpen, focusEpoch, filtering, searching) {
+    LaunchedEffect(visible, categories, categoriesOpen, focusEpoch, filtering, searching) {
         if (categoriesOpen) {
-            val index = if (browsingGroup == null) 0 else groups.keys.indexOf(browsingGroup) + 1
+            val index = categories.indexOfFirst { it.second == browsingSection }
             categoryScroll.scrollToItem(index.coerceAtLeast(0))
         } else {
             if (filtering || searching) return@LaunchedEffect
