@@ -52,7 +52,7 @@ struct TVRootView: View {
             Tab("مكتبتي", systemImage: "books.vertical", value: TVTab.library) {
                 stack(.library) { TVLibraryView() }
             }
-            Tab("التلفزيون", systemImage: "tv", value: TVTab.iptv) {
+            Tab("التلفزيون", image: "TelevisionAntenna", value: TVTab.iptv) {
                 TVIPTVView()
             }
             Tab("الإعدادات", systemImage: "gearshape", value: TVTab.settings) {

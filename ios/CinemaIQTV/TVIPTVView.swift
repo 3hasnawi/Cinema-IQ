@@ -132,7 +132,7 @@ struct TVIPTVView: View {
     }
     private var header: some View {
         HStack(spacing: 24) {
-            Label("التلفزيون", systemImage: "tv").font(.system(size: 48, weight: .bold))
+            Label("التلفزيون", image: "TelevisionAntenna").font(.system(size: 48, weight: .bold))
                 .accessibilityIdentifier("tv.iptv.heading")
             Spacer()
             Button { present(.source(nil), from: "add") } label: { Label("إضافة مصدر", systemImage: "plus") }
