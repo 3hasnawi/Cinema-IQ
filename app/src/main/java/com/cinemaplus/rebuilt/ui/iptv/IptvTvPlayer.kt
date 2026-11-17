@@ -57,6 +57,15 @@ import kotlinx.coroutines.*
     var searching by remember { mutableStateOf(false) }
     val currentWatched by rememberUpdatedState(watched)
     var channel by remember(initial.id) { mutableStateOf(initial) }
+    val latestChannels by rememberUpdatedState(channels)
+    val currentRefresh by rememberUpdatedState(refresh)
+    var foreground by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var pausedByUser by remember { mutableStateOf(false) }
+    var retryNeeded by remember { mutableStateOf(false) }
+    var retryCount by remember { mutableIntStateOf(0) }
+    var retryFailure by remember { mutableStateOf(IptvFailure.Temporary) }
+    var retryAfter by remember { mutableLongStateOf(0) }
+    var linkRenewed by remember { mutableStateOf(false) }
     var group by remember { mutableStateOf(initialGroup) }
     var televisionSection by remember { mutableStateOf<IptvChannelSection>(initialGroup?.let { IptvChannelSection.Group(it) } ?: IptvChannelSection.All) }
     var previousId by remember { mutableStateOf<String?>(null) }
@@ -111,7 +120,20 @@ import kotlinx.coroutines.*
     fun tune(next: IptvChannel) {
         if (next.sourceId != initial.sourceId || next.id == channel.id) return
         refreshTask?.cancel(); requestGeneration++; refreshing = false; previousId = channel.id; channel = next
+        pausedByUser = false; retryNeeded = false; retryCount = 0; linkRenewed = false
         controls = true; interaction++; error = null; loading = true; videoHeight = 0
+    }
+    fun togglePlayback() {
+        if (!pausedByUser && (player.isPlaying || player.playWhenReady || retryNeeded)) {
+            pausedByUser = true; retryNeeded = false; refreshTask?.cancel(); requestGeneration++; refreshing = false
+            player.pause(); loading = false
+        } else {
+            pausedByUser = false
+            if (player.playerError != null || player.playbackState == Player.STATE_ENDED || player.playbackState == Player.STATE_IDLE) {
+                retryCount = 0; retryFailure = IptvFailure.Temporary; retryAfter = 0; error = null; retryNeeded = true; loading = true
+            } else { loading = player.playbackState != Player.STATE_READY; player.play() }
+        }
+        controls = true; interaction++
     }
     fun surf(step: Int) { IptvNavigation.neighbor(queue, channel.id, step)?.let { tune(it) } }
     fun closeTracks() {
@@ -122,31 +144,108 @@ import kotlinx.coroutines.*
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(value: Boolean) {
                 isPlaying = value; view.keepScreenOn = value
-                if (value && player.currentMediaItem?.mediaId == channel.id) currentWatched(channel)
+                if (value && player.currentMediaItem?.mediaId == channel.id) {
+                    retryNeeded = false; loading = false; currentWatched(channel)
+                }
             }
             override fun onTracksChanged(value: Tracks) { tracks = value }
             override fun onVideoSizeChanged(videoSize: VideoSize) { videoHeight = videoSize.height }
             override fun onPlaybackStateChanged(value: Int) {
                 loading = value == Player.STATE_BUFFERING || value == Player.STATE_IDLE
-                if (value == Player.STATE_ENDED) { loading = false; error = "انتهى بث القناة. يمكنك تحديث الرابط أو اختيار قناة أخرى." }
+                if (value == Player.STATE_ENDED && player.currentMediaItem?.mediaId == channel.id) {
+                    retryFailure = IptvFailure.Temporary; retryAfter = 0; retryNeeded = true; loading = true
+                }
             }
             override fun onPlayerError(exception: PlaybackException) {
-                loading = false; view.keepScreenOn = false; controls = true
-                error = if (exception.errorCode == PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED)
-                    "هذا البث يستخدم HTTP. عدّل المصدر وفعّل السماح بالاتصال غير المشفّر إذا كان مزوّدك يتطلبه."
-                else "تعذّر تشغيل القناة. تحقق من الاشتراك والشبكة وصيغة البث، ثم حدّث الرابط."
+                if (player.currentMediaItem?.mediaId != channel.id) return
+                view.keepScreenOn = false; controls = true
+                val response = generateSequence(exception as Throwable) { it.cause }.take(8)
+                    .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>().firstOrNull()
+                retryFailure = when {
+                    exception.errorCode == PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED -> IptvFailure.HttpConsent
+                    exception.errorCode in listOf(PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+                        PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+                        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
+                        PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED) -> IptvFailure.Unsupported
+                    response?.responseCode == 429 -> IptvFailure.RateLimited
+                    response?.responseCode in listOf(401, 403, 404, 410) ||
+                        exception.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE -> IptvFailure.Access
+                    else -> IptvFailure.Temporary
+                }
+                retryAfter = response?.headerFields?.entries?.firstOrNull { it.key.equals("Retry-After", true) }
+                    ?.value?.firstOrNull()?.let { IptvReconnectPolicy.retryAfter(it, System.currentTimeMillis()) } ?: 0
+                val plan = IptvReconnectPolicy.retry(retryFailure, retryCount, retryAfter)
+                retryNeeded = plan != null; loading = plan != null
+                error = when (retryFailure) {
+                    IptvFailure.HttpConsent -> "هذا البث يستخدم HTTP. عدّل المصدر وفعّل السماح بالاتصال غير المشفّر إذا كان مزوّدك يتطلبه."
+                    IptvFailure.Unsupported -> "صيغة الصوت أو الصورة غير مدعومة على هذا الجهاز. جرّب جودة أخرى."
+                    else -> null
+                }
             }
         }
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) { player.pause(); view.keepScreenOn = false } }
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) foreground = true
+            if (event == Lifecycle.Event.ON_STOP) {
+                foreground = false; refreshTask?.cancel(); requestGeneration++; refreshing = false; linkRenewed = false
+                player.pause(); view.keepScreenOn = false
+            }
+        }
         player.addListener(listener); lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); player.removeListener(listener); view.keepScreenOn = false; player.release() }
     }
-    LaunchedEffect(channel.id, channel.url, attempt, player) {
+    LaunchedEffect(channel.id, channel.url, attempt, player, foreground) {
+        if (!foreground || pausedByUser || retryNeeded) return@LaunchedEffect
         delay(180) // Collapse remote repeats instead of opening a stream for every key repeat.
-        error = null; loading = true; tracks = Tracks.EMPTY; videoHeight = 0
-        player.stop(); player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverrides().build()
+        error = null; loading = true
+        if (player.currentMediaItem?.mediaId != channel.id) {
+            tracks = Tracks.EMPTY; videoHeight = 0
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().clearOverrides().build()
+        }
+        player.stop()
         player.setMediaItem(MediaItem.Builder().setUri(channel.url).setMediaId(channel.id).build())
         player.prepare(); player.playWhenReady = true
+    }
+    LaunchedEffect(retryNeeded, channel.id, foreground, pausedByUser) {
+        if (!retryNeeded || !IptvReconnectPolicy.allowed(foreground, pausedByUser)) return@LaunchedEffect
+        val requested = channel; val token = requestGeneration
+        val plan = IptvReconnectPolicy.retry(retryFailure, retryCount, retryAfter) ?: return@LaunchedEffect
+        delay(plan.delayMillis)
+        var next = latestChannels.firstOrNull { it.id == requested.id && it.sourceId == requested.sourceId } ?: requested
+        if (plan.refreshLink && !linkRenewed) {
+            linkRenewed = true
+            refreshTask?.cancel()
+            // Renew expired URLs independently; slow catalogue downloads must not block stream retries.
+            refreshTask = scope.launch {
+                try {
+                    val fresh = currentRefresh(requested)
+                    if (channel.id == requested.id && requestGeneration == token && !player.isPlaying &&
+                        IptvReconnectPolicy.allowed(foreground, pausedByUser)) {
+                        channel = fresh; retryNeeded = false; error = null; loading = true; attempt++
+                    }
+                } catch (e: CancellationException) { throw e }
+                catch (e: IptvException) {
+                    if (channel.id == requested.id && requestGeneration == token && !player.isPlaying &&
+                        (e.reason in listOf(IptvException.Reason.Credentials, IptvException.Reason.Inactive, IptvException.Reason.HttpConsent) || e.status in listOf(401, 403))) {
+                        error = e.arabic(); loading = false; retryNeeded = false
+                    }
+                } catch (_: Exception) { /* Keep direct retries when catalogue renewal is unavailable. */ }
+            }
+        }
+        ensureActive()
+        if (channel.id == requested.id && requestGeneration == token && IptvReconnectPolicy.allowed(foreground, pausedByUser)) {
+            retryCount++; channel = next; retryNeeded = false; error = null; loading = true; attempt++
+        }
+    }
+    LaunchedEffect(isPlaying, channel.id) {
+        if (isPlaying) { delay(30_000); retryCount = 0; linkRenewed = false }
+    }
+    LaunchedEffect(loading, channel.id, attempt, foreground, pausedByUser) {
+        if (loading && IptvReconnectPolicy.allowed(foreground, pausedByUser)) {
+            delay(30_000)
+            if (!retryNeeded && (player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE)) {
+                retryFailure = IptvFailure.Temporary; retryAfter = 0; retryNeeded = true
+            }
+        }
     }
     LaunchedEffect(Unit) { if (television && !guide) { withFrameNanos { }; runCatching { surface.requestFocus() } } }
     LaunchedEffect(controls, toolbarFocus, guide, panel, interaction, isPlaying) {
@@ -162,7 +261,7 @@ import kotlinx.coroutines.*
             if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) when (key.keyCode) {
                 KeyEvent.KEYCODE_CHANNEL_UP -> surf(-1)
                 KeyEvent.KEYCODE_CHANNEL_DOWN -> surf(1)
-                else -> { if (player.isPlaying) player.pause() else player.play(); controls = true; interaction++ }
+                else -> togglePlayback()
             }
             true
         } else false
@@ -174,7 +273,7 @@ import kotlinx.coroutines.*
             .align(if (fullscreen) Alignment.Center else Alignment.TopCenter)
             .absoluteOffset(x = if (wideBrowser) -(maxWidth - previewWidth) / 2 else 0.dp) else Modifier.fillMaxSize()
         AndroidView(factory = { ctx -> (LayoutInflater.from(ctx).inflate(com.cinemaplus.rebuilt.R.layout.iptv_player_surface, null, false) as PlayerView).apply {
-            useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+            useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER); setKeepContentOnPlayerReset(true)
             isFocusable = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS; layoutDirection = View.LAYOUT_DIRECTION_LTR
         } }, update = {
             it.player = player
@@ -235,14 +334,14 @@ import kotlinx.coroutines.*
                 }
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                     IptvTvPlayerHud(channel = channel, number = channelNumbers[channel.id] ?: 0,
-                        status = error ?: if (loading) "جارٍ التحميل…" else if (isPlaying) "بث مباشر · ${channel.group}" else "متوقف مؤقتًا · ${channel.group}",
+                        status = error ?: if (retryNeeded || (loading && retryCount > 0)) "جارٍ إعادة الاتصال…" else if (loading) "جارٍ التحميل…" else if (isPlaying) "بث مباشر · ${channel.group}" else "متوقف مؤقتًا · ${channel.group}",
                         playing = isPlaying, videoHeight = videoHeight, audioLanguage = audioLanguage,
                         isFavorite = channel.id in collection.favorites,
                         previousAvailable = previousId?.let { it in channelNumbers } == true, logos = checkNotNull(tvLogos),
                         entryFocus = toolbar, focusChanged = { toolbarFocus = it }, channels = { guide = true },
                         favorite = { favorite(channel); interaction++ },
                         previous = { channels.firstOrNull { it.id == previousId }?.let { tune(it) } },
-                        playPause = { if (player.isPlaying) player.pause() else player.play(); interaction++ },
+                        playPause = { togglePlayback() },
                         channelStep = { step -> surf(step); restorePlayerFocus() },
                         tracks = { type, anchor -> trackReturnFocus = anchor; panel = type },
                         exit = { onExit(channel, group?.takeIf { it == channel.group }) })
@@ -256,7 +355,7 @@ import kotlinx.coroutines.*
                     IptvButton("القنوات", Modifier.focusRequester(toolbar)) { guide = true }
                     IptvButton("السابقة") { if (television) channels.firstOrNull { it.id == previousId }?.let { tune(it) } else surf(-1) }
                     if (!television) IptvButton("التالية") { surf(1) }
-                    IptvButton(if (isPlaying) "إيقاف مؤقت" else "تشغيل") { if (player.isPlaying) player.pause() else player.play(); interaction++ }
+                    IptvButton(if (isPlaying) "إيقاف مؤقت" else "تشغيل") { togglePlayback() }
                     IptvButton("الجودة") { panel = C.TRACK_TYPE_VIDEO }
                     IptvButton("الصوت") { panel = C.TRACK_TYPE_AUDIO }
                     IptvButton("الترجمة") { panel = C.TRACK_TYPE_TEXT }
@@ -269,6 +368,7 @@ import kotlinx.coroutines.*
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Label(error!!, 16)
             IptvButton(if (refreshing) "جارٍ تحديث الرابط…" else "تحديث الرابط وإعادة المحاولة", enabled = !refreshing) {
+                pausedByUser = false; retryNeeded = false; retryCount = 0; linkRenewed = false
                 val requested = channel; requestGeneration++; val token = requestGeneration
                 refreshTask?.cancel()
                 refreshTask = scope.launch {
