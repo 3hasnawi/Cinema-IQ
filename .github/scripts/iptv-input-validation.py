@@ -75,7 +75,7 @@ def capture(name):
     (out/(name+'.xml')).write_bytes(adb('exec-out', 'cat', '/sdcard/iptv-input.xml').stdout)
     (out/(name+'.png')).write_bytes(adb('exec-out', 'screencap', '-p').stdout)
     (out/(name+'.json')).write_text(json.dumps({'focused':focus(),'imeVisible':ime()},ensure_ascii=False,indent=2))
-    (out/(name+'-windows.txt')).write_bytes(adb('shell','dumpsys','window','windows').stdout)
+    (out/(name+'-windows.txt')).write_bytes(adb('shell','dumpsys','window').stdout)
 
 
 def record(name, passed):
@@ -159,7 +159,7 @@ try:
     capture('06-form-exit')
     record('Back can leave the source form and return to its source screen',
         any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()))
-    tap(find('إضافة مصدر')); key(23)
+    find('إضافة مصدر'); key(23)
     find('إضافة مصدر IPTV')
     key(21)  # Physical Left from the focused M3U button to Xtream.
     capture('07-xtream-mode')

@@ -67,6 +67,7 @@ import com.cinemaplus.rebuilt.ui.*
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable internal fun IptvSourceForm(existing: IptvSource?, state: IptvState, cancel: () -> Unit, save: (IptvSource) -> Unit) {
     var name by rememberSaveable { mutableStateOf(existing?.name.orEmpty()) }
     var kind by rememberSaveable { mutableStateOf(existing?.kind ?: IptvKind.M3U) }
@@ -97,28 +98,40 @@ import com.cinemaplus.rebuilt.ui.*
         }
     }
     val edited = editing
-    if (television && edited != null) {
-        val label = when (edited) {
-            IptvSourceControl.Name -> "اسم المصدر"
-            IptvSourceControl.Address -> if (kind == IptvKind.M3U) "رابط قائمة M3U" else "عنوان خادم Xtream"
-            IptvSourceControl.User -> "اسم المستخدم"
-            else -> "كلمة المرور"
-        }
-        val value = when (edited) { IptvSourceControl.Name -> name; IptvSourceControl.Address -> address; IptvSourceControl.User -> user; else -> password }
-        val next = IptvSourceFocus.move(edited, 1, kind, canConnect)
-        IptvTvFieldEditor(label, value,
-            when (edited) { IptvSourceControl.Address -> KeyboardType.Uri; IptvSourceControl.Password -> KeyboardType.Password; else -> KeyboardType.Text },
-            edited == IptvSourceControl.Password,
-            when (edited) { IptvSourceControl.Name -> 100; IptvSourceControl.Address -> 8192; IptvSourceControl.User -> 1024; else -> 4096 },
-            if (next in listOf(IptvSourceControl.Address, IptvSourceControl.User, IptvSourceControl.Password)) ImeAction.Next else ImeAction.Done,
-            commit = { value ->
-                when (edited) { IptvSourceControl.Name -> name = value; IptvSourceControl.Address -> address = value; IptvSourceControl.User -> user = value; else -> password = value }
-                pending = next; editing = null
-            }, cancel = { pending = edited; editing = null })
-        return
+    val fieldLabel = when (edited) {
+        IptvSourceControl.Name -> "اسم المصدر"
+        IptvSourceControl.Address -> if (kind == IptvKind.M3U) "رابط قائمة M3U" else "عنوان خادم Xtream"
+        IptvSourceControl.User -> "اسم المستخدم"
+        else -> "كلمة المرور"
     }
-    IptvDialog(if (existing == null) "إضافة مصدر IPTV" else "تعديل المصدر", cancel,
-        if (television) targets.getValue(pending) else first) {
+    IptvDialog(if (television && edited != null) fieldLabel else if (existing == null) "إضافة مصدر IPTV" else "تعديل المصدر",
+        { if (television && edited != null) { pending = edited; editing = null } else cancel() },
+        if (television) null else first) {
+        val window = LocalWindowInfo.current
+        val imeVisible = WindowInsets.isImeVisible
+        // Keep one dialog window and restore browse focus only after the IME has actually closed.
+        LaunchedEffect(edited, pending, window.isWindowFocused, imeVisible) {
+            if (television && edited == null && window.isWindowFocused && !imeVisible) repeat(24) {
+                withFrameNanos { }
+                if (runCatching { targets.getValue(pending).requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+            }
+        }
+        if (television && edited != null) {
+            val value = when (edited) { IptvSourceControl.Name -> name; IptvSourceControl.Address -> address; IptvSourceControl.User -> user; else -> password }
+            val next = IptvSourceFocus.move(edited, 1, kind, canConnect)
+            key(edited) {
+                IptvTvFieldEditor(fieldLabel, value,
+                    when (edited) { IptvSourceControl.Address -> KeyboardType.Uri; IptvSourceControl.Password -> KeyboardType.Password; else -> KeyboardType.Text },
+                    edited == IptvSourceControl.Password,
+                    when (edited) { IptvSourceControl.Name -> 100; IptvSourceControl.Address -> 8192; IptvSourceControl.User -> 1024; else -> 4096 },
+                    if (next in listOf(IptvSourceControl.Address, IptvSourceControl.User, IptvSourceControl.Password)) ImeAction.Next else ImeAction.Done,
+                    commit = { updated ->
+                        when (edited) { IptvSourceControl.Name -> name = updated; IptvSourceControl.Address -> address = updated; IptvSourceControl.User -> user = updated; else -> password = updated }
+                        pending = next; editing = null
+                    }, cancel = { pending = edited; editing = null })
+            }
+            return@IptvDialog
+        }
         val keyboard = LocalSoftwareKeyboardController.current
         val manager = LocalFocusManager.current
         fun closeKeyboard() { keyboard?.hide(); manager.clearFocus(force = true) }
