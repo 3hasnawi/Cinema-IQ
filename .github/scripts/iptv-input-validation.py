@@ -70,6 +70,7 @@ def record(name, passed):
 
 error = None
 try:
+    adb('shell','settings','put','secure','show_ime_with_hard_keyboard','1')
     adb('install', '-r', a.apk, timeout=60).check_returncode()
     # The disposable emulator may permit root. Fall back to the public app entry otherwise.
     adb('root'); adb('wait-for-device', timeout=30)
@@ -95,11 +96,12 @@ try:
     capture('04-keyboard-back')
     record('Back dismisses the real keyboard', not ime())
     # Close a possible separate editor and then the source form, with bounded real Back events.
-    for _ in range(3):
-        if not any('إضافة مصدر IPTV' in label(n) for n in nodes()): break
+    for _ in range(4):
+        if any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()): break
         key(4)
     capture('05-form-exit')
-    record('Back can leave the source form and return to its source screen', not any('إضافة مصدر IPTV' in label(n) for n in nodes()))
+    record('Back can leave the source form and return to its source screen',
+        any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()))
 except Exception as e:
     error = type(e).__name__ + ': ' + str(e)
     try: capture('failure')

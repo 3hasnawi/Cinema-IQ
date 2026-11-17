@@ -69,12 +69,7 @@ jobs:
           profile: tv_1080p
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            if [[ -n "$REUSE_RELEASE_RUN_ID" ]]; then
-              python3 .github/scripts/iptv-input-validation.py --apk "$GITHUB_WORKSPACE/approved-release/Cinema-iQ-release.apk" --output "$RUNNER_TEMP/tv-validation"
-            else
-              bash .github/scripts/tv-validation.sh "$RUNNER_TEMP/tv-validation"
-            fi
+          script: bash .github/scripts/tv-validation-entry.sh "$RUNNER_TEMP/tv-validation"
       - name: Save actual captures, assertions and approved debug APK
         if: always()
         uses: actions/upload-artifact@v4
