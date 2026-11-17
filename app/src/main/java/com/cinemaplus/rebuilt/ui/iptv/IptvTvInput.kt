@@ -1,14 +1,20 @@
 package com.cinemaplus.rebuilt.ui.iptv
 
+import android.content.Context
+import android.text.Editable
+import android.text.InputFilter
+import android.text.InputType
+import android.text.TextWatcher
+import android.view.Gravity
 import android.view.KeyEvent
+import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -23,9 +29,12 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import com.cinemaplus.rebuilt.ui.*
@@ -61,47 +70,88 @@ import com.cinemaplus.rebuilt.ui.*
     }
 }
 
-/** Edit inside the existing source dialog; never replace windows while dismissing the IME. */
+/** A native editor releases its actual Android input connection when the field leaves composition. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable internal fun IptvTvFieldEditor(label: String, initial: String, keyboardType: KeyboardType,
     secret: Boolean, limit: Int, imeAction: ImeAction, commit: (String) -> Unit, cancel: () -> Unit) {
     var draft by remember { mutableStateOf(initial) }
-    val input = remember { FocusRequester() }; val done = remember { FocusRequester() }
-    val keyboard = LocalSoftwareKeyboardController.current
+    var input by remember { mutableStateOf<EditText?>(null) }
+    val done = remember { FocusRequester() }
+    val context = LocalContext.current
+    val imm = remember(context) { context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager }
     val manager = LocalFocusManager.current
     val window = LocalWindowInfo.current
     val imeVisible = WindowInsets.isImeVisible
+    val fontPixels = with(LocalDensity.current) { 15.sp.toPx() }
     var requested by remember { mutableStateOf(false) }
     var hadIme by remember { mutableStateOf(false) }
-    fun finish() { keyboard?.hide(); manager.clearFocus(force = true); commit(draft) }
-    fun dismiss() { keyboard?.hide(); manager.clearFocus(force = true); cancel() }
-    BackHandler { if (imeVisible) keyboard?.hide() else dismiss() }
-    OutlinedTextField(draft, { draft = it.take(limit) }, label = { Text(label) }, singleLine = true,
-        visualTransformation = if (secret) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction, autoCorrectEnabled = false),
-        keyboardActions = KeyboardActions(onNext = { finish() }, onDone = { finish() }),
-        modifier = Modifier.fillMaxWidth().focusRequester(input).focusProperties { down = done; next = done }
-            .onPreviewKeyEvent { event ->
-                val key = event.nativeKeyEvent
-                if (key.keyCode == KeyEvent.KEYCODE_ENTER || key.keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
-                    if (key.action == KeyEvent.ACTION_UP) finish()
-                    true
-                } else false
-            })
+    var finished by remember { mutableStateOf(false) }
+    fun hide() { input?.let { imm.hideSoftInputFromWindow(it.windowToken, 0); it.clearFocus() }; manager.clearFocus(force = true) }
+    fun finish() { if (!finished) { finished = true; hide(); commit(draft) } }
+    fun dismiss() { if (!finished) { finished = true; hide(); cancel() } }
+    BackHandler { if (imeVisible) input?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) } else dismiss() }
+    Column(Modifier.fillMaxWidth().border(2.dp, Accent, RoundedCornerShape(8.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Label(label, 12, Brand.TextTertiary)
+        AndroidView(factory = { ctx ->
+            EditText(ctx).apply {
+                setSingleLine(true)
+                inputType = InputType.TYPE_CLASS_TEXT or when {
+                    secret -> InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    keyboardType == KeyboardType.Uri -> InputType.TYPE_TEXT_VARIATION_URI
+                    else -> InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                }
+                imeOptions = if (imeAction == ImeAction.Next) EditorInfo.IME_ACTION_NEXT else EditorInfo.IME_ACTION_DONE
+                filters = arrayOf(InputFilter.LengthFilter(limit))
+                background = null
+                typeface = androidx.core.content.res.ResourcesCompat.getFont(ctx, com.cinemaplus.rebuilt.R.font.cairo_regular)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fontPixels)
+                setTextColor(Brand.TextPrimary.toArgb())
+                highlightColor = Accent.copy(alpha = .35f).toArgb()
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                textDirection = View.TEXT_DIRECTION_FIRST_STRONG
+                setPadding(0, 0, 0, 0)
+                setText(initial); setSelection(text.length)
+                contentDescription = label
+                addTextChangedListener(object : TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { draft = s?.toString().orEmpty() }
+                    override fun afterTextChanged(s: Editable?) = Unit
+                })
+                setOnEditorActionListener { _, action, _ ->
+                    if (action == EditorInfo.IME_ACTION_NEXT || action == EditorInfo.IME_ACTION_DONE) { finish(); true } else false
+                }
+                setOnKeyListener { _, code, event ->
+                    if (code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+                        if (event.action == KeyEvent.ACTION_UP) finish()
+                        true
+                    } else if (code == KeyEvent.KEYCODE_DPAD_DOWN && !imeVisible) {
+                        if (event.action == KeyEvent.ACTION_UP) { clearFocus(); done.requestFocus() }
+                        true
+                    } else false
+                }
+                input = this
+            }
+        }, onRelease = { editor ->
+            imm.hideSoftInputFromWindow(editor.windowToken, 0)
+            editor.clearFocus()
+        }, modifier = Modifier.fillMaxWidth().height(40.dp))
+    }
     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        IptvButton("تم", Modifier.focusRequester(done).focusProperties { up = input }) { finish() }
+        IptvButton("تم", Modifier.focusRequester(done)) { finish() }
         IptvButton("إلغاء") { dismiss() }
     }
-    LaunchedEffect(window.isWindowFocused) {
-        if (window.isWindowFocused && !requested) repeat(24) {
+    LaunchedEffect(input, window.isWindowFocused) {
+        if (window.isWindowFocused && input != null && !requested) repeat(24) {
             withFrameNanos { }
-            if (runCatching { input.requestFocus() }.getOrDefault(false)) {
-                requested = true; withFrameNanos { }; keyboard?.show(); return@LaunchedEffect
+            if (input?.requestFocus() == true) {
+                requested = true; withFrameNanos { }; imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
+                return@LaunchedEffect
             }
         }
     }
     LaunchedEffect(imeVisible) {
         if (imeVisible) hadIme = true
-        else if (hadIme) { withFrameNanos { }; runCatching { done.requestFocus() } }
+        else if (hadIme) { withFrameNanos { }; input?.clearFocus(); runCatching { done.requestFocus() } }
     }
 }
