@@ -76,6 +76,8 @@ def capture(name):
     (out/(name+'.png')).write_bytes(adb('exec-out', 'screencap', '-p').stdout)
     (out/(name+'.json')).write_text(json.dumps({'focused':focus(),'imeVisible':ime()},ensure_ascii=False,indent=2))
     (out/(name+'-windows.txt')).write_bytes(adb('shell','dumpsys','window').stdout)
+    (out/(name+'-input.txt')).write_bytes(adb('shell','dumpsys','input').stdout)
+    (out/(name+'-ime.txt')).write_bytes(adb('shell','dumpsys','input_method').stdout)
 
 
 def record(name, passed):
@@ -96,6 +98,13 @@ def open_editor(name):
     # Diagnostic recovery is reported as a failure, never counted as a passing single-OK flow.
     key(23); time.sleep(1)
     if not any(n.get('class') == 'android.widget.EditText' for n in nodes()):
+        capture(name+'-two-ok-failed')
+        key(19); capture(name+'-up-diagnostic')
+        key(20); key(23); capture(name+'-down-ok-diagnostic')
+        keyboard_package = adb('shell','settings','get','secure','default_input_method').stdout.decode().strip().split('/')[0]
+        if re.fullmatch(r'[A-Za-z0-9_.]+',keyboard_package):
+            adb('shell','am','force-stop',keyboard_package)
+            key(23); time.sleep(1); capture(name+'-ime-reset-diagnostic')
         raise AssertionError('Editor not opened by two OK presses: '+name)
     capture(name+'-second-ok')
 
