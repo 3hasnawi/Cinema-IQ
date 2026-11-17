@@ -59,6 +59,7 @@ import kotlinx.coroutines.withContext
     val channelFocus = remember { FocusRequester() }
     val categoryFocus = remember { FocusRequester() }
     val searchFocus = remember { FocusRequester() }
+    val emptyFocus = remember { FocusRequester() }
     val channelScroll = rememberLazyListState()
     val categoryScroll = rememberLazyListState()
     val target = IptvNavigation.entry(visible, focusedChannelId)
@@ -78,7 +79,13 @@ import kotlinx.coroutines.withContext
             val panelHeight = maxHeight * .88f
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    Surface(Modifier.width(channelWidth).height(panelHeight).focusGroup(),
+                    Surface(Modifier.width(channelWidth).height(panelHeight).focusGroup().onPreviewKeyEvent { event ->
+                        val key = event.nativeKeyEvent
+                        if (key.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && !searching) {
+                            if (key.action == KeyEvent.ACTION_DOWN && !categoriesOpen) categoriesOpen = true
+                            true
+                        } else false
+                    },
                         color = Panel.copy(alpha = .86f), shape = RoundedCornerShape(24.dp),
                         border = BorderStroke(1.dp, Brand.BorderStrong.copy(alpha = .85f))) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -93,16 +100,8 @@ import kotlinx.coroutines.withContext
                                 label = { Text("ابحث عن قناة") }, singleLine = true,
                                 modifier = Modifier.fillMaxWidth().testTag("iptv.tv.search").focusRequester(searchFocus)
                                     .onFocusChanged { searching = it.isFocused })
-                            LazyColumn(state = channelScroll, modifier = Modifier.fillMaxWidth().weight(1f).focusGroup()
-                                .onPreviewKeyEvent { event ->
-                                    val key = event.nativeKeyEvent
-                                    if (key.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                                        if (key.action == KeyEvent.ACTION_DOWN && !categoriesOpen) {
-                                            searching = false; categoriesOpen = true
-                                        }
-                                        true
-                                    } else false
-                                }, verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(5.dp)) {
+                            LazyColumn(state = channelScroll, modifier = Modifier.fillMaxWidth().weight(1f).focusGroup(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(5.dp)) {
                                 items(visible, key = { it.id }) { channel ->
                                     IptvChannelRow(channel, numbering[channel.id] ?: 0, channel.id == current.id, logos,
                                         Modifier.testTag("iptv.tv.channel.${channel.id}")
@@ -112,7 +111,7 @@ import kotlinx.coroutines.withContext
                                 }
                                 if (visible.isEmpty() && !filtering) item { Label("لا توجد قنوات تطابق البحث أو التصنيف.", 14, Brand.TextTertiary) }
                             }
-                            IptvButton("التصنيفات  ›") { searching = false; categoriesOpen = true }
+                            IptvButton("التصنيفات  ›", Modifier.focusRequester(emptyFocus)) { searching = false; categoriesOpen = true }
                         }
                     }
                     AnimatedVisibility(categoriesOpen, enter = fadeIn(tween(150)), exit = fadeOut(tween(120))) {
@@ -167,7 +166,7 @@ import kotlinx.coroutines.withContext
         }
         repeat(12) {
             withFrameNanos { }
-            val requester = if (categoriesOpen) categoryFocus else if (target == null) searchFocus else channelFocus
+            val requester = if (categoriesOpen) categoryFocus else if (target == null) emptyFocus else channelFocus
             if (runCatching { requester.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
         }
     }

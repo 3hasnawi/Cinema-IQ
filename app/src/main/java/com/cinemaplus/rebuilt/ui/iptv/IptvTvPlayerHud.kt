@@ -1,5 +1,6 @@
 package com.cinemaplus.rebuilt.ui.iptv
 
+import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -51,7 +53,7 @@ private val HudFocus = Color(0xFFCC4165)
     videoHeight: Int, audioLanguage: String?, isFavorite: Boolean, previousAvailable: Boolean, logos: ImageLoader,
     entryFocus: FocusRequester, focusChanged: (Boolean) -> Unit, channels: () -> Unit,
     favorite: () -> Unit, previous: () -> Unit, playPause: () -> Unit,
-    tracks: (Int, FocusRequester) -> Unit, exit: () -> Unit
+    channelStep: (Int) -> Unit, tracks: (Int, FocusRequester) -> Unit, exit: () -> Unit
 ) {
     val qualityFocus = remember { FocusRequester() }
     val audioFocus = remember { FocusRequester() }
@@ -61,7 +63,13 @@ private val HudFocus = Color(0xFFCC4165)
             ?.let { Locale.forLanguageTag(it).getDisplayLanguage(Locale("ar")) }
             ?.takeIf { it.isNotBlank() } ?: "الصوت"
     }
-    Column(Modifier.fillMaxWidth().testTag("iptv.tv.hud")
+    Column(Modifier.fillMaxWidth().testTag("iptv.tv.hud").onPreviewKeyEvent { event ->
+        val key = event.nativeKeyEvent
+        if (key.keyCode == KeyEvent.KEYCODE_DPAD_UP || key.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+            if (key.action == KeyEvent.ACTION_DOWN) channelStep(if (key.keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else 1)
+            true
+        } else false
+    }
         .background(Brush.verticalGradient(listOf(Color.Transparent, Ink.copy(alpha = .63f), Ink.copy(alpha = .91f))))
         .padding(start = 30.dp, end = 30.dp, top = 28.dp, bottom = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {

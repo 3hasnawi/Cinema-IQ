@@ -243,6 +243,7 @@ import kotlinx.coroutines.*
                         favorite = { favorite(channel); interaction++ },
                         previous = { channels.firstOrNull { it.id == previousId }?.let { tune(it) } },
                         playPause = { if (player.isPlaying) player.pause() else player.play(); interaction++ },
+                        channelStep = { step -> surf(step); restorePlayerFocus() },
                         tracks = { type, anchor -> trackReturnFocus = anchor; panel = type },
                         exit = { onExit(channel, group?.takeIf { it == channel.group }) })
                 }
