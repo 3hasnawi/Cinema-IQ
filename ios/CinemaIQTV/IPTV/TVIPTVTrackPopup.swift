@@ -12,13 +12,28 @@ struct TVIPTVTrackPopup<Content: View>: View {
     let window: CGSize
     let ready: () -> Void
     @ViewBuilder let content: () -> Content
-    var body: some View {
+    private var panelSize: CGSize {
         let font = UIFont.systemFont(ofSize: 26)
-        let ideal = labels.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 260
-        let width = min(600, max(310, ideal + 60))
-        let height = min(window.height * 0.55, CGFloat(rows * 76 + max(0, rows - 1) * 8 + footnoteLines * 32) + 100)
-        let size = CGSize(width: width, height: height)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        var ideal: CGFloat = 260
+        for label in labels { ideal = max(ideal, (label as NSString).size(withAttributes: attributes).width) }
+        let width: CGFloat = min(600, max(310, ideal + 120))
+        let rowHeight = CGFloat(rows) * 76
+        let spacing = CGFloat(max(0, rows - 1)) * 8
+        let footnoteHeight = CGFloat(footnoteLines) * 32
+        let height: CGFloat = min(window.height * 0.55, rowHeight + spacing + footnoteHeight + 100)
+        return CGSize(width: width, height: height)
+    }
+    var body: some View {
+        let size = panelSize
         let placed = IPTVPopupPlacement.above(window: window, anchor: anchor, popup: size)
+        panel(size: size, pivot: placed.pivot)
+            .position(x: placed.origin.x + size.width / 2, y: placed.origin.y + size.height / 2)
+            .transition(.scale(scale: 0.72, anchor: UnitPoint(x: placed.pivot, y: 1)).combined(with: .opacity))
+            .task { await Task.yield(); ready() }
+            .accessibilityIdentifier("tv.iptv.track.popup")
+    }
+    private func panel(size: CGSize, pivot: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 26, weight: .bold)).foregroundStyle(.white.opacity(0.65)).padding(.horizontal, 16)
             ScrollView {
@@ -26,14 +41,10 @@ struct TVIPTVTrackPopup<Content: View>: View {
             }.scrollIndicators(.hidden)
         }
         .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 40)
-        .frame(width: width, height: height)
-        .background(TVIPTVStyle.panel.opacity(0.78), in: TVIPTVDropShape(pivot: placed.pivot))
-        .overlay(TVIPTVDropShape(pivot: placed.pivot).stroke(.white.opacity(0.15), lineWidth: 1))
+        .frame(width: size.width, height: size.height)
+        .background(TVIPTVStyle.panel.opacity(0.78), in: TVIPTVDropShape(pivot: pivot))
+        .overlay(TVIPTVDropShape(pivot: pivot).stroke(.white.opacity(0.15), lineWidth: 1))
         .environment(\.layoutDirection, .rightToLeft)
-        .position(x: placed.origin.x + width / 2, y: placed.origin.y + height / 2)
-        .transition(.scale(scale: 0.72, anchor: UnitPoint(x: placed.pivot, y: 1)).combined(with: .opacity))
-        .task { await Task.yield(); ready() }
-        .accessibilityIdentifier("tv.iptv.track.popup")
     }
 }
 private struct TVIPTVDropShape: Shape {
