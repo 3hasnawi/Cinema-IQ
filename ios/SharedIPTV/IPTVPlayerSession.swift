@@ -200,7 +200,8 @@ import CinemaCore
     private func transportChanged() {
         guard automaticallyReconnect else { return }
         if playing && !buffering {
-            retrying = false; watchdogTask?.cancel(); watchdogTask = nil
+            retrying = false; retryTask?.cancel(); retryTask = nil
+            watchdogTask?.cancel(); watchdogTask = nil
             if stableTask == nil {
                 let token = generation
                 stableTask = Task { @MainActor [weak self] in
@@ -261,7 +262,7 @@ import CinemaCore
         let token = UUID(); generation = token; let requested = channel
         retrying = true; problem = nil; controller.close()
         retryTask = Task { @MainActor in
-            defer { if generation == token { retrying = false } }
+            defer { if generation == token { retrying = false; retryTask = nil } }
             do {
                 let fresh = try await store.refreshed(requested)
                 guard !Task.isCancelled, generation == token else { return }
