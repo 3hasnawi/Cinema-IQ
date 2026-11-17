@@ -16,11 +16,22 @@ final class TVArtworkFocusTests: XCTestCase {
         app.terminate()
     }
     func testPortraitTopAndBottomRemainVisibleAtFullScreen() throws {
-        let capture = XCUIScreen.main.screenshot(), image = try XCTUnwrap(capture.image.cgImage)
+        var capture = XCUIScreen.main.screenshot()
+        var pink = 0.0, green = 0.0
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            capture = XCUIScreen.main.screenshot()
+            let image = try XCTUnwrap(capture.image.cgImage)
+            pink = try coloredFraction(image, y: 0.045, pink: true)
+            green = try coloredFraction(image, y: 0.94, pink: false)
+            if pink > 0.75 && green > 0.65 { break }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
         // These colored edges disappear with aspect-fill cropping of the 2:3 portrait fixture.
-        XCTAssertGreaterThan(try coloredFraction(image, y: 0.045, pink: true), 0.75)
-        XCTAssertGreaterThan(try coloredFraction(image, y: 0.94, pink: false), 0.65)
-        shot("portrait-complete-hero-with-edge-markers")
+        XCTAssertGreaterThan(pink, 0.75)
+        XCTAssertGreaterThan(green, 0.65)
+        let attachment = XCTAttachment(screenshot: capture)
+        attachment.name = "portrait-complete-hero-with-edge-markers"; attachment.lifetime = .keepAlways; add(attachment)
     }
     func testDescriptionIsNotFocusableAndCircularActionsRestoreAfterReading() {
         expectFocus(element("tv.home.showcase")); remote.press(.select)
