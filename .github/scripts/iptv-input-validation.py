@@ -22,7 +22,8 @@ def adb(*args, timeout=15, check=True):
 
 
 def key(code):
-    adb('shell', 'input', 'keyevent', str(code)); time.sleep(.4)
+    source = 'dpad' if code in [4, 19, 20, 21, 22, 23] else 'keyboard'
+    adb('shell', 'input', source, 'keyevent', str(code)); time.sleep(.4)
 
 
 def nodes():
@@ -100,8 +101,6 @@ def open_editor(name):
     key(23); time.sleep(1)
     if not any(n.get('class') == 'android.widget.EditText' for n in nodes()):
         capture(name+'-two-ok-failed')
-        key(19); capture(name+'-up-diagnostic')
-        key(20); key(23); capture(name+'-down-ok-diagnostic')
         keyboard_package = adb('shell','settings','get','secure','default_input_method').stdout.decode().strip().split('/')[0]
         if re.fullmatch(r'[A-Za-z0-9_.]+',keyboard_package):
             adb('shell','am','force-stop',keyboard_package)
