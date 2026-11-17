@@ -231,7 +231,7 @@ final class TVVisualAuditTests: XCTestCase {
     }
 
     private func openTab(_ title: String) {
-        let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]
+        let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "التلفزيون", "الإعدادات"]
         func focusedLabel() -> String {
             let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
             return focused.exists ? focused.label : ""
