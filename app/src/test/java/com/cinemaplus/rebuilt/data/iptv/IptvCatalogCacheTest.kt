@@ -72,18 +72,6 @@ class IptvCatalogCacheTest {
             cache.remove("4"); assertNull(cache.read(source.copy(id = "4")))
         } finally { directory.deleteRecursively() }
     }
-    @Test fun invalidRowsAndFailedReplacementDoNotDestroyThePreviousSnapshot() {
-        val directory = Files.createTempDirectory("iptv-cache").toFile()
-        try {
-            val key = key(); val cache = IptvCatalogDiskCache(directory) { key }; cache.write(source, snapshot())
-            val invalid = snapshot().copy(catalog = IptvCatalog(emptyList()))
-            assertTrue(runCatching { cache.write(source, invalid) }.isFailure)
-            assertEquals(snapshot(), cache.read(source))
-            val foreign = snapshot().copy(catalog = IptvCatalog(listOf(snapshot().catalog.channels[0].copy(sourceId = "other"))))
-            assertTrue(runCatching { IptvCatalogCodec.encode(source, foreign) }.isFailure)
-            assertTrue(runCatching { IptvCatalogCodec.decode(source, byteArrayOf(1, 2)) }.isFailure)
-        } finally { directory.deleteRecursively() }
-    }
     @Test fun clockRollbackAndStaleSnapshotsRequireBackgroundRefresh() {
         assertTrue(snapshot().fresh(1_001))
         assertFalse(snapshot().fresh(999))

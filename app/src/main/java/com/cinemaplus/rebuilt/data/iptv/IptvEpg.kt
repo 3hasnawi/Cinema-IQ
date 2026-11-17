@@ -38,7 +38,7 @@ object IptvEpgParser {
         }
     }
     private fun title(raw: String): String {
-        val plain = raw.trim()
+        val plain = raw.trim().takeUnless { it.equals("null", true) }.orEmpty()
         val decoded = runCatching { plain.decodeBase64()?.utf8() }.getOrNull()
         return (decoded?.takeIf { it.isNotBlank() && '\uFFFD' !in it && it.all { c -> c >= ' ' || c == '\n' } } ?: plain).take(200)
     }

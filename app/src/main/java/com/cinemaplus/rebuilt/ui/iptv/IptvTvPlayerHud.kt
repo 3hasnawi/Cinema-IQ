@@ -115,12 +115,18 @@ private val HudFocus = Color(0xFFCC4165)
                 Icon(if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null,
                     Modifier.size(23.dp), tint = Color.White)
             }
-            HudButton(audio, "audio", Modifier.widthIn(max = 175.dp).focusRequester(audioFocus).onGloballyPositioned { audioBounds = it.boundsInWindow() },
-                click = { tracks(C.TRACK_TYPE_AUDIO, audioFocus, audioBounds) }) { HudGlyph("audio", Color.White) }
-            HudButton(if (videoHeight > 0) "${videoHeight}p" else "الجودة", "quality", Modifier.focusRequester(qualityFocus).onGloballyPositioned { qualityBounds = it.boundsInWindow() },
-                click = { tracks(C.TRACK_TYPE_VIDEO, qualityFocus, qualityBounds) }) { HudGlyph("quality", Color.White) }
-            HudButton("الترجمة", "subtitles", Modifier.focusRequester(subtitlesFocus).onGloballyPositioned { subtitleBounds = it.boundsInWindow() },
-                click = { tracks(C.TRACK_TYPE_TEXT, subtitlesFocus, subtitleBounds) }) { PlayerTransportIcon("CC", Color.White, 23.dp) }
+            HudButton(audio, "audio", Modifier.widthIn(max = 175.dp).focusRequester(audioFocus),
+                click = { tracks(C.TRACK_TYPE_AUDIO, audioFocus, audioBounds) }) {
+                Box(Modifier.onGloballyPositioned { audioBounds = it.boundsInWindow() }) { HudGlyph("audio", Color.White) }
+            }
+            HudButton(if (videoHeight > 0) "${videoHeight}p" else "الجودة", "quality", Modifier.focusRequester(qualityFocus),
+                click = { tracks(C.TRACK_TYPE_VIDEO, qualityFocus, qualityBounds) }) {
+                Box(Modifier.onGloballyPositioned { qualityBounds = it.boundsInWindow() }) { HudGlyph("quality", Color.White) }
+            }
+            HudButton("الترجمة", "subtitles", Modifier.focusRequester(subtitlesFocus),
+                click = { tracks(C.TRACK_TYPE_TEXT, subtitlesFocus, subtitleBounds) }) {
+                Box(Modifier.onGloballyPositioned { subtitleBounds = it.boundsInWindow() }) { PlayerTransportIcon("CC", Color.White, 23.dp) }
+            }
             HudButton("السابقة", "previous", enabled = previousAvailable, click = previous) { HudGlyph("previous", Color.White) }
         }
     }

@@ -64,9 +64,15 @@ class IptvEpgTest {
         assertEquals(IptvNowNext(), epg.load(source, channel, null))
         assertEquals(IptvNowNext(), epg.load(source, channel.copy(sourceId = "foreign"), null))
         assertEquals(1, calls)
-        assertEquals(IptvNowNext(), epg.load(source, channel, null))
-        assertEquals(IptvNowNext(), epg.load(source, channel, null))
-        assertEquals(IptvNowNext(), epg.load(source, channel.copy(sourceId = "different"), null))
+    }
+    @Test fun unavailableMetadataIsOptionalAndRateLimitingCoversOtherChannels() = runBlocking {
+        var calls = 0
+        val source = IptvSource("one", "TV", IptvKind.Xtream, "https://provider.example", "fixture-user", "fixture-password")
+        val client = IptvEpgClient(IptvTransport { _, _ -> calls++; throw IptvException(IptvException.Reason.Http, 429) }) { now }
+        val channel = IptvChannel("one:7", "one", "News", "News", IptvClient.liveUrl(source, "7"))
+        assertEquals(IptvNowNext(), client.load(source, channel, null))
+        assertEquals(IptvNowNext(), client.load(source, channel.copy(id = "one:8", url = IptvClient.liveUrl(source, "8")), null))
         assertEquals(1, calls)
     }
+
 }

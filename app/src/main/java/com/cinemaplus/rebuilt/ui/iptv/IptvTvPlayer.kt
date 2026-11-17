@@ -227,7 +227,7 @@ import kotlinx.coroutines.*
         player.setMediaItem(MediaItem.Builder().setUri(channel.url).setMediaId(channel.id).build())
         player.prepare(); player.playWhenReady = true
     }
-    LaunchedEffect(retryNeeded, channel.id, foreground, pausedByUser) {
+    LaunchedEffect(retryNeeded, retryFailure, retryAfter, channel.id, foreground, pausedByUser, terminalFailure) {
         if (!retryNeeded || terminalFailure || !IptvReconnectPolicy.allowed(foreground, pausedByUser)) return@LaunchedEffect
         val requested = channel; val token = requestGeneration
         val plan = IptvReconnectPolicy.retry(retryFailure, retryCount, retryAfter) ?: return@LaunchedEffect
