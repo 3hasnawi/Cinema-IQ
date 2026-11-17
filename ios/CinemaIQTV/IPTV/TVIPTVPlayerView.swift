@@ -114,7 +114,11 @@ struct TVIPTVPlayerView: View {
             guard phase == .active else { return }
             do { try await Task.sleep(for: .milliseconds(750)) } catch { return }
             while !Task.isCancelled {
-                do { programmes = try await session.programmes() }
+                do {
+                    let result = try await session.programmes()
+                    guard !Task.isCancelled else { return }
+                    programmes = result
+                }
                 catch { if Task.isCancelled { return }; programmes = IPTVNowNext() }
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
             }
@@ -144,9 +148,10 @@ struct TVIPTVPlayerView: View {
     private func trackPanel(_ value: String, window: CGSize) -> some View {
         let quality = value == "quality", audio = value == "audio"
         let tracks = audio ? session.audio : session.subtitles
-        let labels = quality ? ["جودة البث", "تلقائي", "تفضيل أعلى جودة متاحة", "محرك التشغيل"] + session.qualities.map(\.title)
-                             : [audio ? "الصوت" : "الترجمة", audio ? "المسار الافتراضي" : "إيقاف الترجمة"] + tracks.map(\.title)
-        let rows = quality ? session.qualities.count + 3 : tracks.count + 1
+        let defaults: [String] = audio && !tracks.isEmpty ? [] : [audio ? "المسار الافتراضي" : "إيقاف الترجمة"]
+        let labels: [String] = quality ? ["جودة البث", "تلقائي", "تفضيل أعلى جودة متاحة", "محرك التشغيل"] + session.qualities.map(\.title)
+                             : [audio ? "الصوت" : "الترجمة"] + defaults + tracks.map(\.title)
+        let rows = quality ? session.qualities.count + 3 : tracks.count + defaults.count
         return TVIPTVTrackPopup(title: quality ? "جودة البث" : audio ? "مسار الصوت" : "الترجمة", labels: labels, rows: rows,
             footnoteLines: !quality && tracks.isEmpty ? 2 : 0,
             anchor: bounds[value] ?? CGRect(x: window.width - 600, y: window.height - 80, width: 46, height: 46),
@@ -168,10 +173,13 @@ struct TVIPTVPlayerView: View {
                             .font(.system(size: 26)).padding(20).frame(minHeight: 76)
                     }.menuStyle(.button).buttonStyle(TVIPTVTrackButtonStyle()).focused($focus, equals: "track.engine")
                 } else if audio {
-                    trackButton("المسار الافتراضي", id: "track.first", selected: session.audioID == nil || session.audioID == session.audio.first?.id) {
-                        if let first = session.audio.first { session.chooseAudio(first.id) }
+                    if session.audio.isEmpty {
+                        trackButton("المسار الافتراضي", id: "track.first", selected: true) { }
+                    } else {
+                        ForEach(Array(session.audio.enumerated()), id: \.element.id) { index, item in
+                            trackButton(item.title, id: index == 0 ? "track.first" : item.id, selected: session.audioID == item.id) { session.chooseAudio(item.id) }
+                        }
                     }
-                    ForEach(session.audio) { item in trackButton(item.title, id: item.id, selected: session.audioID == item.id) { session.chooseAudio(item.id) } }
                 } else {
                     trackButton("إيقاف الترجمة", id: "track.first", selected: session.subtitleID == nil) { session.chooseSubtitle(nil) }
                     ForEach(session.subtitles) { item in trackButton(item.title, id: item.id, selected: session.subtitleID == item.id) { session.chooseSubtitle(item.id) } }

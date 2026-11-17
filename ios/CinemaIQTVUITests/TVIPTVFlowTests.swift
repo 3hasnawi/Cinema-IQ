@@ -106,6 +106,9 @@ final class TVIPTVFlowTests: XCTestCase {
             let icon = element("tv.iptv.player." + kind)
             focus(icon, direction: .left); remote.press(.select)
             expectFocus(element("tv.iptv.track.first"))
+            if kind == "audio" {
+                XCTAssertLessThanOrEqual(element("tv.iptv.track.popup").buttons.matching(NSPredicate(format: "value == %@", "محدد")).count, 1)
+            }
             shot("compact-" + kind + "-popup")
             remote.press(.menu); expectFocus(icon)
             remote.press(.select); expectFocus(element("tv.iptv.track.first"))

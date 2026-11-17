@@ -105,6 +105,8 @@ struct TVIPTVLiveGuide: View {
                         let result = await Task.detached { collection.channels(channels, sourceID: source, section: selection, query: text) }.value
                         guard !Task.isCancelled else { return }; visible = result
                         let id = IPTVNavigation.entry(currentID: lastFocused, in: result)
+                        await Task.yield()
+                        guard !Task.isCancelled else { return }
                         if let id { proxy.scrollTo(id, anchor: .center) }
                         guard focus != "search", !categoriesOpen else { return }
                         do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
