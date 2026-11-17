@@ -77,7 +77,8 @@ struct TVIPTVLiveGuide: View {
                         ForEach(visible) { channel in
                             Button {
                                 session.section = section; session.group = section.group
-                                session.tune(channel); selected()
+                                if channel.id != session.channel.id { session.tune(channel) }
+                                selected()
                             } label: {
                                 HStack(spacing: 18) {
                                     TVIPTVLogo(channel: channel).frame(width: 100, height: 86)
