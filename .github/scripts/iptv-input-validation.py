@@ -15,9 +15,9 @@ out = Path(a.output); out.mkdir(parents=True, exist_ok=True)
 checks = []
 
 
-def adb(*args, timeout=15):
+def adb(*args, timeout=15, check=True):
     result = subprocess.run(['adb', *args], capture_output=True, timeout=timeout)
-    result.check_returncode()
+    if check: result.check_returncode()
     return result
 
 
@@ -104,7 +104,8 @@ def native_done():
     # This fixed 1080p English TV-IME fixture starts on Q. Reach its bottom-row action key
     # with real D-pad events; do not replace the IME action with an app callback or a tap.
     for _ in range(3): key(20)
-    for _ in range(5): key(22)
+    for _ in range(6): key(22)
+    capture('native-action-'+str(len(checks)))
     key(23); time.sleep(.8)
 
 
@@ -113,8 +114,8 @@ try:
     adb('shell','settings','put','secure','show_ime_with_hard_keyboard','1')
     adb('install', '-r', a.apk, timeout=60).check_returncode()
     # The disposable emulator may permit root. Fall back to the public app entry otherwise.
-    adb('root'); adb('wait-for-device', timeout=30)
-    r = adb('shell', 'am', 'start', '-W', '-n', 'com.cinemaplus.rebuilt/.ui.iptv.IptvTvActivity')
+    adb('root',check=False); adb('wait-for-device', timeout=30)
+    r = adb('shell', 'am', 'start', '-W', '-n', 'com.cinemaplus.rebuilt/.ui.iptv.IptvTvActivity',check=False)
     if b'SecurityException' in r.stderr or b'Permission Denial' in r.stdout or b'Error' in r.stderr:
         adb('shell','am','start','-W','-n','com.cinemaplus.rebuilt/.MainActivity')
         tap(find('التلفزيون', timeout=35)); key(23)
