@@ -51,6 +51,7 @@ struct TVIPTVLiveGuide: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing).padding(.horizontal, 48)
         }
         .environment(\.layoutDirection, .leftToRight)
+        .onChange(of: query) { _, value in if value.count > 200 { query = String(value.prefix(200)) } }
         .onChange(of: focus) { _, value in if let value, value.hasPrefix("channel.") { lastFocused = String(value.dropFirst(8)) } }
         .onExitCommand { if categoriesOpen { restoreChannels() } else { selected() } }
         .onDisappear { focusTask?.cancel() }

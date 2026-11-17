@@ -39,7 +39,19 @@ struct TVIPTVPlayerView: View {
             focus = session.problem == nil ? target : "error.retry"
         }
     }
-    private func closeGuide() { guide = false; interact(); focus = session.problem == nil ? "surface" : "error.retry" }
+    private func openGuide() {
+        restoreTask?.cancel(); interact()
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { guide = true }
+    }
+    private func closeGuide() {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { guide = false }
+        interact(); restoreTask?.cancel()
+        restoreTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 160)) } catch { return }
+            guard !guide, pane == nil else { return }
+            focus = session.problem == nil ? "surface" : "error.retry"
+        }
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -47,7 +59,7 @@ struct TVIPTVPlayerView: View {
                 Color.black
                 PlaybackVideoSurface(controller: session.controller).frame(width: geometry.size.width, height: geometry.size.height)
                     .environment(\.layoutDirection, .leftToRight).allowsHitTesting(false)
-                Button { interact(); guide = true } label: { Color.clear.contentShape(Rectangle()) }
+                Button(action: openGuide) { Color.clear.contentShape(Rectangle()) }
                     .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")
                     .disabled(guide || pane != nil || session.problem != nil)
                     .accessibilityLabel(session.channel.name).accessibilityValue(session.status)
@@ -62,7 +74,7 @@ struct TVIPTVPlayerView: View {
                     }
                 if controls || pane != nil {
                     TVIPTVPlayerHUD(session: session, programmes: programmes, focus: $focus,
-                        channels: { guide = true }, tracks: openTracks, iconBounds: { bounds[$0] = $1 }, interact: interact)
+                        channels: openGuide, tracks: openTracks, iconBounds: { bounds[$0] = $1 }, interact: interact)
                         .disabled(guide || pane != nil || session.problem != nil)
                         .opacity(guide ? 0 : 1)
                 }
@@ -73,6 +85,7 @@ struct TVIPTVPlayerView: View {
                 if guide {
                     TVIPTVLiveGuide(session: session, selected: closeGuide)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
                 }
                 if let pane { trackPanel(pane, window: geometry.size) }
             }.coordinateSpace(name: "tv.iptv.player.space")
@@ -116,7 +129,7 @@ struct TVIPTVPlayerView: View {
                 if session.controller.lastFailure == .unsupported || session.controller.lastFailure == .unknown {
                     Button("توافق موسّع") { session.controller.chooseEngine(.compatibility); focus = "surface" }
                 }
-                Button("القنوات") { guide = true }
+                Button("القنوات", action: openGuide)
             }
         }.padding(44).frame(maxWidth: 1100).background(TVIPTVStyle.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 28))
             .focusSection().task { await Task.yield(); focus = "error.retry" }
