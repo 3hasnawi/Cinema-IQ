@@ -14,6 +14,7 @@ import Combine
     @Published public private(set) var catalogRevision = UUID()
     @Published public private(set) var sourceRevision = UUID()
     @Published public private(set) var loading = false
+    @Published public private(set) var refreshing = false
     @Published public private(set) var message: String?
     @Published public private(set) var storageAvailable = false
     @Published public private(set) var storageLoading = true
@@ -21,7 +22,9 @@ import Combine
     private let defaults: UserDefaults
     private let selectionKey: String
     private let client: IPTVClient
+    private let catalogCache: (any IPTVCatalogCaching)?
     private var cache: [String: (Date, IPTVCatalog)] = [:]
+    private var retryAfter: [String: Date] = [:]
     private var requestID = UUID()
     private var inFlightSourceID: String?
     private var loadTask: Task<IPTVCatalog, Error>?
@@ -31,9 +34,9 @@ import Combine
 
     private let prepareStorage: (@Sendable (IPTVKeychainVault) throws -> Void)?
     public init(service: String, selectionKey: String, client: IPTVClient = IPTVClient(),
-                defaults: UserDefaults = .standard,
+                defaults: UserDefaults = .standard, catalogCache: (any IPTVCatalogCaching)? = nil,
                 resetCollection: Bool = false, prepareStorage: (@Sendable (IPTVKeychainVault) throws -> Void)? = nil) {
-        self.defaults = defaults; self.selectionKey = selectionKey; self.client = client
+        self.defaults = defaults; self.selectionKey = selectionKey; self.client = client; self.catalogCache = catalogCache
         self.vault = IPTVKeychainVault(service: service); self.prepareStorage = prepareStorage
         if resetCollection { defaults.removeObject(forKey: selectionKey + ".channels.v1") }
         if let data = defaults.data(forKey: selectionKey + ".channels.v1"), data.count < 2_000_000,
@@ -76,11 +79,19 @@ import Combine
         guard !storageLoading else { return }
         guard let source = selected else {
             loadTask?.cancel(); loadTask = nil; inFlightSourceID = nil; requestID = UUID()
-            catalog = IPTVCatalog(channels: []); loading = false; return
+            catalog = IPTVCatalog(channels: []); loading = false; refreshing = false; return
         }
-        cache = cache.filter { Date().timeIntervalSince($0.value.0) < 300 }
-        if loadTask == nil, !force, let cached = cache[source.id], Date().timeIntervalSince(cached.0) < 300 {
-            catalog = cached.1; message = nil; loading = false; return
+        let lifetime: TimeInterval = catalogCache == nil ? 300 : 900
+        if catalogCache == nil { cache = cache.filter { Date().timeIntervalSince($0.value.0) < lifetime } }
+        if !force, loadTask == nil, cache[source.id] == nil, let catalogCache,
+           let saved = try? await catalogCache.read(source) {
+            guard !Task.isCancelled, selectedID == source.id else { return }
+            cache[source.id] = (saved.savedAt, saved.catalog); retryAfter[source.id] = saved.retryAfter
+            catalog = saved.catalog
+        }
+        if loadTask == nil, !force, let cached = cache[source.id], Date() >= cached.0,
+           Date().timeIntervalSince(cached.0) < lifetime || retryAfter[source.id].map({ Date() < $0 }) == true {
+            catalog = cached.1; message = nil; loading = false; refreshing = false; return
         }
         let request: UUID
         let task: Task<IPTVCatalog, Error>
@@ -92,18 +103,26 @@ import Combine
             request = UUID(); requestID = request
             let client = self.client
             task = Task { try await client.load(source) }; loadTask = task
-            catalog = IPTVCatalog(channels: []); loading = true; message = nil
+            let saved = cache[source.id]?.1
+            catalog = saved ?? IPTVCatalog(channels: []); loading = saved == nil; refreshing = saved != nil; message = nil
             inFlightSourceID = source.id
         }
-        defer { if requestID == request { loading = false; inFlightSourceID = nil; loadTask = nil } }
+        defer { if requestID == request { loading = false; refreshing = false; inFlightSourceID = nil; loadTask = nil } }
         do {
             let result = try await task.value
             try Task.checkCancellation()
             guard requestID == request, selectedID == source.id else { return }
-            cacheResult(result, for: source.id); catalog = result
+            catalog = result; await cacheResult(result, for: source)
         } catch is CancellationError {
         } catch {
-            if requestID == request && !Task.isCancelled { message = safeMessage(error) }
+            if requestID == request && !Task.isCancelled {
+                message = safeMessage(error)
+                if let catalogCache, let saved = cache[source.id] {
+                    let delay: TimeInterval = (error as? IPTVError) == .http(429) ? 300 : 60
+                    let until = Date().addingTimeInterval(delay); retryAfter[source.id] = until
+                    try? await catalogCache.write(IPTVCatalogSnapshot(savedAt: saved.0, catalog: saved.1, retryAfter: until), source: source)
+                }
+            }
         }
     }
     public func connectAndSave(_ source: IPTVSource) async throws {
@@ -114,7 +133,7 @@ import Combine
         guard updated.count <= 20 else { throw IPTVKeychainVault.VaultError.sourceLimit }
         try vault.write(updated)
         requestID = UUID(); loadTask?.cancel(); loadTask = nil; loading = false; inFlightSourceID = nil
-        sources = updated; cacheResult(result, for: source.id); selectedID = source.id; sourceRevision = UUID()
+        sources = updated; await cacheResult(result, for: source); selectedID = source.id; sourceRevision = UUID()
         catalog = result; message = nil
     }
     public func remove(_ source: IPTVSource) {
@@ -123,6 +142,8 @@ import Combine
             let updated = sources.filter { $0.id != source.id }
             try vault.write(updated)
             sources = updated; cache[source.id] = nil; sourceRevision = UUID()
+            retryAfter[source.id] = nil
+            if let catalogCache { Task { await catalogCache.remove(sourceID: source.id) } }
             if selectedID == source.id {
                 requestID = UUID(); loadTask?.cancel(); loadTask = nil; inFlightSourceID = nil; loading = false
                 selectedID = updated.first?.id; catalog = IPTVCatalog(channels: [])
@@ -133,21 +154,27 @@ import Combine
     /// Refresh expiring playlist links before retry, matching channel identity rather than a list index.
     public func refreshed(_ channel: IPTVChannel) async throws -> IPTVChannel {
         guard let source = sources.first(where: { $0.id == channel.sourceID }) else { throw IPTVError.noChannels }
+        requestID = UUID(); loadTask?.cancel(); loadTask = nil; inFlightSourceID = nil; refreshing = false; loading = false
         let result = try await client.load(source)
         try Task.checkCancellation()
-        cacheResult(result, for: source.id)
+        await cacheResult(result, for: source)
         if selectedID == source.id { catalog = result }
         guard let found = result.channels.first(where: { $0.id == channel.id }) else { throw IPTVError.noChannels }
         return found
+    }
+    public func programmes(for channel: IPTVChannel) async throws -> IPTVNowNext {
+        guard let source = sources.first(where: { $0.id == channel.sourceID }) else { return IPTVNowNext() }
+        return try await client.programmes(source: source, channel: channel, epgURL: selectedID == source.id ? catalog.epgURL : nil)
     }
     public func safeMessage(_ error: Error) -> String {
         if let error = error as? IPTVError { return error.localizedDescription }
         if let error = error as? IPTVKeychainVault.VaultError { return error.localizedDescription }
         return "تعذّر إكمال الاتصال بمصدر IPTV. تحقق من الشبكة وأعد المحاولة."
     }
-    private func cacheResult(_ result: IPTVCatalog, for source: String) {
-        cache[source] = (Date(), result)
+    private func cacheResult(_ result: IPTVCatalog, for source: IPTVSource) async {
+        let time = Date(); cache[source.id] = (time, result); retryAfter[source.id] = nil
         while cache.count > 3, let oldest = cache.min(by: { $0.value.0 < $1.value.0 })?.key { cache[oldest] = nil }
+        if let catalogCache { try? await catalogCache.write(IPTVCatalogSnapshot(savedAt: time, catalog: result), source: source) }
     }
 }
 #endif

@@ -3,6 +3,14 @@ import CinemaCore
 
 /// Platform-specific storage names; all loading, parsing and source management use the shared Core store.
 @MainActor enum TVIPTVConfiguration {
+    private static let catalogCache = makeCatalogCache(testing: false)
+    private static let testCatalogCache = makeCatalogCache(testing: true)
+    private static func makeCatalogCache(testing: Bool) -> IPTVDiskCatalogCache {
+        let name = testing ? "tv-iptv-catalog-uitests-v1" : "tv-iptv-catalog-v1"
+        let directory = (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent(name, isDirectory: true)
+        return IPTVDiskCatalogCache(directory: directory, service: "com.cinemaplus.rebuilt.tv." + name)
+    }
     static func makeStore() -> IPTVStore {
 #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
@@ -13,6 +21,7 @@ import CinemaCore
         if reset { UserDefaults.standard.removeObject(forKey: key) }
         return IPTVStore(service: testing ? "com.cinemaplus.rebuilt.tv.iptv.uitests" : "com.cinemaplus.rebuilt.tv.iptv",
                          selectionKey: key, client: testing ? IPTVClient(transport: IPTVDemoTransport()) : IPTVClient(),
+                         catalogCache: testing ? testCatalogCache : catalogCache,
                          resetCollection: reset, prepareStorage: { vault in
                              if reset { try vault.write([]) }
                              if seed {
@@ -25,7 +34,7 @@ import CinemaCore
                              }
                          })
 #else
-        return IPTVStore(service: "com.cinemaplus.rebuilt.tv.iptv", selectionKey: "tv.iptv.selected.v1")
+        return IPTVStore(service: "com.cinemaplus.rebuilt.tv.iptv", selectionKey: "tv.iptv.selected.v1", catalogCache: catalogCache)
 #endif
     }
 }
