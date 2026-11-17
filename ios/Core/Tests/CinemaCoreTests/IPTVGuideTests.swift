@@ -30,7 +30,7 @@ final class IPTVGuideTests: XCTestCase {
     func testMissingAndInvalidSchedulesDoNotInventProgrammes() throws {
         XCTAssertEqual(IPTVGuideParser.nowNext([], now: now), IPTVNowNext())
         XCTAssertTrue(try IPTVGuideParser.xtream(data("{}" )).isEmpty)
-        XCTAssertTrue(try IPTVGuideParser.xtream(data("""{"epg_listings":[{"title":"broken","start_timestamp":4,"stop_timestamp":3}]}""")).isEmpty)
+        XCTAssertTrue(try IPTVGuideParser.xtream(data(#"{"epg_listings":[{"title":"broken","start_timestamp":4,"stop_timestamp":3}]}"#)).isEmpty)
     }
     func testXMLTVTimeZonesAndArabicPreference() throws {
         let xml = data("""

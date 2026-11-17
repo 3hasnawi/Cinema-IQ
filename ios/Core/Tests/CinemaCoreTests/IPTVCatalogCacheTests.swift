@@ -33,7 +33,7 @@ final class IPTVCatalogCacheTests: XCTestCase {
     func testEncryptedDiskRestoreAcrossInstancesWithoutPlaintextSubscriptionURLs() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let key = SymmetricKey(size: .bits256), source = try source(), saved = snapshot()
+        let key = SymmetricKey(size: .bits256), source = try self.source(), saved = snapshot()
         let first = IPTVDiskCatalogCache(directory: folder, key: key)
         try await first.write(saved, source: source)
         let files = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
