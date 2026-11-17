@@ -45,7 +45,6 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     var editing by remember { mutableStateOf<IptvSource?>(null) }
     var playing by remember { mutableStateOf<IptvChannel?>(null) }
     var previewedSource by remember { mutableStateOf<String?>(null) }
-    var startInGuide by remember { mutableStateOf(false) }
     var returnId by remember { mutableStateOf<String?>(null) }
     var focusedId by remember { mutableStateOf<String?>(null) }
     var returnEpoch by remember { mutableIntStateOf(0) }
@@ -72,13 +71,13 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     Box(Modifier.fillMaxSize().background(Ink)) {
         if (playing != null) {
             val channel = playing!!
-            IptvTvPlayer(channel, state.channels, state.group, true,
-                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback, startInGuide = startInGuide, collection = state.collection, favorite = vm::toggleFavorite, watched = vm::noteWatched) { last, selectedGroup ->
+            IptvTvPlayer(channel, state.channels, state.group?.takeIf { it == channel.group }, true,
+                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback, collection = state.collection, favorite = vm::toggleFavorite, watched = vm::noteWatched) { last, selectedGroup ->
                 playing = null; vm.returnFromPlayer(selectedGroup); returnId = last.id; returnEpoch++
             }
         } else Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Label("IPTV", 30, bold = true)
+                Label("التلفزيون", 30, bold = true)
                 Spacer(Modifier.weight(1f))
                 IptvButton("إضافة مصدر", Modifier.focusRequester(addFocus), state.storageReady && !state.busy) {
                     control = "add"; editing = null; panel = IptvPanel.Form
@@ -119,7 +118,7 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
                 contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 items(state.visible, key = { it.id }) { channel ->
                     IptvChannelCard(channel, logos, if (channel.id == targetId) Modifier.focusRequester(cardFocus) else Modifier,
-                        focused = { focusedId = channel.id }) { startInGuide = false; playing = channel }
+                        focused = { focusedId = channel.id }) { playing = channel }
                 }
             }
         }
@@ -156,10 +155,11 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
             null -> Unit
         }
     }
-    LaunchedEffect(state.selectedId, state.visible, state.busy, panel) {
+    LaunchedEffect(state.selectedId, state.visible, state.busy, state.filtering, panel) {
         if (!state.busy && !state.filtering && panel == null && playing == null && previewedSource != state.selectedId && state.visible.isNotEmpty()) {
-            previewedSource = state.selectedId; startInGuide = true
-            playing = state.visible.firstOrNull { it.id == returnId } ?: state.visible.first()
+            previewedSource = state.selectedId
+            playing = state.visible.firstOrNull { it.id == returnId }
+                ?: IptvTvStartup.channel(state.visible, state.selectedId.orEmpty(), state.collection.recent)
         }
     }
     LaunchedEffect(state.focusEpoch, returnEpoch, playing == null, state.storageLoading, state.busy, state.filtering) {

@@ -5,12 +5,6 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.LayoutInflater
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.zIndex
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -67,8 +61,6 @@ import kotlinx.coroutines.*
     var previousId by remember { mutableStateOf<String?>(null) }
     var attempt by remember { mutableIntStateOf(0) }
     var guide by remember { mutableStateOf(startInGuide) }
-    var previewFrame by remember { mutableStateOf<Rect?>(null) }
-    var viewport by remember { mutableStateOf(IntSize.Zero) }
     var controls by remember { mutableStateOf(true) }
     var interaction by remember { mutableIntStateOf(0) }
     var toolbarFocus by remember { mutableStateOf(false) }
@@ -98,7 +90,15 @@ import kotlinx.coroutines.*
     var refreshing by remember { mutableStateOf(false) }
     var refreshTask by remember { mutableStateOf<Job?>(null) }
     var requestGeneration by remember { mutableIntStateOf(0) }
-    fun restoreSurface() { controls = true; interaction++; scope.launch { withFrameNanos { }; runCatching { surface.requestFocus() } } }
+    fun restoreSurface() {
+        controls = true; interaction++
+        scope.launch {
+            repeat(12) {
+                withFrameNanos { }
+                if (runCatching { surface.requestFocus() }.getOrDefault(false)) return@launch
+            }
+        }
+    }
     fun tune(next: IptvChannel) {
         if (next.sourceId != initial.sourceId || next.id == channel.id) return
         refreshTask?.cancel(); requestGeneration++; refreshing = false; previousId = channel.id; channel = next
@@ -142,7 +142,7 @@ import kotlinx.coroutines.*
     LaunchedEffect(fullscreen) { onFullscreen(fullscreen) }
     LaunchedEffect(initialGroup) { if (startInBrowser) browserSection = initialGroup?.let { IptvChannelSection.Group(it) } ?: IptvChannelSection.All }
     BackHandler(enabled = panel == null && !guide) { if (startInBrowser && fullscreen) fullscreen = false else onExit(channel, group?.takeIf { it == channel.group }) }
-    BoxWithConstraints(Modifier.fillMaxSize().onSizeChanged { viewport = it }.background(androidx.compose.ui.graphics.Color.Black).onPreviewKeyEvent { event ->
+    BoxWithConstraints(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black).onPreviewKeyEvent { event ->
         val key = event.nativeKeyEvent
         if (key.keyCode in listOf(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_CHANNEL_DOWN)) {
             if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) when (key.keyCode) {
@@ -162,17 +162,7 @@ import kotlinx.coroutines.*
         AndroidView(factory = { ctx -> (LayoutInflater.from(ctx).inflate(com.cinemaplus.rebuilt.R.layout.iptv_player_surface, null, false) as PlayerView).apply {
             useController = false; setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             isFocusable = false; descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS; layoutDirection = View.LAYOUT_DIRECTION_LTR
-        } }, update = { it.player = player }, modifier = videoModifier.zIndex(if (television && guide) 2f else 0f).graphicsLayer {
-            // Transform one stable TextureView instead of recreating the decoder or its paused frame.
-            val frame = previewFrame
-            if (television && guide) {
-                alpha = if (frame == null) 0f else 1f
-                if (frame != null && viewport.width > 0 && viewport.height > 0) {
-                    transformOrigin = TransformOrigin(0f, 0f); scaleX = frame.width / viewport.width; scaleY = frame.height / viewport.height
-                    translationX = frame.left; translationY = frame.top
-                }
-            } else { alpha = 1f; scaleX = 1f; scaleY = 1f; translationX = 0f; translationY = 0f }
-        })
+        } }, update = { it.player = player }, modifier = videoModifier)
         Box(Modifier.fillMaxSize().focusRequester(surface).focusProperties { canFocus = fullscreen && !guide && panel == null }.onPreviewKeyEvent { event ->
             val key = event.nativeKeyEvent
             if (television && key.keyCode in listOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)) {
@@ -254,11 +244,14 @@ import kotlinx.coroutines.*
             }
             IptvButton("القنوات") { guide = true }
         }
-        if (guide) IptvChannelGuide(channels, channel, group, television, { group = it }, {
-            val fullscreen = !television || it.id == channel.id
-            tune(it)
-            if (fullscreen) { guide = false; restoreSurface() }
-        }, { guide = false; restoreSurface() }, previewChanged = { previewFrame = it }, status = error ?: if (loading) "جارٍ التحميل…" else if (isPlaying) "بث مباشر" else "متوقف مؤقتًا")
+        if (guide) {
+            if (television) IptvTvChannelOverlay(channels, channel, group, { next, selectedGroup ->
+                group = selectedGroup; tune(next); guide = false; restoreSurface()
+            }, { guide = false; restoreSurface() })
+            else IptvChannelGuide(channels, channel, group, false, { group = it }, {
+                tune(it); guide = false; restoreSurface()
+            }, { guide = false; restoreSurface() })
+        }
         panel?.let { type ->
             val groups = tracks.groups.filter { it.type == type }; val first = remember(type) { FocusRequester() }
             IptvDialog(when (type) { C.TRACK_TYPE_VIDEO -> "جودة البث"; C.TRACK_TYPE_AUDIO -> "مسار الصوت"; else -> "الترجمة" }, { closeTracks() }, first) {

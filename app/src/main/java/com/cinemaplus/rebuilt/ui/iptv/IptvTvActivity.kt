@@ -64,10 +64,10 @@ class IptvTvActivity : ComponentActivity() {
     Row(Modifier.then(if (expanded) Modifier.fillMaxWidth().height(72.mx) else Modifier.size(64.mx))
         .clip(RoundedCornerShape(16.mx)).background(if (focused) Color.White else Color.Transparent)
         .onFocusChanged { focused = it.isFocused }.clickable { IptvTvActivity.open(context) }
-        .semantics { contentDescription = "IPTV" }.padding(horizontal = if (expanded) 20.mx else 0.dp),
+        .semantics { contentDescription = "التلفزيون" }.padding(horizontal = if (expanded) 20.mx else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (expanded) Arrangement.spacedBy(20.mx) else Arrangement.Center) {
         Icon(Icons.Rounded.PlayArrow, null, Modifier.size(30.mx), tint = if (focused) Ink else Brand.TextTertiary)
-        if (expanded) Label("IPTV", 15, if (focused) Ink else Brand.TextTertiary, focused, lines = 1)
+        if (expanded) Label("التلفزيون", 15, if (focused) Ink else Brand.TextTertiary, focused, lines = 1)
     }
 }
