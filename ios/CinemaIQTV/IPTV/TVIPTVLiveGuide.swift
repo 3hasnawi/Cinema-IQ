@@ -24,10 +24,13 @@ struct TVIPTVLiveGuide: View {
         switch section { case .all: return "group.all"; case .favorites: return "group.favorites"; case .group(let name): return "group." + name; case .recent: return "group.all" }
     }
     private func restoreChannels() {
+        returnToChannels(after: .milliseconds(100))
+    }
+    private func returnToChannels(after delay: Duration) {
         focusTask?.cancel()
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { categoriesOpen = false }
         focusTask = Task { @MainActor in
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            do { try await Task.sleep(for: delay) } catch { return }
             focus = IPTVNavigation.entry(currentID: lastFocused, in: visible).map { "channel." + $0 } ?? "categories"
         }
     }
@@ -72,7 +75,12 @@ struct TVIPTVLiveGuide: View {
             }
             TextField("ابحث عن قناة", text: $query).font(.system(size: 26)).focused($focus, equals: "search")
                 .textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("tv.iptv.guide.search")
-                .onSubmit { restoreChannels() }
+                .submitLabel(.search)
+                .onSubmit {
+                    // Release the field first; the native keyboard otherwise restores its old focus on dismissal.
+                    focus = nil
+                    returnToChannels(after: .milliseconds(450))
+                }
                 .onMoveCommand { if $0 == .down { restoreChannels() } }
             ScrollViewReader { proxy in
                 ScrollView {

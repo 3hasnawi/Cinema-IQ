@@ -5,6 +5,9 @@ import CinemaCore
 @MainActor enum TVIPTVConfiguration {
     private static let catalogCache = makeCatalogCache(testing: false)
     private static let testCatalogCache = makeCatalogCache(testing: true)
+#if DEBUG
+    private static var preparedTestStore = false
+#endif
     private static func makeCatalogCache(testing: Bool) -> IPTVDiskCatalogCache {
         let name = testing ? "tv-iptv-catalog-uitests-v1" : "tv-iptv-catalog-v1"
         let directory = (FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
@@ -15,8 +18,11 @@ import CinemaCore
 #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         let testing = arguments.contains("--cinema-tv-ui-testing-iptv")
-        let reset = testing && arguments.contains("--cinema-tv-ui-testing-iptv-reset")
-        let seed = testing && arguments.contains("--cinema-tv-ui-testing-iptv-seed")
+        // TabView can recreate its state object. Fixtures reset once per app launch, never on tab reentry.
+        let firstTestingStore = testing && !preparedTestStore
+        if testing { preparedTestStore = true }
+        let reset = firstTestingStore && arguments.contains("--cinema-tv-ui-testing-iptv-reset")
+        let seed = firstTestingStore && arguments.contains("--cinema-tv-ui-testing-iptv-seed")
         let key = testing ? "tv.iptv.uitests.selected.v1" : "tv.iptv.selected.v1"
         if reset { UserDefaults.standard.removeObject(forKey: key) }
         return IPTVStore(service: testing ? "com.cinemaplus.rebuilt.tv.iptv.uitests" : "com.cinemaplus.rebuilt.tv.iptv",
