@@ -48,6 +48,10 @@ final class TVMovieCompatibilityTests: XCTestCase {
         waitFor { (timeline.value as? String) != before }
         shot("movie-compatibility-remote-seek")
         remote.press(.playPause); waitFor { (surface.value as? String) == "تشغيل" }
+        waitFor {
+            let parts = (timeline.value as? String ?? "").split(separator: ":").compactMap { Int($0) }
+            return !parts.isEmpty && parts.reduce(0, { $0 * 60 + $1 }) >= 10
+        }
         remote.press(.menu)
         XCTAssertTrue(play.waitForExistence(timeout: 15)); expectFocus(play)
         XCTAssertEqual(app.state, .runningForeground)

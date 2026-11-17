@@ -38,6 +38,7 @@ struct MediaOption: Identifiable, Hashable {
     private var fallbackAttempted = false
     private var wantsPlay = true
     private var restartOnResume = false
+    private var pendingMovieSeek: Double?
     private var pendingMode: IPTVPlaybackMode?
     private let enginePreference: PlaybackEnginePreference
     var hasItem: Bool { currentURL != nil }
@@ -152,6 +153,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func startCompatibility(resume: Double, playing shouldPlay: Bool) {
+        pendingMovieSeek = nil
         wantsPlay = shouldPlay; restartOnResume = false; pendingMode = nil
         let chosenAudio = audioID, chosenSubtitle = subtitleID
         releaseNative(); usesCompatibility = true; error = nil; lastFailure = nil; ended = false
@@ -160,7 +162,7 @@ struct MediaOption: Identifiable, Hashable {
         buffering = true
         compatibility.open(url: url, resume: resume, rate: rate, playing: shouldPlay, audioID: chosenAudio, subtitleID: chosenSubtitle, maximumHeight: maximumHeight, highest: highest) { [weak self] value in
             guard let self, usesCompatibility else { return }
-            position = value.position; duration = value.duration; playing = value.playing; buffering = value.buffering
+            position = pendingMovieSeek ?? value.position; duration = value.duration; playing = value.playing; buffering = value.buffering
             if audioOptions != value.audio { audioOptions = value.audio }
             if audioID != value.audioID { audioID = value.audioID }
             if embeddedSubtitles != value.subtitles { embeddedSubtitles = value.subtitles }
@@ -266,7 +268,14 @@ struct MediaOption: Identifiable, Hashable {
     func seek(to seconds: Double) {
         let target = max(0, duration > 0 ? min(seconds, duration) : seconds)
         position = target
-        if usesCompatibility { compatibility.seek(target); return }
+        if usesCompatibility {
+            if enginePreference == .tvMovies && !wantsPlay {
+                // VLC can retain the old clock while paused. Keep the selected movie time until resume,
+                // then reopen at that time rather than allowing paused callbacks to erase the seek.
+                pendingMovieSeek = target; restartOnResume = true
+            }
+            compatibility.seek(target); return
+        }
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
     func skip(_ delta: Double) { seek(to: position + delta) }
@@ -337,7 +346,7 @@ struct MediaOption: Identifiable, Hashable {
 
     func close() {
         persist(); compatibility.close(); releaseNative(); usesCompatibility = false
-        currentURL = nil; save = nil; playing = false; buffering = false; restartOnResume = false; pendingMode = nil
+        currentURL = nil; save = nil; playing = false; buffering = false; restartOnResume = false; pendingMode = nil; pendingMovieSeek = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
