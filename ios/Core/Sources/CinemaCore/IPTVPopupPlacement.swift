@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 public enum IPTVPopupPlacement {
     public static func above(window: CGSize, anchor: CGRect, popup: CGSize, margin: CGFloat = 32, gap: CGFloat = 10) -> (origin: CGPoint, pivot: CGFloat) {

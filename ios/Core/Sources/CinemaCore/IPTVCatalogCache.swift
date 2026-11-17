@@ -92,11 +92,11 @@ public actor IPTVDiskCatalogCache: IPTVCatalogCaching {
         warm = snapshot.catalog.channels.count <= 20_000 ? Warm(source: source, fingerprint: fingerprint, snapshot: snapshot) : nil
     }
     private func file(_ id: String) -> URL {
-        directory.appendingPathComponent(SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined() + ".enc")
+        directory.appendingPathComponent(CryptoKit.SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined() + ".enc")
     }
     private func fingerprint(_ source: IPTVSource) throws -> Data {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
-        return Data(SHA256.hash(data: try encoder.encode(source)))
+        return Data(CryptoKit.SHA256.hash(data: try encoder.encode(source)))
     }
     private func validate(_ snapshot: IPTVCatalogSnapshot, source: IPTVSource) throws {
         guard (1...IPTVParser.maximumChannels).contains(snapshot.catalog.channels.count) else { throw IPTVError.tooLarge }
