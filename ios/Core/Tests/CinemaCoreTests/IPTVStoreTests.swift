@@ -39,7 +39,7 @@ final class IPTVStoreTests: XCTestCase {
         let source = try IPTVSource(id: "fixture", name: "Fixture", kind: .playlist,
             address: XCTUnwrap(URL(string: "https://provider.example/list.m3u")))
         let channel = IPTVChannel(id: "fixture:cached", sourceID: source.id, name: "Cached News", group: "Live",
-            tvgID: "news", url: XCTUnwrap(URL(string: "https://media.example/cached.m3u8")))
+            tvgID: "news", url: try XCTUnwrap(URL(string: "https://media.example/cached.m3u8")))
         let cache = FixtureCatalogCache(IPTVCatalogSnapshot(savedAt: Date().addingTimeInterval(stale ? -1200 : 0), catalog: IPTVCatalog(channels: [channel])))
         let transport = DelayedPlaylistTransport(fail: fail)
         let store = IPTVStore(service: suite, selectionKey: "selected", client: IPTVClient(transport: transport), defaults: defaults,
