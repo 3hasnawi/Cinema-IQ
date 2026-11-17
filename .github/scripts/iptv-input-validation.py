@@ -50,10 +50,18 @@ def tap(n):
 
 
 def ime():
-    raw = adb('shell', 'dumpsys', 'input_method').stdout.decode(errors='replace')
-    window = re.search(r'mImeWindowVis=(0x[0-9a-fA-F]+|[0-9]+)', raw)
-    if window: return bool(int(window[1], 0) & 2)
-    return bool(re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true', raw))
+    # Service flags can remain set after a TV keyboard disappears; inspect its actual window.
+    raw = adb('shell', 'dumpsys', 'window', 'windows').stdout.decode(errors='replace')
+    blocks = re.split(r'\n(?=\s*Window #\d+ )',raw)
+    for block in blocks:
+        header = block.splitlines()[0] if block.splitlines() else ''
+        if 'InputMethod' not in header and not re.search(r'\bty=INPUT_METHOD\b|\btype=2011\b',block): continue
+        for key in ['isOnScreen','isVisible','isReadyForDisplay()']:
+            found = re.search(re.escape(key)+r'=(true|false)',block)
+            if found:
+                if found[1]=='true': return True
+                break
+    return False
 
 
 def focus():
@@ -64,6 +72,7 @@ def focus():
 def capture(name):
     (out/(name+'.png')).write_bytes(adb('exec-out', 'screencap', '-p').stdout)
     (out/(name+'.json')).write_text(json.dumps({'focused':focus(),'imeVisible':ime()},ensure_ascii=False,indent=2))
+    (out/(name+'-windows.txt')).write_bytes(adb('shell','dumpsys','window','windows').stdout)
 
 
 def record(name, passed):
@@ -81,12 +90,11 @@ try:
     if b'SecurityException' in r.stderr or b'Permission Denial' in r.stdout or b'Error' in r.stderr:
         adb('shell','am','start','-W','-n','com.cinemaplus.rebuilt/.MainActivity')
         tap(find('التلفزيون', timeout=35)); key(23)
-    tap(find('إضافة مصدر', timeout=30))
-    if not any('إضافة مصدر IPTV' in label(n) for n in nodes()): key(23)
+    find('إضافة مصدر', timeout=30)
+    key(23)
     find('إضافة مصدر IPTV')
     capture('01-source-dialog')
     record('Source dialog initially owns a source-type focus target', any('M3U' in str(n) or 'Xtream' in str(n) for n in focus()))
-    tap(find('M3U')); key(23)
     key(20)  # Physical D-pad Down, not a touch on the field.
     time.sleep(1)
     capture('02-name-navigation')
@@ -112,9 +120,13 @@ try:
     capture('06-form-exit')
     record('Back can leave the source form and return to its source screen',
         any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()))
-    tap(find('إضافة مصدر'))
-    if not any('إضافة مصدر IPTV' in label(n) for n in nodes()): key(23)
-    tap(find('Xtream')); key(23)
+    find('إضافة مصدر'); key(23)
+    find('إضافة مصدر IPTV')
+    key(21)  # Physical Left from the focused M3U button to Xtream.
+    capture('07-xtream-mode')
+    record('Physical Left reaches the Xtream source-type button',any('Xtream' in str(n) for n in focus()))
+    key(23)
+    find('عنوان خادم Xtream')
     for index, field in enumerate(['اسم المصدر','عنوان خادم Xtream','اسم المستخدم','كلمة المرور']):
         key(20); time.sleep(.5)
         capture('07-xtream-'+str(index))
@@ -137,7 +149,7 @@ except Exception as e:
     except Exception: pass
 finally:
     result = {'passed':error is None and all(c['passed'] for c in checks),'checks':checks,'error':error,
-        'apkReusedWithoutBuild':'approved-release' in str(a.apk),'typedRealCredentials':False}
+        'apkReusedWithoutBuild':'approved-release' in str(a.apk) or 'approved-input' in str(a.apk),'typedRealCredentials':False}
     (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
     print(json.dumps(result,ensure_ascii=False,indent=2))
     if not result['passed']: raise SystemExit(1)
