@@ -33,11 +33,12 @@ import com.cinemaplus.rebuilt.ui.*
 }
 
 @Composable internal fun IptvChannelRow(channel: IptvChannel, number: Int, playing: Boolean, logos: ImageLoader,
-    modifier: Modifier = Modifier, click: () -> Unit) {
+    modifier: Modifier = Modifier, translucent: Boolean = false, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Surface(modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(14.dp))
         .clickable(onClick = click).semantics { contentDescription = channel.name },
-        color = if (focused) Brand.Raised else Panel,
+        color = if (focused) Brand.Raised.copy(alpha = if (translucent) .82f else 1f)
+            else Panel.copy(alpha = if (translucent) .38f else 1f),
         shape = RoundedCornerShape(14.dp), border = BorderStroke(if (focused) 2.dp else 1.dp, if (focused || playing) Accent else Brand.BorderStrong)) {
         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             Label(number.toString(), 12, Brand.TextTertiary, lines = 1)
