@@ -80,6 +80,14 @@ def record(name, passed):
     print(('PASS' if passed else 'FAIL')+': '+name, flush=True)
 
 
+def native_done():
+    # This fixed 1080p English TV-IME fixture starts on Q. Reach its bottom-row action key
+    # with real D-pad events; do not replace the IME action with an app callback or a tap.
+    for _ in range(3): key(20)
+    for _ in range(5): key(22)
+    key(23); time.sleep(.8)
+
+
 error = None
 try:
     adb('shell','settings','put','secure','show_ime_with_hard_keyboard','1')
@@ -109,6 +117,16 @@ try:
     capture('04-enter-next')
     record('Completing the source-name input dismisses IME and focuses the address',
         not ime() and any('رابط قائمة M3U' in str(n) for n in focus()))
+    key(23); time.sleep(.8)
+    adb('shell','input','text','https://example.invalid/list.m3u')
+    capture('04b-url-edit')
+    native_done()
+    capture('04c-url-done')
+    record('Native IME Done commits the M3U URL and focuses HTTP without keyboard',
+        not ime() and any('HTTP' in str(n) for n in focus()) and any('example.invalid/list.m3u' in label(n) for n in nodes()))
+    key(20)
+    record('A completed M3U form reaches its enabled Connect control',
+        not ime() and any('اتصال وحفظ' in str(n) and n.get('enabled')=='true' for n in focus()))
     if ime(): key(4)
     time.sleep(1)
     capture('05-keyboard-back')
@@ -143,6 +161,36 @@ try:
     capture('10-password-return')
     record('Leaving the field editor restores password-control focus in the form',
         not ime() and any('كلمة المرور' in str(n) and n.get('class') != 'android.widget.EditText' for n in focus()))
+    key(19); key(19)  # Password -> User -> Address.
+    key(23); time.sleep(.8)
+    adb('shell','input','text','https://example.invalid')
+    native_done()
+    capture('11-xtream-address-next')
+    record('Native IME Next commits the Xtream address and focuses username',
+        not ime() and any('اسم المستخدم' in str(n) for n in focus()))
+    key(23); time.sleep(.8)
+    adb('shell','input','text','fixture_user')
+    native_done()
+    capture('12-xtream-user-next')
+    record('Native IME Next commits username and focuses password',
+        not ime() and any('كلمة المرور' in str(n) for n in focus()))
+    key(23); time.sleep(.8)
+    adb('shell','input','text','fixture-pass')
+    native_done()
+    capture('13-xtream-password-done')
+    record('Native IME Done commits password and focuses stream format',
+        not ime() and any('صيغة البث' in str(n) for n in focus()))
+    record('Completed credentials stay in the form and password remains masked',
+        any('fixture_user' in label(n) for n in nodes()) and not any('fixture-pass' in label(n) for n in nodes()))
+    key(20); key(20)
+    record('Completed Xtream form reaches Connect without reopening the keyboard',
+        not ime() and any('اتصال وحفظ' in str(n) for n in focus()))
+    key(21)
+    record('Physical Left from Connect reaches Cancel',any('إلغاء' in str(n) for n in focus()))
+    key(23)
+    capture('14-xtream-cancel')
+    record('Cancel closes the completed source form and restores Add Source focus',
+        not ime() and any('إضافة مصدر' in str(n) for n in focus()))
 except Exception as e:
     error = type(e).__name__ + ': ' + str(e)
     try: capture('failure')
