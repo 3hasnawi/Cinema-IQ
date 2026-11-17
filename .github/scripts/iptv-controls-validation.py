@@ -57,8 +57,9 @@ def toolbar(text):
 
 
 def start_tv():
-    result = adb('shell','am','start','-W','-n','com.cinemaplus.rebuilt/.ui.iptv.IptvTvActivity', check=False)
-    assert result.returncode == 0 and b'Error' not in result.stderr and b'Permission Denial' not in result.stdout
+    # A release activity is intentionally private; re-enter through its public launcher and TV rail.
+    adb('shell','am','start','-W','-n','com.cinemaplus.rebuilt/.MainActivity')
+    baseline['tap'](baseline['find']('التلفزيون', timeout=35))
 
 
 def wait_live(channel, timeout=45):
