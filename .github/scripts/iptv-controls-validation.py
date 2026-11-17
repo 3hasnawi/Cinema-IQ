@@ -73,15 +73,6 @@ def wait_live(channel, timeout=45):
 
 
 try:
-    assert shutil.which('ffmpeg'), 'The runner must provide ffmpeg for generated, reusable media'
-    for height, bitrate in [(360, '180k'), (720, '650k')]:
-        folder = fixture/str(height); folder.mkdir()
-        subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-f','lavfi','-i',
-            f'testsrc2=size={height*16//9}x{height}:rate=15','-f','lavfi','-i','sine=frequency=440:sample_rate=44100',
-            '-t','240','-c:v','libx264','-preset','ultrafast','-threads','2','-b:v',bitrate,'-g','30',
-            '-c:a','aac','-b:a','64k','-f','hls','-hls_time','2','-hls_playlist_type','vod',str(folder/'index.m3u8')],check=True,timeout=180)
-    master = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=260000,RESOLUTION=640x360\n/360/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=750000,RESOLUTION=1280x720\n/720/index.m3u8\n'
-    for number in (1,2): (fixture/f'live{number}.m3u8').write_text(master)
     # A public-domain single-pixel logo keeps this fixture independent of outside image servers.
     (fixture/'logo.png').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='))
     host = 'http://10.0.2.2:8765'
