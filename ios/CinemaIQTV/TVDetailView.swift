@@ -30,6 +30,7 @@ struct TVDetailView: View {
     @State private var trailerLoading = false
     @State private var trailerTask: Task<Void, Never>?
     @FocusState private var focus: DetailFocus?
+    @FocusState private var storyCloseFocused: Bool
 
     enum DetailFocus: Hashable { case play, trailer, list, story, seasons }
 
@@ -232,11 +233,23 @@ struct TVDetailView: View {
         ZStack {
             ShowcaseBackground(url: artwork, belowFold: true)
             VStack(spacing: 30) {
-                Text(current.title).font(.title2.bold())
-                Text(story).font(.body).multilineTextAlignment(.center).frame(maxWidth: 1200)
+                HStack {
+                    Text(current.title).font(.title2.bold())
+                    Spacer()
+                    Button { showStory = false } label: {
+                        Image(systemName: "xmark").font(.system(size: 28, weight: .semibold)).frame(width: 76, height: 76)
+                    }
+                    .buttonStyle(TVCircleButtonStyle()).focusEffectDisabled().focused($storyCloseFocused)
+                    .accessibilityLabel("إغلاق الوصف").accessibilityIdentifier("tv.detail.story.close")
+                }
+                ScrollView {
+                    Text(story).font(.body).multilineTextAlignment(.leading).frame(maxWidth: 1200)
+                        .focusable().focusEffectDisabled()
+                }
             }
             .padding(80)
         }
+        .defaultFocus($storyCloseFocused, true)
         .onExitCommand { showStory = false }
     }
 
