@@ -25,6 +25,14 @@ struct TVIPTVPlayerView: View {
     }
     private func close() { onReturn(session.channel, session.group == session.channel.group ? session.group : nil); dismiss() }
     private func interact() { controls = true; interaction += 1 }
+    private func showToolbar() {
+        interact(); restoreTask?.cancel()
+        restoreTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            guard !guide, pane == nil, controls, session.problem == nil else { return }
+            focus = "control.channels"
+        }
+    }
     private func openTracks(_ value: String) {
         restoreTask?.cancel(); interact()
         withAnimation(reduceMotion ? nil : .spring(response: 0.25, dampingFraction: 0.85)) { pane = value }
@@ -68,7 +76,7 @@ struct TVIPTVPlayerView: View {
                         switch direction {
                         case .up: session.surf(-1); interact()
                         case .down: session.surf(1); interact()
-                        case .left, .right: interact(); focus = "control.channels"
+                        case .left, .right: showToolbar()
                         default: break
                         }
                     }
@@ -173,13 +181,12 @@ struct TVIPTVPlayerView: View {
                             .font(.system(size: 26)).padding(20).frame(minHeight: 76)
                     }.menuStyle(.button).buttonStyle(TVIPTVTrackButtonStyle()).focused($focus, equals: "track.engine")
                 } else if audio {
-                    if session.audio.isEmpty {
-                        trackButton("المسار الافتراضي", id: "track.first", selected: true) { }
-                    } else {
-                        ForEach(Array(session.audio.enumerated()), id: \.element.id) { index, item in
-                            trackButton(item.title, id: index == 0 ? "track.first" : item.id, selected: session.audioID == item.id) { session.chooseAudio(item.id) }
-                        }
+                    let first = session.audio.first
+                    // Keep one stable focus target while the manifest's audio tracks arrive.
+                    trackButton(first?.title ?? "المسار الافتراضي", id: "track.first", selected: first.map { session.audioID == $0.id } ?? true) {
+                        if let first { session.chooseAudio(first.id) }
                     }
+                    ForEach(session.audio.dropFirst()) { item in trackButton(item.title, id: item.id, selected: session.audioID == item.id) { session.chooseAudio(item.id) } }
                 } else {
                     trackButton("إيقاف الترجمة", id: "track.first", selected: session.subtitleID == nil) { session.chooseSubtitle(nil) }
                     ForEach(session.subtitles) { item in trackButton(item.title, id: item.id, selected: session.subtitleID == item.id) { session.chooseSubtitle(item.id) } }

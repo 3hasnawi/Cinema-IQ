@@ -34,7 +34,10 @@ struct TVIPTVLiveGuide: View {
     private func openCategories() {
         focusTask?.cancel()
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { categoriesOpen = true }
-        focusTask = Task { @MainActor in await Task.yield(); focus = groupID }
+        focusTask = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(160)) } catch { return }
+            guard categoriesOpen else { return }; focus = groupID
+        }
     }
     var body: some View {
         GeometryReader { geometry in
@@ -60,12 +63,11 @@ struct TVIPTVLiveGuide: View {
             let values = await Task.detached { IPTVNavigation.categories(channels, sourceID: source) }.value
             guard !Task.isCancelled else { return }; categories = values
         }
-        .accessibilityIdentifier("tv.iptv.guide")
     }
     private var channelPanel: some View {
         VStack(spacing: 24) {
             HStack {
-                Text("القنوات").font(.system(size: 44, weight: .bold)); Spacer()
+                Text("القنوات").font(.system(size: 44, weight: .bold)).accessibilityIdentifier("tv.iptv.guide"); Spacer()
                 Button("إغلاق", action: selected).font(.system(size: 26)).accessibilityIdentifier("tv.iptv.guide.close")
             }
             TextField("ابحث عن قناة", text: $query).font(.system(size: 26)).focused($focus, equals: "search")
@@ -95,6 +97,10 @@ struct TVIPTVLiveGuide: View {
                             .buttonStyle(TVIPTVTrackButtonStyle()).focusEffectDisabled()
                             .focused($focus, equals: "channel." + channel.id).id(channel.id)
                             .accessibilityLabel(channel.name).accessibilityIdentifier("tv.iptv.guide.channel." + channel.id)
+                            .onMoveCommand { direction in
+                                if direction == .right { openCategories() }
+                                else if direction == .up && visible.first?.id == channel.id { focus = "search" }
+                            }
                         }
                         if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.").font(.system(size: 26)).foregroundStyle(.white.opacity(0.65)) }
                     }.padding(10)
@@ -122,7 +128,7 @@ struct TVIPTVLiveGuide: View {
     }
     private var categoryPanel: some View {
         VStack(alignment: .leading, spacing: 24) {
-            Text("التصنيفات").font(.system(size: 42, weight: .bold))
+            Text("التصنيفات").font(.system(size: 42, weight: .bold)).accessibilityIdentifier("tv.iptv.guide.groups")
             ScrollView {
                 LazyVStack(spacing: 20) {
                     category("كل القنوات", value: .all, count: session.channels.count)
@@ -135,7 +141,6 @@ struct TVIPTVLiveGuide: View {
         .padding(32).background(TVIPTVStyle.panel.opacity(0.88), in: RoundedRectangle(cornerRadius: 40))
         .overlay(RoundedRectangle(cornerRadius: 40).stroke(.white.opacity(0.16), lineWidth: 1))
         .environment(\.layoutDirection, .rightToLeft)
-        .accessibilityIdentifier("tv.iptv.guide.groups")
     }
     private func category(_ title: String, value: IPTVChannelSection, count: Int) -> some View {
         let id: String
@@ -151,5 +156,6 @@ struct TVIPTVLiveGuide: View {
             }.padding(20).frame(maxWidth: .infinity, minHeight: 76)
         }.buttonStyle(TVIPTVTrackButtonStyle()).focusEffectDisabled().focused($focus, equals: "group." + id)
             .accessibilityIdentifier("tv.iptv.guide.group." + id)
+            .onMoveCommand { if $0 == .left { restoreChannels() } }
     }
 }

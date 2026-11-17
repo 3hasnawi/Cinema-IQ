@@ -31,11 +31,11 @@ struct TVIPTVTrackPopup<Content: View>: View {
             .position(x: placed.origin.x + size.width / 2, y: placed.origin.y + size.height / 2)
             .transition(.scale(scale: 0.72, anchor: UnitPoint(x: placed.pivot, y: 1)).combined(with: .opacity))
             .task { await Task.yield(); ready() }
-            .accessibilityIdentifier("tv.iptv.track.popup")
     }
     private func panel(size: CGSize, pivot: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title).font(.system(size: 26, weight: .bold)).foregroundStyle(.white.opacity(0.65)).padding(.horizontal, 16)
+                .accessibilityIdentifier("tv.iptv.track.popup")
             ScrollView {
                 VStack(spacing: 8, content: content).padding(.vertical, 2)
             }.scrollIndicators(.hidden)

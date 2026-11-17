@@ -9,10 +9,13 @@ final class TVIPTVFlowTests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
     override func tearDown() {
         shot("last-state")
-        let tree = XCTAttachment(string: app.debugDescription); tree.name = "iptv-hierarchy"; tree.lifetime = .keepAlways; add(tree)
+        let hierarchy = app.debugDescription
+        print("IPTV-HIERARCHY-BEGIN\n" + hierarchy + "\nIPTV-HIERARCHY-END")
+        let tree = XCTAttachment(string: hierarchy); tree.name = "iptv-hierarchy"; tree.lifetime = .keepAlways; add(tree)
         app.terminate()
     }
     func testSourcesGroupsPlaybackAndSelectionPersistence() {
+        executionTimeAllowance = 360
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
         app.launch(); openIPTV()
         let news = channel("قناة الأخبار")
@@ -85,6 +88,9 @@ final class TVIPTVFlowTests: XCTestCase {
         waitFor { !self.element("tv.iptv.guide").exists && player.label == "قناة الوثائقيات" }
         remote.press(.select); remote.press(.menu); expectFocus(player)
         remote.press(.menu); expectFocus(channel("قناة الوثائقيات"))
+        remote.press(.menu); expectFocus(element("tv.home.showcase"))
+        openIPTV(keepPlayer: true); expectFocus(player)
+        XCTAssertEqual(player.label, "قناة الوثائقيات")
         app.terminate(); app.launchArguments = base; app.launch(); openIPTV(keepPlayer: true)
         expectFocus(player); XCTAssertEqual(player.label, "قناة الوثائقيات")
         shot("last-channel-restored-after-relaunch")
@@ -104,10 +110,10 @@ final class TVIPTVFlowTests: XCTestCase {
         for kind in ["quality", "audio", "subtitles"] {
             remote.press(.left)
             let icon = element("tv.iptv.player." + kind)
-            focus(icon, direction: .left); remote.press(.select)
+            focusControl(kind); remote.press(.select)
             expectFocus(element("tv.iptv.track.first"))
             if kind == "audio" {
-                XCTAssertLessThanOrEqual(element("tv.iptv.track.popup").buttons.matching(NSPredicate(format: "value == %@", "محدد")).count, 1)
+                XCTAssertLessThanOrEqual(app.buttons.matching(NSPredicate(format: "value == %@", "محدد")).count, 1)
             }
             shot("compact-" + kind + "-popup")
             remote.press(.menu); expectFocus(icon)
@@ -122,8 +128,10 @@ final class TVIPTVFlowTests: XCTestCase {
         app.launch(); openIPTV(keepPlayer: true)
         let player = element("tv.iptv.player.native")
         expectFocus(player); remote.press(.select)
+        XCTAssertTrue(element("tv.iptv.guide").waitForExistence(timeout: 15))
+        expectFocus(guideChannel("قناة الأخبار"))
         let search = element("tv.iptv.guide.search")
-        focus(search, direction: .up); remote.press(.select)
+        remote.press(.up); expectFocus(search); remote.press(.select)
         app.typeText("رياضة")
         remote.press(.menu)
         waitFor { !self.app.keyboards.firstMatch.exists }
@@ -169,13 +177,13 @@ final class TVIPTVFlowTests: XCTestCase {
         waitFor { (player.value as? String) == "بث مباشر" }
         try assertReferenceVideoVisible("compatibility-mpeg2-mp2-playing")
         remote.press(.playPause); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
-        remote.press(.left); focus(element("tv.iptv.player.audio"), direction: .right); remote.press(.select)
+        remote.press(.left); focusControl("audio"); remote.press(.select)
         expectFocus(element("tv.iptv.track.first")); shot("compatibility-audio-tracks")
         remote.press(.down); remote.press(.select); expectFocus(element("tv.iptv.player.audio"))
         XCTAssertEqual(player.value as? String, "متوقف مؤقتًا")
-        remote.press(.left); focus(element("tv.iptv.player.subtitles"), direction: .right); remote.press(.select)
+        remote.press(.left); focusControl("subtitles"); remote.press(.select)
         expectFocus(element("tv.iptv.track.first")); remote.press(.down); remote.press(.select); expectFocus(element("tv.iptv.player.subtitles"))
-        remote.press(.left); focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
+        remote.press(.left); focusControl("quality"); remote.press(.select)
         expectFocus(element("tv.iptv.track.first")); shot("compatibility-quality-options")
         remote.press(.down); expectFocus(element("tv.iptv.track.highest")); remote.press(.select)
         expectFocus(element("tv.iptv.player.quality")); waitFor { (player.value as? String) == "متوقف مؤقتًا" }
@@ -272,11 +280,11 @@ final class TVIPTVFlowTests: XCTestCase {
         waitFor { (player.value as? String) == "بث مباشر" }
         remote.press(.playPause)
         remote.press(.left)
-        focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
+        focusControl("quality"); remote.press(.select)
         expectFocus(element("tv.iptv.track.first"))
         remote.press(.down); expectFocus(element("tv.iptv.track.highest")); remote.press(.select)
         remote.press(.left)
-        focus(element("tv.iptv.player.quality"), direction: .right); remote.press(.select)
+        focusControl("quality"); remote.press(.select)
         XCTAssertTrue(element("tv.iptv.track.highest").waitForExistence(timeout: 10))
         XCTAssertEqual(element("tv.iptv.track.highest").value as? String, "محدد")
         shot("highest-quality-options")
@@ -334,14 +342,31 @@ final class TVIPTVFlowTests: XCTestCase {
     }
     private func closeAutomaticPlayer() {
         XCTAssertTrue(element("tv.iptv.player.native").waitForExistence(timeout: 25))
-        remote.press(.menu); XCTAssertTrue(element("tv.iptv.heading").waitForExistence(timeout: 20))
+        remote.press(.menu)
+        waitFor { !self.element("tv.iptv.player.native").exists || !self.element("tv.iptv.player.native").isHittable }
+        XCTAssertTrue(element("tv.iptv.heading").waitForExistence(timeout: 20))
     }
     private func guideChannel(_ name: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'tv.iptv.guide.channel.' AND label == %@", name)).firstMatch
     }
+    private func focusControl(_ kind: String) {
+        let order = ["channels", "favorite", "audio", "quality", "subtitles", "last"]
+        let target = "tv.iptv.player." + kind
+        remote.press(.left)
+        for _ in 0..<10 {
+            let current = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch
+            let id = current.exists ? current.identifier : ""
+            if id == target { return }
+            if let index = order.firstIndex(where: { id == "tv.iptv.player." + $0 }), let wanted = order.firstIndex(of: kind) {
+                remote.press(index < wanted ? .left : .right)
+            } else { remote.press(.left) }
+        }
+        expectFocus(element(target))
+    }
     private func focus(_ element: XCUIElement, direction: XCUIRemote.Button) {
-        // Move with the actual remote toward the element's live geometry, including horizontal toolbars.
-        for _ in 0..<32 {
+        // Missing controls must fail immediately so the complete result bundle retains the hierarchy.
+        guard element.waitForExistence(timeout: 5) else { XCTFail("Missing remote target"); return }
+        for _ in 0..<12 {
             if element.exists && isFocused(element) { return }
             guard element.exists else { remote.press(direction); continue }
             let current = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch

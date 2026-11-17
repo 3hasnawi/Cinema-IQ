@@ -90,7 +90,6 @@ struct TVIPTVPlayerHUD: View {
         .padding(.horizontal, 60).padding(.top, 56).padding(.bottom, 36)
         .background(LinearGradient(colors: [.clear, .black.opacity(0.63), .black.opacity(0.91)], startPoint: .top, endPoint: .bottom))
         .environment(\.layoutDirection, .rightToLeft)
-        .accessibilityIdentifier("tv.iptv.player.hud")
     }
     private func programme(_ prefix: String, _ value: IPTVProgramme?) -> some View {
         let formatter = DateFormatter(); formatter.dateFormat = "HH:mm"
