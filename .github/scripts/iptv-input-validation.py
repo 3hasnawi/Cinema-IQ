@@ -51,6 +51,8 @@ def tap(n):
 
 def ime():
     raw = adb('shell', 'dumpsys', 'input_method').stdout.decode(errors='replace')
+    window = re.search(r'mImeWindowVis=(0x[0-9a-fA-F]+|[0-9]+)', raw)
+    if window: return bool(int(window[1], 0) & 2)
     return bool(re.search(r'(?:mInputShown|isInputViewShown|mIsInputViewShown)=true', raw))
 
 
@@ -102,7 +104,7 @@ try:
     if ime(): key(4)
     time.sleep(1)
     capture('05-keyboard-back')
-    record('Back dismisses the real keyboard', not ime())
+    record('Keyboard is hidden after completing or backing out of input', not ime())
     # Close a possible separate editor and then the source form, with bounded real Back events.
     for _ in range(4):
         if any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()): break
@@ -119,13 +121,23 @@ try:
         record('Xtream D-pad traversal reaches '+field+' without opening IME',
             not ime() and any(field in str(n) for n in focus()))
         if ime(): key(4)
+    key(23); time.sleep(.8)
+    capture('08-password-edit')
+    record('OK opens the password keyboard', ime())
+    key(4); time.sleep(.8)
+    capture('09-password-keyboard-back')
+    record('Back hides the password keyboard', not ime())
+    key(4); time.sleep(.5)
+    capture('10-password-return')
+    record('Leaving the field editor restores password-control focus in the form',
+        not ime() and any('كلمة المرور' in str(n) and n.get('class') != 'android.widget.EditText' for n in focus()))
 except Exception as e:
     error = type(e).__name__ + ': ' + str(e)
     try: capture('failure')
     except Exception: pass
 finally:
     result = {'passed':error is None and all(c['passed'] for c in checks),'checks':checks,'error':error,
-        'apkReusedWithoutBuild':True,'typedRealCredentials':False}
+        'apkReusedWithoutBuild':'approved-release' in str(a.apk),'typedRealCredentials':False}
     (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
     print(json.dumps(result,ensure_ascii=False,indent=2))
     if not result['passed']: raise SystemExit(1)

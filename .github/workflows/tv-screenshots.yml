@@ -9,6 +9,11 @@ on:
         type: string
         required: false
         default: ''
+      source_input:
+        description: Build an approved test APK and exercise source-field/keyboard traversal
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -24,6 +29,7 @@ jobs:
     timeout-minutes: 45
     env:
       REUSE_RELEASE_RUN_ID: ${{ inputs.reuse_release_run_id }}
+      SOURCE_INPUT: ${{ inputs.source_input }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
