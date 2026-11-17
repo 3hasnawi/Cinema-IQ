@@ -150,7 +150,17 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(element("tv.iptv.guide").exists, "Back must dismiss the keyboard before dismissing the channel list")
         expectFocus(search)
         // Reopen and submit the native keyboard as well as exercising Back above.
-        remote.press(.select); app.typeText("\n")
+        remote.press(.select)
+        let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["done", "Done", "تم", "بحث", "Search"])).firstMatch
+        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        shot("guide-native-keyboard-before-done")
+        // A newline typed by XCTest is not tvOS's on-screen Done button. Reach that button with the remote.
+        for _ in 0..<6 {
+            if done.hasFocus { break }
+            remote.press(.down)
+        }
+        XCTAssertTrue(done.hasFocus)
+        remote.press(.select)
         waitFor { !self.app.keyboards.firstMatch.exists }
         expectFocus(guideChannel("قناة الرياضة"))
         XCTAssertFalse(guideChannel("قناة الأخبار").exists)
