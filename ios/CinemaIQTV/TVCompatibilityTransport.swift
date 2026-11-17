@@ -59,8 +59,6 @@ struct TVCompatibilityTransport<Options: View>: View {
                     .buttonStyle(TVArtworkButtonStyle()).focused($focus, equals: "timeline")
                     .accessibilityLabel("شريط التقدم").accessibilityValue(clock(controller.position))
                     .accessibilityIdentifier("tv.movie.compatibility.timeline")
-                    .accessibilityLabel("شريط التقدم").accessibilityValue(clock(controller.position))
-                    .accessibilityIdentifier("tv.movie.compatibility.timeline")
                     .onMoveCommand { direction in
                         switch direction {
                         case .left: controller.skip(-10); interaction += 1
