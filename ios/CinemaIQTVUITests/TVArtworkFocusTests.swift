@@ -33,8 +33,9 @@ final class TVArtworkFocusTests: XCTestCase {
         focus(trailer); XCTAssertEqual(trailer.frame.width, trailer.frame.height, accuracy: 2)
         XCTAssertLessThan(trailer.frame.width, 100)
         shot("detail-balanced-trailer-icon-and-unframed-description")
+        let storyText = overview.label
         focus(list); focus(story); remote.press(.select)
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", overview.label)).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label == %@", storyText)).firstMatch.waitForExistence(timeout: 10))
         remote.press(.menu); expectFocus(story)
         focus(play); remote.press(.menu); expectFocus(element("tv.home.showcase"))
     }
