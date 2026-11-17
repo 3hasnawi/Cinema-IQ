@@ -78,6 +78,7 @@ def capture(name):
     (out/(name+'-windows.txt')).write_bytes(adb('shell','dumpsys','window').stdout)
     (out/(name+'-input.txt')).write_bytes(adb('shell','dumpsys','input').stdout)
     (out/(name+'-ime.txt')).write_bytes(adb('shell','dumpsys','input_method').stdout)
+    (out/'browse-focus-log.txt').write_bytes(adb('logcat','-d','-s','IptvInputFocus:D','*:S').stdout)
 
 
 def record(name, passed):

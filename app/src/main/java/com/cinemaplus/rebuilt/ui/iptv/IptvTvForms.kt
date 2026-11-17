@@ -108,10 +108,12 @@ import com.cinemaplus.rebuilt.ui.*
         { if (television && edited != null) { pending = edited; editing = null } else cancel() },
         if (television) null else first) {
         val window = LocalWindowInfo.current
+        val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
         val imeVisible = WindowInsets.isImeVisible
         // Keep one dialog window and restore browse focus only after the IME has actually closed.
         LaunchedEffect(edited, pending, window.isWindowFocused, imeVisible) {
             if (television && edited == null && window.isWindowFocused && !imeVisible) repeat(24) {
+                inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
                 withFrameNanos { }
                 if (runCatching { targets.getValue(pending).requestFocus() }.getOrDefault(false)) return@LaunchedEffect
             }

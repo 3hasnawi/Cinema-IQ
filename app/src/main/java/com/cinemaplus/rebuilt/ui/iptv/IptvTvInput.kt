@@ -35,8 +35,19 @@ import com.cinemaplus.rebuilt.ui.*
     modifier: Modifier, edit: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(8.dp)
-    Button(edit, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = 58.dp)
+    val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
+    Button({
+        if (com.cinemaplus.rebuilt.BuildConfig.DEBUG) android.util.Log.d("IptvInputFocus", "activate control; mode=${inputMode.inputMode}")
+        edit()
+    }, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = 58.dp)
         .onFocusChanged { focused = it.isFocused }.semantics { contentDescription = label }
+        .onPreviewKeyEvent { event ->
+            val key = event.nativeKeyEvent
+            if (com.cinemaplus.rebuilt.BuildConfig.DEBUG && key.keyCode in listOf(19, 20, 21, 22, 23, 66)) {
+                android.util.Log.d("IptvInputFocus", "browse key=${key.keyCode} action=${key.action}; focused=$focused mode=${inputMode.inputMode}")
+            }
+            false
+        }
         .border(if (focused) 2.dp else 1.dp, if (focused) Accent else Brand.BorderStrong, shape),
         shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
         colors = ButtonDefaults.colors(containerColor = Panel, focusedContainerColor = Brand.Raised,
