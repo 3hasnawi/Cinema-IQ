@@ -34,7 +34,10 @@ object IptvCatalogCodec {
         require(snapshot.savedAt >= 0 && snapshot.retryAfter >= 0 && snapshot.catalog.channels.size in 1..IptvParsers.MAX_CHANNELS)
         val bytes = ByteArrayOutputStream()
         DataOutputStream(LimitedOutput(GZIPOutputStream(LimitedOutput(bytes, MAX_BYTES)), MAX_EXPANDED)).use { out ->
-            out.writeInt(1); out.writeLong(snapshot.savedAt); out.writeLong(snapshot.retryAfter); out.writeInt(snapshot.catalog.channels.size)
+            out.writeInt(2); out.writeLong(snapshot.savedAt); out.writeLong(snapshot.retryAfter)
+            out.writeBoolean(snapshot.catalog.epgUrl != null)
+            snapshot.catalog.epgUrl?.let { IptvUrls.validate(it, source.allowHttp); out.writeUTF(it) }
+            out.writeInt(snapshot.catalog.channels.size)
             snapshot.catalog.channels.forEach { ch ->
                 checkChannel(source, ch)
                 out.writeUTF(ch.id); out.writeUTF(ch.name); out.writeUTF(ch.group); out.writeUTF(ch.url)
@@ -46,8 +49,10 @@ object IptvCatalogCodec {
     fun decode(source: IptvSource, bytes: ByteArray): IptvCatalogSnapshot {
         require(bytes.size <= MAX_BYTES)
         return DataInputStream(LimitedInput(GZIPInputStream(bytes.inputStream()), MAX_EXPANDED)).use { input ->
-            require(input.readInt() == 1)
-            val time = input.readLong(); val retryAfter = input.readLong(); val count = input.readInt()
+            require(input.readInt() == 2)
+            val time = input.readLong(); val retryAfter = input.readLong()
+            val epg = if (input.readBoolean()) input.readUTF().also { IptvUrls.validate(it, source.allowHttp) } else null
+            val count = input.readInt()
             require(time >= 0 && retryAfter >= 0 && count in 1..IptvParsers.MAX_CHANNELS)
             val ids = HashSet<String>()
             val channels = ArrayList<IptvChannel>(count)
@@ -57,12 +62,12 @@ object IptvCatalogCodec {
                 checkChannel(source, ch); require(ids.add(ch.id)); channels.add(ch)
             }
             require(input.read() == -1)
-            IptvCatalogSnapshot(time, IptvCatalog(channels), retryAfter)
+            IptvCatalogSnapshot(time, IptvCatalog(channels, epg), retryAfter)
         }
     }
     private fun checkChannel(source: IptvSource, ch: IptvChannel) {
         require(ch.sourceId == source.id && ch.id.startsWith(source.id + ":") && ch.id.length <= 512)
-        require(ch.name.isNotBlank() && ch.name.length <= 200 && ch.group.length <= 150 && ch.tvgId.length <= 200)
+        require(ch.name.isNotBlank() && ch.name.length <= 200 && ch.group.length <= 150 && ch.tvgId.length <= 8192)
         IptvUrls.validate(ch.url, source.allowHttp); ch.logo?.let { IptvUrls.validate(it, source.allowHttp) }
     }
     private class LimitedOutput(out: OutputStream, private val max: Int) : FilterOutputStream(out) {

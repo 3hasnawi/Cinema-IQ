@@ -62,7 +62,7 @@ data class IptvChannel(val id: String, val sourceId: String, val name: String, v
     val url: String, val logo: String? = null, val tvgId: String = "") {
     override fun toString(): String = "IptvChannel(id=$id)"
 }
-data class IptvCatalog(val channels: List<IptvChannel>) {
+data class IptvCatalog(val channels: List<IptvChannel>, val epgUrl: String? = null) {
     val groups: List<String> get() = channels.map { it.group }.distinct().sorted()
 }
 

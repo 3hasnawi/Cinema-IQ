@@ -79,7 +79,9 @@ class IptvNetworkTransport : IptvTransport, java.io.Closeable {
 }
 
 class IptvClient(private val transport: IptvTransport = IptvNetworkTransport()) : java.io.Closeable {
+    private val epg = IptvEpgClient(transport)
     override fun close() { (transport as? java.io.Closeable)?.close() }
+    suspend fun programmes(source: IptvSource, channel: IptvChannel, epgUrl: String? = null): IptvNowNext = epg.load(source, channel, epgUrl)
     suspend fun load(raw: IptvSource): IptvCatalog = withContext(Dispatchers.IO) { withTimeoutOrNull(60_000) {
         val source = raw.validated()
         when (source.kind) {

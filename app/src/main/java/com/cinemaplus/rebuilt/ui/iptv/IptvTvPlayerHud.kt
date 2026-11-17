@@ -30,6 +30,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -42,6 +45,7 @@ import androidx.tv.material3.ButtonDefaults
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import com.cinemaplus.rebuilt.data.iptv.IptvChannel
+import com.cinemaplus.rebuilt.data.iptv.IptvNowNext
 import com.cinemaplus.rebuilt.ui.*
 import java.util.Locale
 
@@ -49,12 +53,15 @@ private val HudFocus = Color(0xFFCC4165)
 
 /** Compact live-TV controls; the uninterrupted picture remains visible above the bottom strip. */
 @Composable internal fun IptvTvPlayerHud(
-    channel: IptvChannel, number: Int, status: String, playing: Boolean,
+    channel: IptvChannel, number: Int, status: String, programmes: IptvNowNext,
     videoHeight: Int, audioLanguage: String?, isFavorite: Boolean, previousAvailable: Boolean, logos: ImageLoader,
     entryFocus: FocusRequester, focusChanged: (Boolean) -> Unit, channels: () -> Unit,
-    favorite: () -> Unit, previous: () -> Unit, playPause: () -> Unit,
-    channelStep: (Int) -> Unit, tracks: (Int, FocusRequester) -> Unit, exit: () -> Unit
+    favorite: () -> Unit, previous: () -> Unit,
+    channelStep: (Int) -> Unit, tracks: (Int, FocusRequester, Rect) -> Unit
 ) {
+    var qualityBounds by remember { mutableStateOf(Rect.Zero) }
+    var audioBounds by remember { mutableStateOf(Rect.Zero) }
+    var subtitleBounds by remember { mutableStateOf(Rect.Zero) }
     val qualityFocus = remember { FocusRequester() }
     val audioFocus = remember { FocusRequester() }
     val subtitlesFocus = remember { FocusRequester() }
@@ -75,15 +82,12 @@ private val HudFocus = Color(0xFFCC4165)
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(Modifier.size(52.dp), shape = RoundedCornerShape(9.dp), color = Color.White.copy(alpha = .05f),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = .45f))) {
-                Box(Modifier.padding(5.dp), contentAlignment = Alignment.Center) {
-                    if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = null,
-                        imageLoader = logos, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                    else HudGlyph("tv", Color.White)
-                }
+            Box(Modifier.size(84.dp), contentAlignment = Alignment.Center) {
+                if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = channel.name,
+                    imageLoader = logos, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                else IptvTelevisionIcon(Modifier.size(64.dp), Color.White)
             }
-            Column(Modifier.widthIn(max = 550.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.widthIn(max = 390.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Label(channel.name, 20, bold = true, modifier = Modifier.testTag("iptv.tv.hud.channel"), lines = 1)
                 Label((if (number > 0) "$number  ·  " else "") + status, 12, Brand.TextSecondary, lines = 1)
             }
@@ -94,7 +98,13 @@ private val HudFocus = Color(0xFFCC4165)
                 drawLine(Color.White, Offset(w * .2f, h * .8f), Offset(w * .5f, h * .9f), stroke, StrokeCap.Round)
                 drawLine(Color.White, Offset(w * .5f, h * .9f), Offset(w * .8f, h * .8f), stroke, StrokeCap.Round)
             }
-            Spacer(Modifier.weight(1f))
+            Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                if (programmes.current == null && programmes.next == null) Label("لا تتوفر معلومات", 13, Brand.TextSecondary)
+                else {
+                    ProgrammeLine("الآن", programmes.current)
+                    ProgrammeLine("التالي", programmes.next)
+                }
+            }
         }
         HorizontalDivider(color = Color.White.copy(alpha = .22f))
         Row(Modifier.fillMaxWidth().onFocusChanged { focusChanged(it.hasFocus) }
@@ -105,19 +115,26 @@ private val HudFocus = Color(0xFFCC4165)
                 Icon(if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null,
                     Modifier.size(23.dp), tint = Color.White)
             }
-            HudButton(audio, "audio", Modifier.widthIn(max = 175.dp).focusRequester(audioFocus),
-                click = { tracks(C.TRACK_TYPE_AUDIO, audioFocus) }) { HudGlyph("audio", Color.White) }
-            HudButton(if (videoHeight > 0) "${videoHeight}p" else "الجودة", "quality", Modifier.focusRequester(qualityFocus),
-                click = { tracks(C.TRACK_TYPE_VIDEO, qualityFocus) }) { HudGlyph("quality", Color.White) }
-            HudButton("الترجمة", "subtitles", Modifier.focusRequester(subtitlesFocus),
-                click = { tracks(C.TRACK_TYPE_TEXT, subtitlesFocus) }) { PlayerTransportIcon("CC", Color.White, 23.dp) }
-            HudButton(if (playing) "إيقاف مؤقت" else "تشغيل", "playPause", click = playPause) {
-                PlayerTransportIcon(if (playing) "Ⅱ" else "▶", Color.White, 23.dp)
-            }
+            HudButton(audio, "audio", Modifier.widthIn(max = 175.dp).focusRequester(audioFocus).onGloballyPositioned { audioBounds = it.boundsInWindow() },
+                click = { tracks(C.TRACK_TYPE_AUDIO, audioFocus, audioBounds) }) { HudGlyph("audio", Color.White) }
+            HudButton(if (videoHeight > 0) "${videoHeight}p" else "الجودة", "quality", Modifier.focusRequester(qualityFocus).onGloballyPositioned { qualityBounds = it.boundsInWindow() },
+                click = { tracks(C.TRACK_TYPE_VIDEO, qualityFocus, qualityBounds) }) { HudGlyph("quality", Color.White) }
+            HudButton("الترجمة", "subtitles", Modifier.focusRequester(subtitlesFocus).onGloballyPositioned { subtitleBounds = it.boundsInWindow() },
+                click = { tracks(C.TRACK_TYPE_TEXT, subtitlesFocus, subtitleBounds) }) { PlayerTransportIcon("CC", Color.White, 23.dp) }
             HudButton("السابقة", "previous", enabled = previousAvailable, click = previous) { HudGlyph("previous", Color.White) }
-            HudButton("إغلاق", "exit", click = exit) { PlayerTransportIcon("×", Color.White, 23.dp) }
         }
     }
+}
+
+@Composable private fun ProgrammeLine(prefix: String, programme: com.cinemaplus.rebuilt.data.iptv.IptvProgramme?) {
+    val text = remember(programme, prefix) {
+        if (programme == null) "$prefix: لا تتوفر معلومات"
+        else {
+            val time = java.text.SimpleDateFormat("HH:mm", Locale.getDefault())
+            "$prefix  ${time.format(java.util.Date(programme.startsAt))}–${time.format(java.util.Date(programme.endsAt))}  ${programme.title}"
+        }
+    }
+    Label(text, 13, if (prefix == "الآن") Brand.TextPrimary else Brand.TextSecondary, lines = 1)
 }
 
 @Composable private fun HudButton(label: String, id: String, modifier: Modifier = Modifier, enabled: Boolean = true,

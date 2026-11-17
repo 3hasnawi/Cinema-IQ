@@ -16,9 +16,12 @@ object IptvParsers {
         val header = text.lineSequence().firstOrNull()?.trim().orEmpty()
         if (header != "#EXTM3U" && !header.startsWith("#EXTM3U ") && !header.startsWith("#EXTM3U\t"))
             throw IptvException(IptvException.Reason.InvalidPlaylist)
+        val attrs = attributes(header)
+        val epgUrl = (attrs["x-tvg-url"] ?: attrs["url-tvg"] ?: attrs["tvg-url"])
+            ?.split(',')?.firstOrNull()?.let { IptvUrls.resolve(it, base, source.allowHttp) }
         // HLS manifests describe segments/variants, not a list of TV channels.
         if (text.lineSequence().any { it.startsWith("#EXT-X-") }) return IptvCatalog(listOf(
-            IptvChannel(IptvUrls.channelId(source.id, "direct-hls"), source.id, source.name, "عام", base.toString())))
+            IptvChannel(IptvUrls.channelId(source.id, "direct-hls"), source.id, source.name, "عام", base.toString())), epgUrl)
         val channels = mutableListOf<IptvChannel>(); val seen = mutableSetOf<String>()
         var title = ""; var group = "عام"; var tvg = ""; var logo: String? = null
         for (raw in text.lineSequence()) {
@@ -46,7 +49,7 @@ object IptvParsers {
             }
         }
         if (channels.isEmpty()) throw IptvException(IptvException.Reason.NoChannels)
-        return IptvCatalog(channels)
+        return IptvCatalog(channels, epgUrl)
     }
     private fun splitInfo(line: String): Pair<String, String> {
         var quoted = false; var escaped = false

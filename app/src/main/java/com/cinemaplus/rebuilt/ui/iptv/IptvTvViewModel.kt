@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.collect
 internal data class IptvState(
     val sources: List<IptvSource> = emptyList(), val selectedId: String? = null,
     val channels: List<IptvChannel> = emptyList(), val visible: List<IptvChannel> = emptyList(),
-    val query: String = "", val group: String? = null, val busy: Boolean = false,
+    val epgUrl: String? = null, val query: String = "", val group: String? = null, val busy: Boolean = false,
     val filtering: Boolean = false, val refreshing: Boolean = false, val storageReady: Boolean = false, val storageLoading: Boolean = true,
     val message: String? = null, val focusEpoch: Int = 0, val collection: IptvChannelCollection = IptvChannelCollection()
 ) { val selected: IptvSource? get() = sources.firstOrNull { it.id == selectedId } }
@@ -52,7 +52,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
     fun select(source: IptvSource) {
         if (mutable.value.busy) return
         prefs.edit().putString("selected", source.id).apply()
-        mutable.value = mutable.value.copy(selectedId = source.id, group = null, query = "", channels = emptyList(), visible = emptyList(), refreshing = false)
+        mutable.value = mutable.value.copy(selectedId = source.id, group = null, query = "", channels = emptyList(), visible = emptyList(), epgUrl = null, refreshing = false)
         reload()
     }
     fun returnFromPlayer(group: String?) {
@@ -72,7 +72,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
                     ensureActive()
                     if (mutable.value.selected != source) return@collect
                     val first = mutable.value.channels.isEmpty()
-                    mutable.value = mutable.value.copy(channels = update.catalog.channels, busy = false, refreshing = update.refreshing)
+                    mutable.value = mutable.value.copy(channels = update.catalog.channels, epgUrl = update.catalog.epgUrl, busy = false, refreshing = update.refreshing)
                     applyFilter(first)
                 }
             } catch (e: CancellationException) { throw e }
@@ -94,7 +94,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(NonCancellable) {
                     withContext(Dispatchers.IO) { vault.write(next) }
                     prefs.edit().putString("selected", valid.id).apply(); catalogs.remember(valid, catalog)
-                    mutable.value = mutable.value.copy(sources = next, selectedId = valid.id, channels = catalog.channels,
+                    mutable.value = mutable.value.copy(sources = next, selectedId = valid.id, channels = catalog.channels, epgUrl = catalog.epgUrl,
                         query = "", group = null, busy = false, refreshing = false)
                     applyFilter(true)
                 }
@@ -136,10 +136,14 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
         currentCoroutineContext().ensureActive()
         catalogs.remember(source, result)
         if (mutable.value.selectedId == source.id) {
-            mutable.value = mutable.value.copy(channels = result.channels)
+            mutable.value = mutable.value.copy(channels = result.channels, epgUrl = result.epgUrl)
             applyFilter(false)
         }
         return result.channels.firstOrNull { it.id == channel.id } ?: throw IptvException(IptvException.Reason.NoChannels)
+    }
+    suspend fun programmes(channel: IptvChannel): IptvNowNext {
+        val source = mutable.value.sources.firstOrNull { it.id == channel.sourceId } ?: return IptvNowNext()
+        return client.programmes(source, channel, mutable.value.epgUrl.takeIf { source.id == mutable.value.selectedId })
     }
     override fun onCleared() { request?.cancel(); filter?.cancel(); client.close(); super.onCleared() }
     private fun applyFilter(moveToFirst: Boolean) {

@@ -10,8 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -67,7 +65,7 @@ class IptvTvActivity : ComponentActivity() {
         .semantics { contentDescription = "التلفزيون" }.padding(horizontal = if (expanded) 20.mx else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (expanded) Arrangement.spacedBy(20.mx) else Arrangement.Center) {
-        Icon(Icons.Rounded.PlayArrow, null, Modifier.size(30.mx), tint = if (focused) Ink else Brand.TextTertiary)
+        IptvTelevisionIcon(Modifier.size(30.mx), if (focused) Ink else Brand.TextTertiary)
         if (expanded) Label("التلفزيون", 15, if (focused) Ink else Brand.TextTertiary, focused, lines = 1)
     }
 }
