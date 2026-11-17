@@ -102,9 +102,6 @@ final class TVIPTVFlowTests: XCTestCase {
         let player = element("tv.iptv.player.native")
         expectFocus(player); waitFor { (player.value as? String) == "بث مباشر" }
         remote.press(.left); expectFocus(element("tv.iptv.player.channels"))
-        XCTAssertFalse(element("tv.iptv.player.play").exists)
-        XCTAssertFalse(element("tv.iptv.player.close").exists)
-        XCTAssertTrue(app.staticTexts["لا تتوفر معلومات"].exists)
         waitFor { !self.element("tv.iptv.player.channels").exists }
         expectFocus(player); shot("hud-auto-hidden-from-focused-toolbar")
         for kind in ["quality", "audio", "subtitles"] {
@@ -112,6 +109,13 @@ final class TVIPTVFlowTests: XCTestCase {
             let icon = element("tv.iptv.player." + kind)
             focusControl(kind); remote.press(.select)
             expectFocus(element("tv.iptv.track.first"))
+            // AX queries on hosted tvOS can exceed the five-second idle timeout. Inspect the HUD
+            // while a track panel legitimately holds it open, not after it has correctly hidden.
+            if kind == "quality" {
+                XCTAssertFalse(element("tv.iptv.player.play").exists)
+                XCTAssertFalse(element("tv.iptv.player.close").exists)
+                XCTAssertTrue(app.staticTexts["لا تتوفر معلومات"].exists)
+            }
             if kind == "audio" {
                 XCTAssertLessThanOrEqual(app.buttons.matching(NSPredicate(format: "value == %@", "محدد")).count, 1)
             }
@@ -402,6 +406,15 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [value], timeout: 25), .completed)
     }
     private func channel(_ name: String) -> XCUIElement { app.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch }
-    private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
+    private func element(_ id: String) -> XCUIElement {
+        // Typed queries avoid walking the entire background navigation tree for each live-guide key.
+        if ["tv.iptv.heading", "tv.iptv.guide", "tv.iptv.guide.groups", "tv.iptv.player.title", "tv.iptv.track.popup"].contains(id) {
+            return app.staticTexts[id]
+        }
+        if id == "tv.iptv.guide.search" { return app.textFields[id] }
+        // Native Form rows may expose the field/action through their cell or switch; preserve that path.
+        if id.hasPrefix("tv.iptv.form.") { return app.descendants(matching: .any).matching(identifier: id).firstMatch }
+        return app.buttons[id]
+    }
     private func shot(_ name: String) { let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.name = name; shot.lifetime = .keepAlways; add(shot) }
 }

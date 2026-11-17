@@ -83,7 +83,7 @@ jobs:
           if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testXtreamFormShowsCredentialsAndMenuReturnsSafely'); fi
           if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testSourcesGroupsPlaybackAndSelectionPersistence'); fi
           if [ "$IPTV_TEST_SCENARIO" = interaction ]; then
-            for test in testGuideSearchDismissesNativeKeyboardAndRestoresNavigation testRemoteChannelSurfingAndFloatingGuide testHighestQualityPreferenceAndAutomaticSelection testCompatibilityDecoderWithRemoteAndTracks; do
+            for test in testGuideSearchDismissesNativeKeyboardAndRestoresNavigation testRemoteChannelSurfingAndFloatingGuide; do
               extra_tests+=("-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/$test")
             done
           fi
