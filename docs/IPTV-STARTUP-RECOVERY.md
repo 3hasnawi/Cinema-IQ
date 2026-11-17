@@ -10,4 +10,4 @@ Quality/audio/subtitle options use a compact translucent popover anchored to the
 
 Reserved/changed files: IPTV view model/client/models/parser, catalogue cache/repository/store and reconnect policy/tests; TV player/HUD/screen/activity; EPG parser/client/tests; TV glyph and anchored popup/placement policy/tests. Version/build files are unchanged.
 
-No new APK has been built for these changes. Compile/unit/release-R8 results are recorded in PR #143. Playback recovery, cache timing on TV hardware, popover animation and new remote-focus flows require an authorized runtime build; previous 4.38 emulator results do not certify this revision.
+Compile/unit/release-R8 results are recorded in PR #143. The approved signed 4.39/81 APK was built and independently verified in PR #144. PR #145 records the expanded remote/IME/player replay on that same signed APK, including genuine captures and fixture-test results; previous 4.38 emulator results do not certify this revision. Physical TV hardware, real subscription networks and their timing remain separate from emulator fixtures.
