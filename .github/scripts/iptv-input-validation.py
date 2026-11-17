@@ -16,7 +16,9 @@ checks = []
 
 
 def adb(*args, timeout=15):
-    return subprocess.run(['adb', *args], capture_output=True, timeout=timeout)
+    result = subprocess.run(['adb', *args], capture_output=True, timeout=timeout)
+    result.check_returncode()
+    return result
 
 
 def key(code):
@@ -70,6 +72,7 @@ def focus():
 
 
 def capture(name):
+    (out/(name+'.xml')).write_bytes(adb('exec-out', 'cat', '/sdcard/iptv-input.xml').stdout)
     (out/(name+'.png')).write_bytes(adb('exec-out', 'screencap', '-p').stdout)
     (out/(name+'.json')).write_text(json.dumps({'focused':focus(),'imeVisible':ime()},ensure_ascii=False,indent=2))
     (out/(name+'-windows.txt')).write_bytes(adb('shell','dumpsys','window','windows').stdout)
@@ -78,6 +81,23 @@ def capture(name):
 def record(name, passed):
     checks.append({'name':name,'passed':bool(passed)})
     print(('PASS' if passed else 'FAIL')+': '+name, flush=True)
+
+
+def open_editor(name):
+    key(23)
+    until = time.monotonic() + 6
+    while time.monotonic() < until:
+        if any(n.get('class') == 'android.widget.EditText' for n in nodes()) and ime():
+            capture(name)
+            return
+        time.sleep(.3)
+    capture(name+'-single-ok-failed')
+    record('A single OK opens '+name+' after restoring form focus',False)
+    # Diagnostic recovery is reported as a failure, never counted as a passing single-OK flow.
+    key(23); time.sleep(1)
+    if not any(n.get('class') == 'android.widget.EditText' for n in nodes()):
+        raise AssertionError('Editor not opened by two OK presses: '+name)
+    capture(name+'-second-ok')
 
 
 def native_done():
@@ -117,7 +137,7 @@ try:
     capture('04-enter-next')
     record('Completing the source-name input dismisses IME and focuses the address',
         not ime() and any('رابط قائمة M3U' in str(n) for n in focus()))
-    key(23); time.sleep(.8)
+    open_editor('04b-url-open')
     adb('shell','input','text','https://example.invalid/list.m3u')
     capture('04b-url-edit')
     native_done()
@@ -138,7 +158,7 @@ try:
     capture('06-form-exit')
     record('Back can leave the source form and return to its source screen',
         any(n.get('text') == 'إضافة مصدر' or n.get('content-desc') == 'إضافة مصدر' for n in nodes()))
-    find('إضافة مصدر'); key(23)
+    tap(find('إضافة مصدر')); key(23)
     find('إضافة مصدر IPTV')
     key(21)  # Physical Left from the focused M3U button to Xtream.
     capture('07-xtream-mode')
@@ -162,19 +182,19 @@ try:
     record('Leaving the field editor restores password-control focus in the form',
         not ime() and any('كلمة المرور' in str(n) and n.get('class') != 'android.widget.EditText' for n in focus()))
     key(19); key(19)  # Password -> User -> Address.
-    key(23); time.sleep(.8)
+    open_editor('11-address-open')
     adb('shell','input','text','https://example.invalid')
     native_done()
     capture('11-xtream-address-next')
     record('Native IME Next commits the Xtream address and focuses username',
         not ime() and any('اسم المستخدم' in str(n) for n in focus()))
-    key(23); time.sleep(.8)
+    open_editor('12-user-open')
     adb('shell','input','text','fixture_user')
     native_done()
     capture('12-xtream-user-next')
     record('Native IME Next commits username and focuses password',
         not ime() and any('كلمة المرور' in str(n) for n in focus()))
-    key(23); time.sleep(.8)
+    open_editor('13-password-open')
     adb('shell','input','text','fixture-pass')
     native_done()
     capture('13-xtream-password-done')
