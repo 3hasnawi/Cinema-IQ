@@ -64,9 +64,7 @@ struct TVDetailView: View {
         return ("إخراج", omdb?.director ?? "")
     }
     private var artwork: String {
-        if !current.backdrop.isEmpty { return current.backdrop }
-        if let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
-        return omdb?.largePoster ?? current.poster
+        TVArtworkSelection.url(for: current, tmdb: tmdb, fallbackPoster: omdb?.largePoster ?? "")
     }
     private var seriesContext: Media? { current.isSeries || current.episode > 0 ? current : nil }
 
@@ -368,6 +366,7 @@ struct TVDetailView: View {
         defer { loading = false }
         do {
             let (detail, found) = try await SourceClient().detail(initial)
+            try Task.checkCancellation()
             media = detail
             seasons = found
             if !found.contains(where: { $0.id == seasonID }) {
@@ -378,6 +377,7 @@ struct TVDetailView: View {
             async let omdbInfo: OMDbInfo? = OMDb.shared?.info(for: detail)
             async let tmdbWork: TMDBWork? = TMDB.shared?.work(for: detail)
             let (foundOMDb, foundTMDB) = await (omdbInfo, tmdbWork)
+            guard !Task.isCancelled, current.id == detail.id else { return }
             if omdb == nil { omdb = foundOMDb }
             if tmdb == nil { tmdb = foundTMDB }
         } catch is CancellationError {

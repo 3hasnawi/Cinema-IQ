@@ -17,6 +17,7 @@ struct TVHomeView: View {
     @EnvironmentObject private var router: TVRouter
     @FocusState private var featuredFocus: Bool
     @State private var heroInfo: OMDbInfo?
+    @State private var heroTMDB: TMDBWork?
     @State private var initialFocusAssigned = false
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.scenePhase) private var phase
@@ -34,7 +35,7 @@ struct TVHomeView: View {
         GeometryReader { proxy in
             let showcase = proxy.size.height
             ZStack {
-                ShowcaseBackground(url: hero.map { $0.backdrop.isEmpty ? $0.poster : $0.backdrop } ?? "", belowFold: belowFold)
+                ShowcaseBackground(url: hero.map { TVArtworkSelection.url(for: $0, tmdb: heroTMDB, fallbackPoster: heroInfo?.largePoster ?? "") } ?? "", belowFold: belowFold)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 56) {
                         TVFeaturedHero(media: hero, info: heroInfo, count: featured.count, index: heroIndex,
@@ -110,11 +111,13 @@ struct TVHomeView: View {
         }
         .onDisappear { focusRecovery?.cancel(); focusRecovery = nil }
         .task(id: hero?.id) {
-            heroInfo = nil
+            heroInfo = nil; heroTMDB = nil
             guard let hero else { return }
-            let info = await OMDb.shared?.info(for: hero)
-            guard !Task.isCancelled else { return }
-            heroInfo = info
+            async let info = OMDb.shared?.info(for: hero)
+            async let artwork = TMDB.shared?.work(for: hero)
+            let (foundInfo, foundArtwork) = await (info, artwork)
+            guard !Task.isCancelled, self.hero?.id == hero.id else { return }
+            heroInfo = foundInfo; heroTMDB = foundArtwork
         }
     }
 
