@@ -44,9 +44,14 @@ jobs:
       - name: Install Android SDK
         if: inputs.reuse_release_run_id == ''
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
-      - name: Build approved debug and test APKs and run unit tests
+      - name: Build approved emulator APKs
         if: inputs.reuse_release_run_id == ''
-        run: ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest
+        run: |
+          if [[ "$SOURCE_INPUT" == true ]]; then
+            ./gradlew --no-daemon --console=plain :app:assembleDebug
+          else
+            ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest
+          fi
       - name: Reuse an existing approved signed APK without a build
         if: inputs.reuse_release_run_id != ''
         env:
