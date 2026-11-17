@@ -3,9 +3,16 @@ name: Android TV screenshots
 # Manual approval only: build the current branch for emulator validation, never publish a release.
 on:
   workflow_dispatch:
+    inputs:
+      reuse_release_run_id:
+        description: Existing approved signed release run for IPTV keyboard diagnosis (builds no APK)
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: tv-screenshots-${{ github.ref }}
@@ -15,6 +22,8 @@ jobs:
   screenshots:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      REUSE_RELEASE_RUN_ID: ${{ inputs.reuse_release_run_id }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -25,10 +34,27 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
+        if: inputs.reuse_release_run_id == ''
       - name: Install Android SDK
+        if: inputs.reuse_release_run_id == ''
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Build approved debug and test APKs and run unit tests
+        if: inputs.reuse_release_run_id == ''
         run: ./gradlew --no-daemon --console=plain :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest
+      - name: Reuse an existing approved signed APK without a build
+        if: inputs.reuse_release_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          run = os.environ['REUSE_RELEASE_RUN_ID']
+          assert re.fullmatch(r'[0-9]+', run)
+          metadata = json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{run}']))
+          assert metadata['conclusion'] == 'success' and metadata['head_branch'] == 'main'
+          assert metadata['path'] == '.github/workflows/release.yml'
+          subprocess.run(['gh','run','download',run,'--repo',os.environ['GITHUB_REPOSITORY'], '--name','cinema-iq-approved-release','--dir','approved-release'],check=True)
+          PY
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -43,7 +69,12 @@ jobs:
           profile: tv_1080p
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash .github/scripts/tv-validation.sh "$RUNNER_TEMP/tv-validation"
+          script: |
+            if [[ -n "$REUSE_RELEASE_RUN_ID" ]]; then
+              python3 .github/scripts/iptv-input-validation.py --apk "$GITHUB_WORKSPACE/approved-release/Cinema-iQ-release.apk" --output "$RUNNER_TEMP/tv-validation"
+            else
+              bash .github/scripts/tv-validation.sh "$RUNNER_TEMP/tv-validation"
+            fi
       - name: Save actual captures, assertions and approved debug APK
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,7 +86,7 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/test-results/testDebugUnitTest/
       - name: Keep build files in a draft for authenticated download
-        if: always()
+        if: always() && inputs.reuse_release_run_id == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
