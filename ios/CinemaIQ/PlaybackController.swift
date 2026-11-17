@@ -30,7 +30,7 @@ struct MediaOption: Identifiable, Hashable {
     let player = AVPlayer()
     let compatibility = CompatibilityPlayback()
     @Published private(set) var usesCompatibility = false
-    @Published private(set) var mode = IPTVPlaybackMode(rawValue: UserDefaults.standard.string(forKey: "apple.playback.engine.v1") ?? "automatic") ?? .automatic
+    @Published private(set) var mode: IPTVPlaybackMode
     @Published private(set) var lastFailure: PlaybackFailure?
     private var currentURL: URL?
     private var maximumHeight: Int?
@@ -39,6 +39,7 @@ struct MediaOption: Identifiable, Hashable {
     private var wantsPlay = true
     private var restartOnResume = false
     private var pendingMode: IPTVPlaybackMode?
+    private let enginePreference: PlaybackEnginePreference
     var hasItem: Bool { currentURL != nil }
 
     /// Remote playback has its own progress clock; never overwrite it with the paused local item.
@@ -76,11 +77,14 @@ struct MediaOption: Identifiable, Hashable {
     private static let arabicWindows = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
         CFStringEncoding(CFStringEncodings.windowsArabic.rawValue)))
 
-    init() {
+    init(enginePreference: PlaybackEnginePreference = .shared) {
+        self.enginePreference = enginePreference
+        mode = enginePreference.mode(in: .standard)
         player.appliesMediaSelectionCriteriaAutomatically = false
 #if DEBUG
         let args = ProcessInfo.processInfo.arguments
-        if args.contains("--cinema-ui-testing-player") || args.contains("--cinema-tv-ui-testing-iptv-player") { mode = .automatic }
+        if !args.contains("--cinema-ui-testing-engine-preferences"),
+           args.contains("--cinema-ui-testing-player") || args.contains("--cinema-tv-ui-testing-iptv-player") { mode = .automatic }
 #endif
     }
 
@@ -177,7 +181,7 @@ struct MediaOption: Identifiable, Hashable {
     func chooseEngine(_ value: IPTVPlaybackMode) {
         guard mode != value || error != nil else { return }
         let resume = position, shouldPlay = wantsPlay || error != nil
-        persist(); mode = value; UserDefaults.standard.set(value.rawValue, forKey: "apple.playback.engine.v1")
+        persist(); mode = value; enginePreference.save(value, in: .standard)
         guard currentURL != nil else { return }
         error = nil; lastFailure = nil; fallbackAttempted = false
         if shouldPlay { restart(resume: resume, preferred: value) }

@@ -5,7 +5,10 @@ on:
     paths:
       - 'ios/CinemaIQTV/TVPlayerView.swift'
       - 'ios/CinemaIQTV/TVPauseInformation.swift'
+      - 'ios/CinemaIQTV/TVCompatibilityTransport.swift'
+      - 'ios/CinemaIQ/PlaybackController.swift'
       - 'ios/CinemaIQTVUITests/TVPlayerMenuTests.swift'
+      - 'ios/CinemaIQTVUITests/TVMovieCompatibilityTests.swift'
       - '.github/workflows/tvos-player-menus.yml'
   workflow_dispatch:
 permissions:
@@ -26,6 +29,8 @@ jobs:
           sudo xcode-select -s "$newest/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
+          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQTV/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
       - name: Create Apple TV simulator
@@ -58,8 +63,6 @@ jobs:
         timeout-minutes: 9
         run: |
           set -euo pipefail
-          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
-            "$RUNNER_TEMP/TVMenus/Build/Products/Debug-appletvsimulator/CinemaIQTV.app/UIPlayerFixture.mp4"
           python3 ios/scripts/boot-simulator.py "$TV_MENU_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
       - name: Test native menus and remote focus
         timeout-minutes: 15
@@ -68,6 +71,7 @@ jobs:
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
             -only-testing:CinemaIQTVUITests/TVPlayerMenuTests \
+            -only-testing:CinemaIQTVUITests/TVMovieCompatibilityTests \
             -resultBundlePath "$RUNNER_TEMP/player-menus.xcresult" \
             -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \

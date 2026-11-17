@@ -9,6 +9,10 @@ final class TVPlayerMenuTests: XCTestCase {
         continueAfterFailure = false
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player",
                                "-AppleLanguages", "(ar)", "-AppleLocale", "ar_IQ"]
+        if name.contains("testLiveTVDecoderPreferenceDoesNotReplaceNativeMoviePlayer") {
+            app.launchArguments += ["--cinema-ui-testing-engine-preferences", "-apple.playback.engine.v1", "compatibility",
+                                    "-apple.tv.movie.playback.engine.v1", "automatic"]
+        }
         app.launch()
         let home = app.descendants(matching: .any).matching(identifier: "tv.home.showcase").firstMatch
         XCTAssertTrue(home.waitForExistence(timeout: 30))
@@ -43,6 +47,16 @@ final class TVPlayerMenuTests: XCTestCase {
         expectNativeOption("عادية")
         shot("speed-menu")
         remote.press(.select)
+        closePlayerAndExpectDetails()
+    }
+
+    func testLiveTVDecoderPreferenceDoesNotReplaceNativeMoviePlayer() {
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "tv.compatibility.surface").firstMatch.exists,
+                       "The live-TV decoder choice must not replace the native movie transport")
+        openMenu("الجودة")
+        expectNativeOption("تلقائي")
+        shot("movie-native-despite-live-compatibility-preference")
+        remote.press(.menu)
         closePlayerAndExpectDetails()
     }
 
