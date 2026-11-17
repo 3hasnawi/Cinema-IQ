@@ -99,6 +99,8 @@ struct TVIPTVPlayerView: View {
             }.coordinateSpace(name: "tv.iptv.player.space")
         }
         .ignoresSafeArea()
+        // Popup placement uses physical screen coordinates; individual HUD/panel text remains RTL.
+        .environment(\.layoutDirection, .leftToRight)
         .defaultFocus($focus, "surface")
         .onAppear { session.attach(store); session.setActive(phase == .active); if !guide { focus = "surface" } }
         .onDisappear { restoreTask?.cancel(); session.close() }
@@ -144,6 +146,7 @@ struct TVIPTVPlayerView: View {
                 Button("القنوات", action: openGuide)
             }
         }.padding(44).frame(maxWidth: 1100).background(TVIPTVStyle.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 28))
+            .environment(\.layoutDirection, .rightToLeft)
             .focusSection().task { await Task.yield(); focus = "error.retry" }
     }
     private func trackButton(_ title: String, id: String, selected: Bool = false, run: @escaping () -> Void) -> some View {

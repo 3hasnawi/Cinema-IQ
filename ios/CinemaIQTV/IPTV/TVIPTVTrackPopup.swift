@@ -45,6 +45,8 @@ struct TVIPTVTrackPopup<Content: View>: View {
         .background(TVIPTVStyle.panel.opacity(0.78), in: TVIPTVDropShape(pivot: pivot))
         .overlay(TVIPTVDropShape(pivot: pivot).stroke(.white.opacity(0.15), lineWidth: 1))
         .environment(\.layoutDirection, .rightToLeft)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tv.iptv.track.panel")
     }
 }
 private struct TVIPTVDropShape: Shape {

@@ -109,6 +109,14 @@ final class TVIPTVFlowTests: XCTestCase {
             let icon = element("tv.iptv.player." + kind)
             focusControl(kind); remote.press(.select)
             expectFocus(element("tv.iptv.track.first"))
+            let panel = element("tv.iptv.track.panel")
+            XCTAssertTrue(panel.waitForExistence(timeout: 10))
+            let iconFrame = icon.images.firstMatch.frame
+            XCTAssertLessThanOrEqual(panel.frame.width, 600)
+            XCTAssertLessThanOrEqual(panel.frame.height, app.frame.height * 0.56)
+            XCTAssertLessThanOrEqual(panel.frame.maxY, iconFrame.minY + 2, "The drop panel must sit above its own icon")
+            XCTAssertGreaterThanOrEqual(iconFrame.midX, panel.frame.minX)
+            XCTAssertLessThanOrEqual(iconFrame.midX, panel.frame.maxX, "RTL must not mirror the popup to another action")
             // AX queries on hosted tvOS can exceed the five-second idle timeout. Inspect the HUD
             // while a track panel legitimately holds it open, not after it has correctly hidden.
             if kind == "quality" {
@@ -412,6 +420,7 @@ final class TVIPTVFlowTests: XCTestCase {
             return app.staticTexts[id]
         }
         if id == "tv.iptv.guide.search" { return app.textFields[id] }
+        if id == "tv.iptv.track.panel" { return app.otherElements[id] }
         // Native Form rows may expose the field/action through their cell or switch; preserve that path.
         if id.hasPrefix("tv.iptv.form.") { return app.descendants(matching: .any).matching(identifier: id).firstMatch }
         return app.buttons[id]
