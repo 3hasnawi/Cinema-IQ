@@ -93,7 +93,8 @@ struct TVIPTVPlayerHUD: View {
     }
     private func programme(_ prefix: String, _ value: IPTVProgramme?) -> some View {
         let formatter = DateFormatter(); formatter.dateFormat = "HH:mm"
-        let text = value.map { "\(prefix)  \(formatter.string(from: $0.start))–\(formatter.string(from: $0.end))  \($0.title)" } ?? "\(prefix): لا تتوفر معلومات"
+        // Isolate the numeric range so RTL titles cannot reverse the start and end times.
+        let text = value.map { "\(prefix)  \u{2066}\(formatter.string(from: $0.start))–\(formatter.string(from: $0.end))\u{2069}  \($0.title)" } ?? "\(prefix): لا تتوفر معلومات"
         return Text(text).foregroundStyle(.white.opacity(prefix == "الآن" ? 1 : 0.7))
     }
     private func button(_ title: String, id: String, symbol: String, run: @escaping () -> Void) -> some View {

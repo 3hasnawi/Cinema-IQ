@@ -137,7 +137,10 @@ final class TVIPTVFlowTests: XCTestCase {
         waitFor { !self.app.keyboards.firstMatch.exists }
         XCTAssertTrue(element("tv.iptv.guide").exists, "Back must dismiss the keyboard before dismissing the channel list")
         expectFocus(search)
-        focus(guideChannel("قناة الرياضة"), direction: .down)
+        // Reopen and submit the native keyboard as well as exercising Back above.
+        remote.press(.select); app.typeText("\n")
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        expectFocus(guideChannel("قناة الرياضة"))
         XCTAssertFalse(guideChannel("قناة الأخبار").exists)
         shot("guide-search-after-keyboard-dismissal")
         remote.press(.select); expectFocus(player)
