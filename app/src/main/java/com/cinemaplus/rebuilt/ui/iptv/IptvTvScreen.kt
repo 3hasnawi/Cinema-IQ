@@ -25,7 +25,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.cinemaplus.rebuilt.data.iptv.*
 import com.cinemaplus.rebuilt.ui.*
-import kotlinx.coroutines.launch
 
 private enum class IptvPanel { Sources, Form, Groups, Delete }
 
@@ -57,13 +56,20 @@ private enum class IptvPanel { Sources, Form, Groups, Delete }
     val groupFocus = remember { FocusRequester() }
     val refreshFocus = remember { FocusRequester() }
     val searchFocus = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
     val targetId = returnId?.takeIf { id -> state.visible.any { it.id == id } } ?: state.visible.firstOrNull()?.id
     val groups = remember(state.channels) { state.channels.map { it.group }.distinct().sorted() }
-    fun restoreControl() {
-        scope.launch {
-            withFrameNanos { }; withFrameNanos { }
-            runCatching { when (control) { "sources" -> sourcesFocus; "group" -> groupFocus; "refresh" -> refreshFocus; "search" -> searchFocus; else -> addFocus }.requestFocus() }
+    val window = androidx.compose.ui.platform.LocalWindowInfo.current
+    val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
+    var restoreRequested by remember { mutableStateOf(false) }
+    fun restoreControl() { restoreRequested = true }
+    LaunchedEffect(restoreRequested, panel, window.isWindowFocused) {
+        if (restoreRequested && panel == null && window.isWindowFocused) repeat(24) {
+            inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
+            withFrameNanos { }
+            val target = when (control) { "sources" -> sourcesFocus; "group" -> groupFocus; "refresh" -> refreshFocus; "search" -> searchFocus; else -> addFocus }
+            if (runCatching { target.requestFocus() }.getOrDefault(false)) {
+                restoreRequested = false; return@LaunchedEffect
+            }
         }
     }
     fun dismiss() { vm.cancelConnection(); panel = null; restoreControl() }
