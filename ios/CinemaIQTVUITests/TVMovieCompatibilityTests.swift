@@ -33,6 +33,8 @@ final class TVMovieCompatibilityTests: XCTestCase {
         XCTAssertLessThanOrEqual(quality.frame.width, 90)
         XCTAssertLessThanOrEqual(quality.frame.height, 90)
         XCTAssertLessThan(quality.frame.midY, timeline.frame.midY)
+        let overview = app.staticTexts["tv.player.pausedOverview"]
+        if overview.exists { XCTAssertLessThan(overview.frame.maxY, quality.frame.minY, "Movie information must not overlap the icon menus") }
         XCTAssertFalse(app.buttons["إخفاء"].exists)
         shot("movie-compatibility-restored-pause-layout")
         remote.press(.up); expectFocus(quality); remote.press(.select)
@@ -52,7 +54,10 @@ final class TVMovieCompatibilityTests: XCTestCase {
     }
 
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
-    private func expectFocus(_ target: XCUIElement) { waitFor { target.hasFocus } }
+    private func expectFocus(_ target: XCUIElement) {
+        // SwiftUI Menu exposes its focused native child beneath the labelled button.
+        waitFor { target.hasFocus || target.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch.exists }
+    }
     private func waitFor(_ condition: @escaping () -> Bool) {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 25), .completed)

@@ -86,6 +86,7 @@ struct TVCompatibilityTransport<Options: View>: View {
                 .transition(.opacity)
             }
         }
+        .ignoresSafeArea()
         .focusScope(focusScope)
         .defaultFocus($focus, "surface")
         .task { await Task.yield(); focus = "surface"; resetFocus(in: focusScope) }
