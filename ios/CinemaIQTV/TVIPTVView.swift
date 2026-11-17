@@ -55,7 +55,7 @@ struct TVIPTVView: View {
                 controls
                 if store.loading {
                     HStack(spacing: 20) { ProgressView(); Text("جارٍ تحميل القنوات…") }
-                } else if let message = store.message {
+                } else if let message = store.message, store.catalog.channels.isEmpty {
                     Text(message).foregroundStyle(.secondary).accessibilityIdentifier("tv.iptv.error")
                     Button("إعادة المحاولة", action: refresh).accessibilityIdentifier("tv.iptv.retry")
                 } else {
@@ -95,8 +95,9 @@ struct TVIPTVView: View {
             let changed = visible.map(\.id) != result.map(\.id)
             visible = result
             if previewedSource != store.selectedID, !result.isEmpty, sheet == nil, playing == nil {
-                previewedSource = store.selectedID; startInGuide = true
-                playing = result.first(where: { $0.id == lastChannel }) ?? result.first
+                previewedSource = store.selectedID; startInGuide = false
+                let recent = store.channelCollection.channels(result, sourceID: store.selectedID ?? "", section: .recent).first
+                playing = result.first(where: { $0.id == lastChannel }) ?? recent ?? result.first
             }
             // A cache refresh on returning from AVKit must not override the restored channel focus.
             if changed, !editingSearch, sheet == nil, playing == nil {
@@ -131,7 +132,7 @@ struct TVIPTVView: View {
     }
     private var header: some View {
         HStack(spacing: 24) {
-            Label("IPTV", systemImage: "dot.radiowaves.left.and.right").font(.system(size: 48, weight: .bold))
+            Label("التلفزيون", systemImage: "tv").font(.system(size: 48, weight: .bold))
                 .accessibilityIdentifier("tv.iptv.heading")
             Spacer()
             Button { present(.source(nil), from: "add") } label: { Label("إضافة مصدر", systemImage: "plus") }

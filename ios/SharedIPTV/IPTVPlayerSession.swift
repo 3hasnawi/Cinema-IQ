@@ -9,7 +9,9 @@ import CinemaCore
     let sourceID: String
     @Published private(set) var channel: IPTVChannel
     @Published private(set) var channels: [IPTVChannel] = []
+    @Published private(set) var numbers: [String: Int] = [:]
     @Published var group: String?
+    @Published var section: IPTVChannelSection = .all
     @Published private(set) var catalogRevision = UUID()
     @Published private(set) var engineMode = IPTVPlaybackMode.automatic
     @Published private(set) var usesCompatibility = false
@@ -47,11 +49,22 @@ import CinemaCore
     private var generation = UUID()
     private var attached = false
     var status: String { retrying && automaticallyReconnect ? "جارٍ إعادة الاتصال…" : tuning || buffering || retrying ? "جارٍ التحميل…" : ended ? "انتهى البث" : playing ? "بث مباشر" : "متوقف مؤقتًا" }
-    var queue: [IPTVChannel] { IPTVNavigation.channels(channels, sourceID: sourceID, group: group) }
+    var queue: [IPTVChannel] {
+        if automaticallyReconnect {
+            if section == .all { return channels }
+            return store?.channelCollection.channels(channels, sourceID: sourceID, section: section) ?? []
+        }
+        return IPTVNavigation.channels(channels, sourceID: sourceID, group: group)
+    }
     var groups: [String] { Array(Set(channels.map(\.group))).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
+    var videoHeight: Int {
+        let height = usesCompatibility ? Double(quality?.height ?? maximumHeight ?? 0) : Double(controller.player.currentItem?.presentationSize.height ?? 0)
+        return height.isFinite && height > 0 ? Int(min(height, 100_000)) : maximumHeight ?? 0
+    }
     init(initial: IPTVChannel, group: String?, preferredMaximumHeight: Int? = nil, automaticallyReconnect: Bool = false) {
         channel = initial; sourceID = initial.sourceID; self.group = group
         self.automaticallyReconnect = automaticallyReconnect
+        self.section = group.map(IPTVChannelSection.group) ?? .all
         maximumHeight = preferredMaximumHeight
         controller.$mode.removeDuplicates().sink { [weak self] in self?.engineMode = $0 }.store(in: &observers)
         controller.$usesCompatibility.removeDuplicates().sink { [weak self] in self?.usesCompatibility = $0 }.store(in: &observers)
@@ -82,6 +95,7 @@ import CinemaCore
         catalogObserver = store.$catalog.sink { [weak self] catalog in
             guard let self else { return }
             self.channels = catalog.channels.filter { $0.sourceID == self.sourceID }
+            self.numbers = IPTVNavigation.numbers(self.channels, sourceID: self.sourceID)
             self.catalogRevision = UUID()
         }
         tune(channel)
