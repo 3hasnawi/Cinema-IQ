@@ -42,6 +42,8 @@ final class TVIPTVFlowTests: XCTestCase {
         waitFor { (player.value as? String) == "بث مباشر" }
         remote.press(.playPause)
         XCTAssertTrue(element("tv.iptv.player.title").waitForExistence(timeout: 15))
+        waitFor { self.app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "نشرة الأخبار التجريبية")).firstMatch.exists }
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "البرنامج التالي التجريبي")).firstMatch.exists)
         shot("paused-live-player")
         for _ in 0..<3 { remote.press(.menu); if played.waitForExistence(timeout: 3) { break } }
         expectFocus(played)
@@ -291,6 +293,12 @@ final class TVIPTVFlowTests: XCTestCase {
         focus(element("tv.iptv.form.xtream"), direction: .left); remote.press(.select)
         XCTAssertTrue(element("tv.iptv.form.username").waitForExistence(timeout: 10))
         XCTAssertTrue(element("tv.iptv.form.password").exists)
+        fill("tv.iptv.form.name", "Remote Xtream")
+        fill("tv.iptv.form.address", "https://xtream.example")
+        fill("tv.iptv.form.username", "demo")
+        fill("tv.iptv.form.password", "demo")
+        focus(element("tv.iptv.form.save"), direction: .down)
+        XCTAssertTrue(element("tv.iptv.form.save").isEnabled)
         shot("xtream-form")
         remote.press(.menu)
         expectFocus(element("tv.iptv.add"))
