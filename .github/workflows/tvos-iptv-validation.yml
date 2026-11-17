@@ -5,12 +5,12 @@ on:
       scenario:
         description: Run all IPTV checks or a focused scenario
         type: choice
-        options: [all, quality, visibility, compatibility, guide, keyboard, hud, search]
+        options: [all, quality, visibility, compatibility, guide, keyboard, hud, search, interaction]
         default: all
 permissions:
   contents: read
 concurrency:
-  group: tvos-iptv-${{ github.ref }}
+  group: tvos-iptv-${{ github.ref }}-${{ inputs.scenario || 'all' }}
   cancel-in-progress: true
 jobs:
   simulator:
@@ -77,9 +77,16 @@ jobs:
           if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then test_id="$test_id/testAddM3USourceWithNativeKeyboard"; fi
           if [ "$IPTV_TEST_SCENARIO" = hud ]; then test_id="$test_id/testToolbarHidesWhileFocusedAndPopupsRestoreTheirIcons"; fi
           if [ "$IPTV_TEST_SCENARIO" = search ]; then test_id="$test_id/testGuideSearchDismissesNativeKeyboardAndRestoresNavigation"; fi
+          if [ "$IPTV_TEST_SCENARIO" = interaction ]; then test_id="$test_id/testToolbarHidesWhileFocusedAndPopupsRestoreTheirIcons"; fi
           extra_tests=()
           if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testCompatibilityMovieTransportAndReturnToDetails'); fi
           if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testXtreamFormShowsCredentialsAndMenuReturnsSafely'); fi
+          if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testSourcesGroupsPlaybackAndSelectionPersistence'); fi
+          if [ "$IPTV_TEST_SCENARIO" = interaction ]; then
+            for test in testGuideSearchDismissesNativeKeyboardAndRestoresNavigation testRemoteChannelSurfingAndFloatingGuide testHighestQualityPreferenceAndAutomaticSelection testCompatibilityDecoderWithRemoteAndTracks; do
+              extra_tests+=("-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/$test")
+            done
+          fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
             -only-testing:"$test_id" "${extra_tests[@]}" \
