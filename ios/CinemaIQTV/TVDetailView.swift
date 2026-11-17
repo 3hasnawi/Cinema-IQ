@@ -71,7 +71,7 @@ struct TVDetailView: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                ShowcaseBackground(url: artwork, belowFold: belowFold)
+                ShowcaseBackground(url: artwork, fallbackURL: TVArtworkSelection.providerFallback(for: current, excluding: artwork), belowFold: belowFold)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 50) {
                         header
@@ -229,7 +229,7 @@ struct TVDetailView: View {
 
     private var storyPage: some View {
         ZStack {
-            ShowcaseBackground(url: artwork, belowFold: true)
+            ShowcaseBackground(url: artwork, fallbackURL: TVArtworkSelection.providerFallback(for: current, excluding: artwork), belowFold: true)
             VStack(spacing: 30) {
                 HStack {
                     Text(current.title).font(.title2.bold())

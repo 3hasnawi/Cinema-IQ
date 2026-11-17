@@ -277,12 +277,13 @@ struct TVShelf<Content: View>: View {
 /// Full-screen artwork behind a page: clear at the top above the fold, blurred all over below it.
 struct ShowcaseBackground: View {
     let url: String
+    var fallbackURL = ""
     let belowFold: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
             TVTheme.ink
-            TVHeroArtwork(url: url)
+            TVHeroArtwork(url: url, fallbackURL: fallbackURL)
                 .id(url)
                 .transition(.opacity)
             // Physical right edge: titles are RTL even when the device's system language is English.

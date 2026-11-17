@@ -8,6 +8,8 @@ final class TVArtworkSelectionTests: XCTestCase {
         var work = TMDBWork(); work.backdrop = "https://image.tmdb.org/t/p/w1280/landscape.jpg"
         XCTAssertEqual(TVArtworkSelection.url(for: media, tmdb: work), work.backdrop)
         XCTAssertEqual(TVArtworkSelection.url(for: media, tmdb: nil), media.backdrop)
+        XCTAssertEqual(TVArtworkSelection.providerFallback(for: media, excluding: work.backdrop), media.backdrop)
+        XCTAssertEqual(TVArtworkSelection.providerFallback(for: media, excluding: media.backdrop), media.poster)
     }
     func testSourceLandscapeRemainsAvailableWhenTMDBOnlyHasAPoster() {
         var media = Media(id: "cinemana:fixture", title: "Fixture"); media.backdrop = "source-landscape"

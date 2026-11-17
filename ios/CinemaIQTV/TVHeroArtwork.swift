@@ -5,6 +5,7 @@ import UIKit
 /// A dimmed, blurred copy fills the unused sides without stretching or cutting the foreground image.
 struct TVHeroArtwork: View {
     let url: String
+    var fallbackURL = ""
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -25,6 +26,11 @@ struct TVHeroArtwork: View {
     private func remote(size: CGSize) -> some View {
         AsyncImage(url: URL(string: url)) { phase in
             if let image = phase.image { fitted(image, size: size) }
+            else if !fallbackURL.isEmpty && fallbackURL != url {
+                AsyncImage(url: URL(string: fallbackURL)) { fallback in
+                    if let image = fallback.image { fitted(image, size: size) }
+                }
+            }
         }
     }
     private func fitted(_ image: Image, size: CGSize) -> some View {

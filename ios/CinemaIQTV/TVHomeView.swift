@@ -42,7 +42,7 @@ struct TVHomeView: View {
         GeometryReader { proxy in
             let showcase = proxy.size.height
             ZStack {
-                ShowcaseBackground(url: heroArtwork, belowFold: belowFold)
+                ShowcaseBackground(url: heroArtwork, fallbackURL: hero.map { TVArtworkSelection.providerFallback(for: $0, excluding: heroArtwork) } ?? "", belowFold: belowFold)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 56) {
                         TVFeaturedHero(media: hero, info: currentHeroInfo, count: featured.count, index: heroIndex,
