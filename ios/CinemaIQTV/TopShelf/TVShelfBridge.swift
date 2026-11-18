@@ -131,14 +131,24 @@ import CinemaCore
               let media = FeaturedMovies.select(from: shelves).first else { return }
         library.save(media, seconds: 25, duration: 600)
         featured = FeaturedMovies.select(from: shelves); publish()
-        // Call the same loader/TVServices renderer used by the extension, not a drawn mock Home screen.
-        try? await Task.sleep(for: .milliseconds(400))
-        let snapshot = TVShelfStorage.read(TVShelfStorage.sharedURL)
-        let content = snapshot == nil ? nil : await TVShelfContentLoader.load()
+        // Observe the actual asynchronous production writer, rather than assuming a hosted runner
+        // schedules it within a fixed 400 ms. Never manufacture a passing snapshot in the test path.
+        guard let sharedURL = TVShelfStorage.sharedURL else { audit = "group-unavailable"; return }
+        let deadline = Date().addingTimeInterval(5)
+        var snapshot = TVShelfStorage.read(sharedURL)
+        while snapshot?.continuing.first?.mediaID != media.id, Date() < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(100))
+            snapshot = TVShelfStorage.read(sharedURL)
+        }
+        guard let snapshot else { audit = "snapshot-unavailable"; return }
+        guard snapshot.continuing.first?.mediaID == media.id else { audit = "recent-entry-missing"; return }
+        // The same loader/TVServices renderer used by the extension, not a drawn mock Home screen.
+        let content = await TVShelfContentLoader.load()
         let first = (content as? TVTopShelfSectionedContent)?.sections.first?.items.first
         let action = (first?.displayAction?.url).flatMap { TopShelfRoute(url: $0) }
-        audit = snapshot?.continuing.first?.mediaID == media.id && (first?.playbackProgress ?? 0) > 0 &&
-            action?.mediaID == media.id && action?.action == .play ? "shared-ready" : "shared-unavailable"
+        guard (first?.playbackProgress ?? 0) > 0 else { audit = "progress-missing"; return }
+        audit = action?.mediaID == media.id && action?.action == .play ? "shared-ready" : "action-invalid"
+
     }
 #endif
 }
