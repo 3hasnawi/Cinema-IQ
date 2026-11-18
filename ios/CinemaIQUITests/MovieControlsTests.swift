@@ -6,7 +6,8 @@ final class MovieControlsTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-player-controls"]
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-player-controls",
+                               "--cinema-ui-testing-hero-artwork"]
         if name.contains("Compatibility") { app.launchArguments.append("--cinema-ui-testing-compatibility") }
         if name.contains("PendingPause") { app.launchArguments.append("--cinema-ui-testing-pending-pause") }
         if !name.contains("Compatibility") {
