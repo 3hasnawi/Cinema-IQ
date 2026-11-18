@@ -38,6 +38,19 @@ final class PlaybackSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(calls.values, ["activate", "deactivate"])
     }
 
+    func testCancelledOpeningNeverActivatesAudioAfterLeavingPlayer() async {
+        let calls = Calls()
+        let session = PlaybackSessionCoordinator(activate: { calls.add("activate") }, deactivate: { calls.add("deactivate") })
+        let opening = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            do { try await session.acquire(UUID()); XCTFail("Cancelled playback must not start") }
+            catch is CancellationError { }
+            catch { XCTFail("Unexpected error: \(error)") }
+        }
+        await opening.value
+        XCTAssertTrue(calls.values.isEmpty)
+    }
+
     func testBlockingPlatformShutdownLeavesMainActorResponsive() async throws {
         let entered = expectation(description: "Platform shutdown entered")
         let gate = DispatchSemaphore(value: 0)

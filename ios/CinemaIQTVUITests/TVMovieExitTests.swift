@@ -15,6 +15,26 @@ final class TVMovieExitTests: XCTestCase {
     func testNativeMovieBackAfterTwoMinutesAndImmediateResume() { checkExit(compatibility: false, seconds: 125) }
     func testCompatibilityMovieBackAfterOneMinuteAndImmediateResume() { checkExit(compatibility: true, seconds: 65) }
 
+    func testBackWhileMovieIsOpeningDoesNotReappearOrTrapRemote() {
+        continueAfterFailure = false
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player",
+                               "--cinema-ui-testing-compatibility", "-ios.local.progress.v1", "",
+                               "-AppleLanguages", "(ar)", "-AppleLocale", "ar_IQ"]
+        app.launch()
+        let home = element("tv.home.showcase")
+        XCTAssertTrue(home.waitForExistence(timeout: 30)); expectFocus(home); remote.press(.select)
+        let play = app.buttons["tv.detail.play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 20)); expectFocus(play)
+        for _ in 0..<3 {
+            remote.press(.select)
+            returnToDetails(play)
+            XCTAssertFalse(element("tv.player.testClock").exists)
+        }
+        remote.press(.left)
+        waitFor(10) { !play.hasFocus }
+        shot("details-responds-after-three-fast-back-cancellations")
+    }
+
     private func checkExit(compatibility: Bool, seconds: Int) {
         continueAfterFailure = false
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player",

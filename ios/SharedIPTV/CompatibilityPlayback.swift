@@ -42,13 +42,12 @@ import CinemaCore
         private var continuation: CheckedContinuation<Void, Never>?
         init(_ player: VLCMediaPlayer) { self.player = player }
         func finish() async {
-            // An already-stopped player will not necessarily emit another stopped event.
-            if player.state != .stopped {
-                await withCheckedContinuation { continuation in
-                    self.continuation = continuation; player.delegate = self
-                    let retired = RetiredPlayer(player)
-                    CompatibilityPlayback.shutdownQueue.async { retired.value.stop() }
-                }
+            // state is cached by VLCKit and may still say stopped while play() is opening.
+            // Always request shutdown; never release output on the basis of that cached state.
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation; player.delegate = self
+                let retired = RetiredPlayer(player)
+                CompatibilityPlayback.shutdownQueue.async { retired.value.stop() }
             }
             player.delegate = nil
             // Keep the drawable alive until video output has stopped. Clearing it during
