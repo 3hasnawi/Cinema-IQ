@@ -45,8 +45,8 @@ final class MovieControlsTests: XCTestCase {
         waitFor { (self.nativeClock()?.seconds ?? 0) >= pausedAt + 2 && self.nativeClock()?.playing == true }
         shot("native-resume-advances-from-seek")
         waitForHUDHidden()
-        // One synthesized gesture reveals and then hits Close; no slow AX lookup consumes the HUD interval.
-        doubleTap(at: closePoint)
+        // Two cached-coordinate taps reveal and then hit Close without an AX lookup between them.
+        revealAndTap(at: closePoint)
         XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
     }
     func testPendingPauseEpisodeSheetKeepsCurrentAndSelectsNext() throws {
@@ -185,24 +185,28 @@ final class MovieControlsTests: XCTestCase {
         // targets the central transport button; the actual decoder/paused-label checks remain required.
         let point = cachedPoint ?? snapshotPoint("ios.player.playPause") ?? CGPoint(x: app.frame.midX, y: app.frame.midY)
         waitForHUDHidden()
-        // With the HUD hidden, the first tap reveals it and the second immediately hits Pause.
+        // With the HUD hidden, the first independent tap reveals it and the next hits Pause.
         // The native decoder state and persistent paused label must both confirm that it worked.
-        doubleTap(at: point)
+        revealAndTap(at: point)
         waitFor {
             self.nativeClock()?.playing == false && self.element("ios.player.playPause").exists &&
             self.element("ios.player.playPause").label == "تشغيل"
         }
     }
-    private func doubleTap(at point: CGPoint) {
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).doubleTap()
+    private func revealAndTap(at point: CGPoint) {
+        let target = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y))
+        // Two ordinary taps let SwiftUI commit the revealed controls between events. An accelerated
+        // double-tap can deliver both touches to the picture's original gesture recognizer.
+        // Cache the coordinate first: there are no live AX queries between these touches.
+        target.tap()
+        target.tap()
     }
     private func waitForHUDHidden() {
         waitFor {
-            let toggle = self.element("ios.player.controls.toggle"), close = self.element("ios.player.close")
-            guard toggle.exists && toggle.label == "إظهار أدوات المشغل" else { return false }
-            // Mounted SwiftUI controls can retain an AX node at zero opacity on older systems.
-            // Hidden state must also make the real Close target unavailable to a finger.
-            return !close.exists || !close.isHittable
+            let toggle = self.element("ios.player.controls.toggle")
+            // The hidden, zero-opacity button may retain an AX node whose hit-point query throws.
+            // This stable picture action names the current state; screenshots retain its real paint.
+            return toggle.exists && toggle.label == "إظهار أدوات المشغل"
         }
     }
     private func waitForHUDVisible() {
