@@ -49,7 +49,7 @@ final class TVTopShelfFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["tv.detail.play"].exists)
     }
     private func launchForLink() {
-        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player"]
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-top-shelf-link-testing"]
         app.launch()
         XCTAssertTrue(app.buttons["tv.home.showcase"].waitForExistence(timeout: 30))
         XCTAssertEqual(app.state, .runningForeground)

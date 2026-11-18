@@ -22,6 +22,8 @@ Before generating a signed project, register a real App Group on the signing tea
 
 Leaving it empty generates empty entitlements, preserving the normal unsigned/sideload workflow. The extension then races the three built-in public catalogues with an eight-second deadline and caches public featured metadata for fifteen minutes (stale fallback up to seven days). Without a shared group, it cannot read the app's account, selected source, or continue-watching history. A correctly signed App Group is required for personalized continue watching. Sideload tools must preserve and re-sign the embedded extension (do not enable atvloadly’s Remove Extensions option); this has not been established on the user's physical device or account.
 
+URL delivery uses both the canonical application delegate callbacks (including a cold-launch URL) and the root SwiftUI scene handler. One validated pending URL waits for the profile/window, and duplicate callbacks for the same OS event are coalesced. Debug-only link audit labels contain fixed stages, not URLs or account information.
+
 ## Data and lifecycle
 
 The atomic shared file is bounded to 128 KiB, eight entries per section, and seven days. It contains public artwork/title/description, namespaced media IDs, a random profile-context ID, and progress fractions. It excludes authentication, source configuration, playback URLs, and cloud account identifiers. Credential-bearing artwork URLs are rejected. Sequential writes prevent older scheduled writes from replacing newer history. Normal library save/clear/profile events notify TVServices.

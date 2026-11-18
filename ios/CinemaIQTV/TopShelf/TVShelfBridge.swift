@@ -22,6 +22,9 @@ import CinemaCore
 
     func attach(_ library: LibraryStore, source: ContentSource) {
         self.library = library; self.source = source
+#if DEBUG
+        audit = "attached"
+#endif
         publish()
     }
     func publish() {
@@ -74,6 +77,9 @@ import CinemaCore
     func open(_ url: URL, router: TVRouter, player: PlayerPresenter) {
         guard let route = TopShelfRoute(url: url), let library else { return }
         routeTask?.cancel()
+#if DEBUG
+        audit = "opening-" + route.action.rawValue
+#endif
         let token = UUID(); request = token; opening = true; problem = nil
         routeTask = Task { @MainActor in
             defer { if request == token { opening = false } }
@@ -95,6 +101,9 @@ import CinemaCore
                 guard request == token else { return }
                 router.tab = .home
                 router.paths[.home] = [detail]
+#if DEBUG
+                audit = "details-ready"
+#endif
                 guard route.action == .play else { return }
                 if detail.isSeries {
                     guard let target = PlayTarget.pick(seasons, library: library) else { return }
@@ -105,6 +114,9 @@ import CinemaCore
                     guard request == token else { return }
                     player.play(detail, queue: series.1.flatMap(\.episodes), series: series.0)
                 } else { player.play(detail) }
+#if DEBUG
+                audit = "play-requested"
+#endif
             } catch {
                 if !Task.isCancelled, request == token { problem = error.localizedDescription }
             }

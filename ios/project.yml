@@ -135,7 +135,8 @@ targets:
         CFBundleDisplayName: Cinema iQ
         CFBundleDevelopmentRegion: ar
         CFBundleURLTypes:
-          - CFBundleURLName: com.cinemaplus.rebuilt.tv.top-shelf
+          - CFBundleTypeRole: Viewer
+            CFBundleURLName: com.cinemaplus.rebuilt.tv.top-shelf
             CFBundleURLSchemes: [cinemaiq]
         OMDbAPIKey: "$(OMDB_API_KEY)"
         YouTubeAPIKey: "$(YOUTUBE_API_KEY)"

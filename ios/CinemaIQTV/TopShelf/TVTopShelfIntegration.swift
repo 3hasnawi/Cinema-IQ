@@ -2,6 +2,7 @@ import SwiftUI
 import CinemaCore
 
 struct TVTopShelfIntegration: ViewModifier {
+    @EnvironmentObject private var appDelegate: TVShelfAppDelegate
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var cloud: CloudSync
     @EnvironmentObject private var router: TVRouter
@@ -10,7 +11,6 @@ struct TVTopShelfIntegration: ViewModifier {
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @StateObject private var bridge = TVShelfBridge()
     @State private var refreshTask: Task<Void, Never>?
-    @State private var pendingURL: URL?
     func body(content: Content) -> some View {
         content
             .disabled(bridge.opening)
@@ -18,7 +18,7 @@ struct TVTopShelfIntegration: ViewModifier {
                 // Activate the real account/profile before publishing anything from its library.
                 cloud.start(library: library)
                 bridge.attach(library, source: SourcePreference.source(sourceName))
-                if let url = pendingURL { pendingURL = nil; bridge.open(url, router: router, player: player) }
+                if let url = appDelegate.consume() { bridge.open(url, router: router, player: player) }
 #if DEBUG
                 await bridge.seedAudit()
 #endif
@@ -32,10 +32,11 @@ struct TVTopShelfIntegration: ViewModifier {
                 bridge.publish()
                 if value == .active { refresh() }
             }
-            .onOpenURL { url in
-                guard TopShelfRoute(url: url) != nil else { return }
-                if bridge.attached { bridge.open(url, router: router, player: player) }
-                else { pendingURL = url }
+            .onChange(of: appDelegate.pendingURL) { _, value in
+                // onChange runs after @Published has stored the value, including a cold-launch request.
+                if value != nil, bridge.attached, let url = appDelegate.consume() {
+                    bridge.open(url, router: router, player: player)
+                }
             }
             .overlay {
                 if bridge.opening {
@@ -48,8 +49,10 @@ struct TVTopShelfIntegration: ViewModifier {
             } message: { Text(bridge.problem ?? "") }
 #if DEBUG
             .overlay(alignment: .topLeading) {
-                if ProcessInfo.processInfo.arguments.contains("--cinema-top-shelf-testing") {
-                    Text(bridge.audit).font(.caption).padding(8).background(.black.opacity(0.8))
+                if ProcessInfo.processInfo.arguments.contains("--cinema-top-shelf-testing") ||
+                    ProcessInfo.processInfo.arguments.contains("--cinema-top-shelf-link-testing") {
+                    Text(ProcessInfo.processInfo.arguments.contains("--cinema-top-shelf-link-testing") ?
+                         appDelegate.audit + ":" + bridge.audit : bridge.audit).font(.caption).padding(8).background(.black.opacity(0.8))
                         .accessibilityIdentifier("tv.topshelf.audit")
                 }
             }
