@@ -13,15 +13,12 @@ struct HomeView: View {
     @State private var loading = false
     @State private var error: String?
     @State private var heroIndex = 0
+    @State private var loadID = UUID()
     /// The source whose shelves are on screen. Coming back from a title page re-runs `.task`; the page must
     /// then stay as it was (same rows, same scroll position) instead of reloading from the top.
     @State private var loadedSource: String?
     private var source: ContentSource { SourcePreference.source(sourceName) }
-    private var featured: [Media] {
-        var seen = Set<String>()
-        let all = shelves.flatMap(\.items).filter { seen.insert($0.id).inserted }
-        return Array(all.filter { !$0.poster.isEmpty || !$0.backdrop.isEmpty }.prefix(6))
-    }
+    private var featured: [Media] { FeaturedMovies.select(from: shelves, limit: 6) }
     private var recent: [Media] { library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source } }
 
     var body: some View {
@@ -58,7 +55,7 @@ struct HomeView: View {
             }
             .padding(.bottom, 24)
         }
-        .background(Theme.ink)
+        .background(Theme.canvas)
         .accessibilityIdentifier("ios.home")
         .ignoresSafeArea(edges: .top)
         // No bar over the featured artwork; the source is chosen in Settings (and in Browse and Search).
@@ -72,24 +69,33 @@ struct HomeView: View {
     }
 
     private func load() async {
-        loading = true; error = nil
-        defer { loading = false }
+        let request = UUID(), requestedSource = sourceName
+        loadID = request; loading = true; error = nil
+        defer { if loadID == request { loading = false } }
         do {
-            let result = try await SourceClient().home(source)
+            let result = try await SourceClient().home(SourcePreference.source(requestedSource), prioritizeFeaturedMovies: true)
             try Task.checkCancellation()
+            guard loadID == request, sourceName == requestedSource else { return }
+            heroIndex = min(heroIndex, max(0, FeaturedMovies.select(from: result, limit: 6).count - 1))
             shelves = result
-            loadedSource = sourceName
+            loadedSource = requestedSource
         } catch is CancellationError {
         } catch {
-            if !Task.isCancelled { self.error = error.localizedDescription }
+            if !Task.isCancelled, loadID == request, sourceName == requestedSource { self.error = error.localizedDescription }
         }
     }
 }
 
 struct HeroCarousel: View {
     @Environment(\.contentLayout) private var layout
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @EnvironmentObject private var player: PlayerPresenter
+    @State private var visible = false
     let items: [Media]
     @Binding var index: Int
+    private var canRotate: Bool { visible && phase == .active && !reduceMotion && player.selection == nil && items.count > 1 }
+    private var rotationKey: String { "\(canRotate)|\(index)|" + items.map(\.id).joined(separator: ",") }
     var body: some View {
         TabView(selection: $index) {
             ForEach(Array(items.enumerated()), id: \.element.id) { offset, media in
@@ -102,10 +108,15 @@ struct HeroCarousel: View {
         .overlay(alignment: .bottom) {
             if items.count > 1 { PageDots(count: items.count, index: index).padding(.bottom, 2) }
         }
-        // Restarted by every change, so a manual swipe also gets its full six seconds.
-        .task(id: index) {
-            try? await Task.sleep(for: .seconds(6))
-            guard !Task.isCancelled, items.count > 1 else { return }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+        .onScrollVisibilityChange(threshold: 0.5) { visible = $0 }
+        // A manual swipe restarts the full interval. Hidden pages do not advance behind playback or navigation.
+        .task(id: rotationKey) {
+            guard canRotate else { return }
+            let selected = index, identities = items.map(\.id)
+            do { try await Task.sleep(for: .seconds(6)) } catch { return }
+            guard !Task.isCancelled, canRotate, index == selected, items.map(\.id) == identities else { return }
             withAnimation(.smooth(duration: 0.6)) { index = (index + 1) % items.count }
         }
     }
@@ -116,14 +127,15 @@ struct HeroPage: View {
     let media: Media
     let routeKey: String
     @State private var omdb: OMDbInfo?
+    @State private var tmdb: TMDBWork?
+    @State private var omdbID = ""
+    @State private var tmdbID = ""
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.zoomNamespace) private var zoom
     var body: some View {
         ZStack(alignment: .bottom) {
-            Color.clear
-                .overlay { Artwork(url: heroImage) }
-                .clipped()
+            HeroArtwork(url: heroImage, fallbackURL: TVArtworkSelection.providerFallback(for: media, excluding: heroImage))
             LinearGradient(stops: [
                 .init(color: .clear, location: 0.3),
                 .init(color: Theme.ink.opacity(0.7), location: 0.68),
@@ -139,7 +151,7 @@ struct HeroPage: View {
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
-                MetaLine(media: media, imdb: omdb?.imdbRating)
+                MetaLine(media: media, imdb: currentOMDb?.imdbRating)
                 // Compact single-line actions: the play button carries the text, the others are icons.
                 HStack(spacing: 12) {
                     if media.isSeries {
@@ -171,12 +183,23 @@ struct HeroPage: View {
             .padding(.bottom, 36)
         }
         .zoomSource(routeKey, in: zoom)
-        .task(id: media.id) { omdb = await OMDb.shared?.info(for: media) }
+        .task(id: media.id) {
+            let requested = media
+            let found = await OMDb.shared?.info(for: requested)
+            guard !Task.isCancelled, media.id == requested.id else { return }
+            omdb = found; omdbID = requested.id
+        }
+        // Artwork does not depend on OMDb availability or its request completing first.
+        .task(id: media.id) {
+            let requested = media
+            let found = await TMDB.shared?.work(for: requested)
+            guard !Task.isCancelled, media.id == requested.id else { return }
+            tmdb = found; tmdbID = requested.id
+        }
     }
+    private var currentOMDb: OMDbInfo? { omdbID == media.id ? omdb : nil }
     private var heroImage: String {
-        if layout.spacious, !media.backdrop.isEmpty { return media.backdrop }
-        if let poster = omdb?.largePoster, !poster.isEmpty { return poster }
-        return media.backdrop.isEmpty ? media.poster : media.backdrop
+        TVArtworkSelection.url(for: media, tmdb: tmdbID == media.id ? tmdb : nil, fallbackPoster: currentOMDb?.largePoster ?? "")
     }
 }
 

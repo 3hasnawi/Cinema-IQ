@@ -11,7 +11,11 @@ import CinemaCore
     @Published private(set) var channels: [IPTVChannel] = []
     @Published private(set) var numbers: [String: Int] = [:]
     @Published var group: String?
-    @Published var section: IPTVChannelSection = .all
+    @Published var section: IPTVChannelSection = .all {
+        didSet {
+            if oldValue != section { recentSurfIDs = nil; captureRecentSurfOrder() }
+        }
+    }
     @Published private(set) var catalogRevision = UUID()
     @Published private(set) var engineMode = IPTVPlaybackMode.automatic
     @Published private(set) var usesCompatibility = false
@@ -48,13 +52,25 @@ import CinemaCore
     private var qualityTask: Task<Void, Never>?
     private var generation = UUID()
     private var attached = false
+    /// Watching changes the displayed Recent ranking. Keep surfing in its entry order
+    /// until the user chooses another section, while resolving live catalog objects.
+    private var recentSurfIDs: [String]?
     var status: String { retrying && automaticallyReconnect ? "جارٍ إعادة الاتصال…" : tuning || buffering || retrying ? "جارٍ التحميل…" : ended ? "انتهى البث" : playing ? "بث مباشر" : "متوقف مؤقتًا" }
     var queue: [IPTVChannel] {
         if automaticallyReconnect {
             if section == .all { return channels }
-            return store?.channelCollection.channels(channels, sourceID: sourceID, section: section) ?? []
+            let selected = store?.channelCollection.channels(channels, sourceID: sourceID, section: section) ?? []
+            if section == .recent {
+                captureRecentSurfOrder()
+                return IPTVNavigation.preservingOrder(selected, sourceID: sourceID, ids: recentSurfIDs ?? [])
+            }
+            return selected
         }
         return IPTVNavigation.channels(channels, sourceID: sourceID, group: group)
+    }
+    private func captureRecentSurfOrder() {
+        guard section == .recent, recentSurfIDs == nil, !channels.isEmpty, let store else { return }
+        recentSurfIDs = store.channelCollection.channels(channels, sourceID: sourceID, section: .recent).map(\.id)
     }
     var groups: [String] { Array(Set(channels.map(\.group))).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
     var videoHeight: Int {
@@ -96,6 +112,7 @@ import CinemaCore
             guard let self else { return }
             self.channels = catalog.channels.filter { $0.sourceID == self.sourceID }
             self.numbers = IPTVNavigation.numbers(self.channels, sourceID: self.sourceID)
+            self.captureRecentSurfOrder()
             self.catalogRevision = UUID()
         }
         tune(channel)
@@ -273,5 +290,6 @@ import CinemaCore
     func close() {
         attached = false; active = false; generation = UUID(); tuneTask?.cancel(); cancelRecovery(); qualityTask?.cancel()
         catalogObserver?.cancel(); controller.close()
+        recentSurfIDs = nil
     }
 }

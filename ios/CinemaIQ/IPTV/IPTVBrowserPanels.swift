@@ -32,11 +32,7 @@ struct IPTVBrowserPanels: View {
                             ForEach(visible) { channel in
                                 Button { choose(channel) } label: {
                                     HStack(spacing: 10) {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 7).fill(.white.opacity(0.05))
-                                            Image(systemName: "tv").foregroundStyle(.secondary)
-                                            if let logo = channel.logo { AsyncImage(url: logo) { if let image = $0.image { image.resizable().scaledToFit().padding(3) } } }
-                                        }.frame(width: 38, height: 38).accessibilityHidden(true)
+                                        IPTVChannelLogo(channel: channel).frame(width: 46, height: 46)
                                         Text(channel.name).font(.system(size: 15, weight: .medium)).foregroundStyle(.primary).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                                         if channel.id == session.channel.id { Image(systemName: "waveform").foregroundStyle(Theme.accent).font(.caption) }
                                         else { Text(String(numbering[channel.id] ?? 0)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
@@ -47,7 +43,7 @@ struct IPTVBrowserPanels: View {
                             }
                             if visible.isEmpty { Text("لا توجد قنوات في هذا القسم.").font(.subheadline).foregroundStyle(.secondary).padding(24) }
                         }
-                    }
+                    }.scrollDismissesKeyboard(.interactively)
                     .task(id: key) {
                         let channels = session.channels, source = session.sourceID, collection = store.channelCollection, selected = section, text = query
                         let result = await Task.detached { collection.channels(channels, sourceID: source, section: selected, query: text) }.value

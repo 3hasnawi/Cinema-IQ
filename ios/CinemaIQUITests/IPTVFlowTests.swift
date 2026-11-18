@@ -150,8 +150,66 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap(); search.typeText("News")
         waitFor { self.app.buttons["Xtream News"].exists && !self.app.buttons["Xtream Sport"].exists }
+        let done = element("ios.iptv.browser.search.done")
+        XCTAssertTrue(done.waitForExistence(timeout: 10)); done.tap()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertTrue(search.exists, "Search results must remain available after Done dismisses the keyboard")
         screenshot("xtream-search")
         XCTAssertEqual(app.state, .runningForeground)
+    }
+    func testKeyboardNextDoneMetadataPopoversAndOfflineLastChannelRestore() {
+        openAdd()
+        app.segmentedControls.buttons["Xtream"].tap()
+        fill("ios.iptv.form.name", "Keyboard Cache\n")
+        // Send input to the actual first responder to verify native Next traversal,
+        // rather than tapping each destination field and masking a focus failure.
+        app.typeText("https://xtream.example\n")
+        app.typeText("demo\n")
+        app.typeText("demo\n")
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(app.textFields["ios.iptv.form.address"].value as? String, "https://xtream.example")
+        XCTAssertEqual(app.textFields["ios.iptv.form.username"].value as? String, "demo")
+        connect()
+        XCTAssertTrue(app.buttons["Xtream News"].waitForExistence(timeout: 20))
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        app.buttons["Xtream Sport"].tap()
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        app.buttons["Xtream News"].tap()
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        element("ios.iptv.browser.fullscreen").tap()
+        let programmes = element("ios.iptv.player.programmes")
+        waitFor { programmes.exists && programmes.label.contains("نشرة الأخبار التجريبية") && programmes.label.contains("البرنامج التالي التجريبي") }
+        tapPlayerControl("quality")
+        let popup = element("ios.iptv.track.popup")
+        XCTAssertTrue(popup.waitForExistence(timeout: 10)); inside(popup)
+        XCTAssertLessThan(popup.frame.height, app.frame.height * 0.8, "Track options should fit their content instead of occupying a large sheet")
+        element("ios.iptv.quality.auto").tap()
+        waitFor { !popup.exists }
+        tapPlayerControl("channels")
+        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 10))
+        let guideSearch = app.searchFields.firstMatch
+        XCTAssertTrue(guideSearch.waitForExistence(timeout: 10)); guideSearch.tap(); guideSearch.typeText("Sport")
+        let guideDone = element("ios.iptv.guide.search.done")
+        XCTAssertTrue(guideDone.waitForExistence(timeout: 10)); guideDone.tap()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        element("ios.iptv.guide.group.الأخيرة").tap()
+        let sport = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "ios.iptv.guide.channel.", "Xtream Sport")).firstMatch
+        XCTAssertTrue(sport.waitForExistence(timeout: 10)); sport.tap()
+        waitFor { self.element("ios.iptv.player.title").label == "Xtream Sport" }
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        screenshot("television-programmes-and-touch-popovers")
+        tapPlayerControl("close")
+        waitFor { (self.element("ios.iptv.browser.section.الأخيرة").value as? String) == "محدد" }
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        // Retain Keychain/cache and block every catalogue request on the next launch.
+        // Reentry must still restore the recent channel from the encrypted local cache.
+        app.terminate(); app.launchArguments = baseArguments + ["--cinema-ui-testing-iptv-offline"]; app.launch(); openIPTV()
+        XCTAssertTrue(app.buttons["Xtream Sport"].waitForExistence(timeout: 20))
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        element("ios.iptv.browser.fullscreen").tap()
+        waitFor { self.element("ios.iptv.player.title").label == "Xtream Sport" }
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        screenshot("cached-last-channel-restored-without-provider-network")
     }
     private func showPlayerControls() {
         for _ in 0..<4 {
@@ -188,7 +246,7 @@ final class IPTVFlowTests: XCTestCase {
         if tablet {
             // Exercise iPad's native IPTV tab/sidebar instead of a Browse stack restored across rotation.
             let tab = app.descendants(matching: .any).matching(NSPredicate(
-                format: "label == %@ AND (elementType == %d OR elementType == %d)", "IPTV",
+                format: "label == %@ AND (elementType == %d OR elementType == %d)", "التلفزيون",
                 XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue)).firstMatch
             if !tab.exists || !tab.isHittable {
                 let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch

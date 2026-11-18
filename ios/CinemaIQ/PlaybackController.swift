@@ -41,10 +41,15 @@ struct MediaOption: Identifiable, Hashable {
     private var wantsPlay = true
     private var restartOnResume = false
     private var pendingMovieSeek: Double?
-    private var pendingNativeSeek: Double?
+    private var nativeSeeks = PlaybackSeekQueue()
     private var pendingMode: IPTVPlaybackMode?
     private let enginePreference: PlaybackEnginePreference
     var hasItem: Bool { currentURL != nil }
+    /// Unlike the decoder clock, this also represents intent during asynchronous opening.
+    var playbackRequested: Bool { wantsPlay }
+#if DEBUG
+    var nativeSeekPendingForTesting: Bool { nativeSeeks.isPending }
+#endif
 
     /// Remote playback has its own progress clock; never overwrite it with the paused local item.
     var externalPlayback = false
@@ -96,9 +101,9 @@ struct MediaOption: Identifiable, Hashable {
 #endif
     }
 
-    func open(_ media: Media, url: URL, resume: Double, save: @escaping (Double, Double, Bool) -> Void) {
+    func open(_ media: Media, url: URL, resume: Double, initiallyPlaying: Bool = true, save: @escaping (Double, Double, Bool) -> Void) {
         close(); self.save = save; error = nil; lastFailure = nil; ended = false; position = max(0, resume); duration = 0; ticks = 0
-        currentURL = url; fallbackAttempted = false; wantsPlay = true
+        currentURL = url; fallbackAttempted = false; wantsPlay = initiallyPlaying
         let lease = UUID(); audioLease = lease; buffering = true
         openingTask = Task { [weak self] in
             // A new native movie must not race the previous compatibility decoder's shutdown either.
@@ -123,19 +128,15 @@ struct MediaOption: Identifiable, Hashable {
     private func openNative(url: URL, resume: Double, playing shouldPlay: Bool = true) {
         usesCompatibility = false; ended = false; wantsPlay = shouldPlay; restartOnResume = false; pendingMode = nil
         let item = AVPlayerItem(url: url)
-        pendingNativeSeek = resume.isFinite && resume > 0 ? resume : nil
+        nativeSeeks.reset()
+        if resume.isFinite && resume > 0 { nativeSeeks.enqueue(resume) }
         player.replaceCurrentItem(with: item)
         hasNativeItem = true
         statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor in
                 guard let self, self.player.currentItem === item else { return }
                 if item.status == .failed { self.nativeFailure(item) }
-                else if item.status == .readyToPlay, let target = self.pendingNativeSeek {
-                    // An initial seek can be discarded while a paused item is preparing.
-                    // Apply the latest requested time only once the actual item is ready.
-                    self.pendingNativeSeek = nil
-                    self.player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-                }
+                else if item.status == .readyToPlay { self.applyPendingNativeSeek(item) }
             }
         }
         controlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
@@ -145,6 +146,9 @@ struct MediaOption: Identifiable, Hashable {
                 let status = player.timeControlStatus
                 self?.playing = status != .paused
                 self?.buffering = status == .waitingToPlayAtSpecifiedRate
+                // AVKit's native remote can resume without calling this controller's
+                // play(). Retry a seek interrupted during the initially paused opening.
+                if status == .playing, let self, let observedItem { self.applyPendingNativeSeek(observedItem) }
             }
         }
         endToken = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -166,6 +170,25 @@ struct MediaOption: Identifiable, Hashable {
         player.defaultRate = rate
         applyNativeQuality()
         if shouldPlay { player.play() }
+    }
+
+    private func applyPendingNativeSeek(_ item: AVPlayerItem) {
+        guard player.currentItem === item, item.status == .readyToPlay,
+              let attempt = nativeSeeks.begin() else { return }
+        player.seek(to: CMTime(seconds: attempt.seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self, weak item] finished in
+            Task { @MainActor in
+                guard let self, let item, self.player.currentItem === item else { return }
+                switch self.nativeSeeks.complete(attempt, finished: finished) {
+                case .ignored, .awaitTrigger: break
+                case .seekLatest: self.applyPendingNativeSeek(item)
+                case .settled:
+                    let actual = self.player.currentTime().seconds
+                    if actual.isFinite { self.position = actual }
+                }
+                // Seeking preserves the existing transport state. Do not replay stale
+                // play/pause intent over a real AVKit remote action from this completion.
+            }
+        }
     }
 
     private func nativeFailure(_ item: AVPlayerItem) {
@@ -248,9 +271,14 @@ struct MediaOption: Identifiable, Hashable {
     func pause() { wantsPlay = false; if usesCompatibility { compatibility.pause() } else { player.pause() }; playing = false }
     func play() {
         wantsPlay = true
+        guard openingTask == nil else { return }
         if restartOnResume { restart(resume: position) }
         else if usesCompatibility { compatibility.play() }
-        else { player.play() }
+        else {
+            guard let item = player.currentItem else { return }
+            applyPendingNativeSeek(item)
+            player.play()
+        }
         playing = true
     }
     private func updateCue() {
@@ -261,7 +289,7 @@ struct MediaOption: Identifiable, Hashable {
     private func tick() {
         guard let item = player.currentItem else { return }
         let now = player.currentTime().seconds, length = item.duration.seconds
-        if now.isFinite && pendingNativeSeek == nil { position = now }
+        if now.isFinite && !nativeSeeks.isPending { position = now }
         if length.isFinite && length > 0 { duration = length }
         updateCue()
         ticks += 1
@@ -290,18 +318,22 @@ struct MediaOption: Identifiable, Hashable {
         }
     }
     func seek(to seconds: Double) {
+        guard seconds.isFinite else { return }
         let target = max(0, duration > 0 ? min(seconds, duration) : seconds)
         position = target
         if usesCompatibility {
-            if enginePreference == .tvMovies && !wantsPlay {
+            if enginePreference != .shared && !wantsPlay {
                 // VLC can retain the old clock while paused. Keep the selected movie time until resume,
                 // then reopen at that time rather than allowing paused callbacks to erase the seek.
                 pendingMovieSeek = target; restartOnResume = true
             }
             compatibility.seek(target); return
         }
-        if let item = player.currentItem, item.status != .readyToPlay { pendingNativeSeek = target; return }
-        player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        // While activation is pending, position is the intent passed into openNative.
+        // Never send a seek to an empty AVPlayer and mistake that intent for completion.
+        guard let item = player.currentItem else { return }
+        nativeSeeks.enqueue(target)
+        applyPendingNativeSeek(item)
     }
     func skip(_ delta: Double) { seek(to: position + delta) }
     func setRate(_ value: Float) {
@@ -393,7 +425,8 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func releaseNative() {
-        pendingNativeSeek = nil
+        // Invalidate completion ownership before cancellation invokes its callbacks.
+        nativeSeeks.reset()
         selectionTask?.cancel(); selectionTask = nil
         player.currentItem?.cancelPendingSeeks()
         player.currentItem?.asset.cancelLoading()

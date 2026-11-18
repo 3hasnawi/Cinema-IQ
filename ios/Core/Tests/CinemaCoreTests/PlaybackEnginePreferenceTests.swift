@@ -28,4 +28,23 @@ final class PlaybackEnginePreferenceTests: XCTestCase {
         XCTAssertEqual(PlaybackEnginePreference.tvMovies.mode(in: defaults), .automatic)
         XCTAssertEqual(PlaybackEnginePreference.shared.mode(in: defaults), .apple)
     }
+
+    func testPhoneMovieChoiceIsIndependentOfInstalledLiveAndTVMoviePreferences() throws {
+        let name = "cinema.engine.tests." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("compatibility", forKey: "apple.playback.engine.v1")
+        PlaybackEnginePreference.tvMovies.save(.compatibility, in: defaults)
+        XCTAssertEqual(PlaybackEnginePreference.phoneMovies.mode(in: defaults), .automatic)
+
+        PlaybackEnginePreference.phoneMovies.save(.apple, in: defaults)
+        XCTAssertEqual(PlaybackEnginePreference.phoneMovies.mode(in: defaults), .apple)
+        XCTAssertEqual(PlaybackEnginePreference.tvMovies.mode(in: defaults), .compatibility)
+        XCTAssertEqual(PlaybackEnginePreference.shared.mode(in: defaults), .compatibility)
+        XCTAssertEqual(defaults.string(forKey: "apple.playback.engine.v1"), "compatibility")
+
+        defaults.set("invalid", forKey: PlaybackEnginePreference.phoneMovies.rawValue)
+        XCTAssertEqual(PlaybackEnginePreference.phoneMovies.mode(in: defaults), .automatic)
+        XCTAssertEqual(PlaybackEnginePreference.shared.mode(in: defaults), .compatibility)
+    }
 }

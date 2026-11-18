@@ -8,6 +8,7 @@ final class MovieControlsTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-player-controls"]
         if name.contains("Compatibility") { app.launchArguments.append("--cinema-ui-testing-compatibility") }
+        if name.contains("PendingPause") { app.launchArguments.append("--cinema-ui-testing-pending-pause") }
         if !name.contains("Compatibility") {
             // Separate first-install hydration/accessibility startup from the player regression.
             app.launch()
@@ -24,13 +25,71 @@ final class MovieControlsTests: XCTestCase {
     }
     func testAppleControlsReturnAfterAutomaticHide() { verifyControls() }
     func testCompatibilityControlsReturnAfterAutomaticHide() { verifyControls() }
+    func testPendingPauseSeekAndAutomaticQualityPreserveNativeClock() throws {
+        openFirstMovie()
+        let pausedAt = try nativePausedPosition()
+        shot("native-startup-seek-paused")
+        element("ios.player.options").tap()
+        let quality = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "الجودة")).firstMatch
+        XCTAssertTrue(quality.waitForExistence(timeout: 10)); quality.tap()
+        let automatic = element("ios.player.quality.auto")
+        XCTAssertTrue(automatic.waitForExistence(timeout: 10)); automatic.tap()
+        waitFor { !self.element("ios.player.options.panel").exists }
+        try assertNativeClockStaysPaused(at: pausedAt)
+        shot("automatic-quality-preserves-native-pause")
+        element("ios.player.playPause").tap()
+        waitFor { (self.nativeClock()?.seconds ?? 0) >= pausedAt + 2 && self.nativeClock()?.playing == true }
+        shot("native-resume-advances-from-seek")
+        if !element("ios.player.close").exists { centerTap() }
+        XCTAssertTrue(element("ios.player.close").waitForExistence(timeout: 10))
+        element("ios.player.close").tap()
+        XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
+    }
+    func testPendingPauseEpisodeSheetKeepsCurrentAndSelectsNext() throws {
+        openBrowse()
+        let series = app.segmentedControls.buttons["مسلسلات"]
+        XCTAssertTrue(series.waitForExistence(timeout: 10)); series.tap()
+        let poster = firstPoster()
+        waitFor { (poster.value as? String) == "مسلسل" }; poster.tap()
+        XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 20))
+        let first = episodeButton(prefix: "ios.detail.episode.", number: 1)
+        for _ in 0..<8 {
+            if first.exists && first.isHittable { break }; element("ios.detail").swipeUp()
+        }
+        XCTAssertTrue(first.isHittable); first.tap()
+        let initial = try nativePausedPosition()
+        // Move beyond the launch hook's 30-second seek: reopening the current episode
+        // would reset to 30, so this assertion detects a restart rather than merely its title.
+        element("ios.player.playPause").tap()
+        waitFor { (self.nativeClock()?.seconds ?? 0) >= initial + 4 && self.nativeClock()?.playing == true }
+        pauseForInspection()
+        let beforeSheet = try nativePausedPosition()
+        openEpisodes()
+        let current = episodeButton(prefix: "ios.player.episode.", number: 1)
+        XCTAssertTrue(current.waitForExistence(timeout: 10)); current.tap()
+        waitFor { !self.element("ios.player.episodes.sheet").exists }
+        try assertNativeClockStaysPaused(at: beforeSheet)
+        shot("current-episode-selection-preserves-native-clock")
+        openEpisodes()
+        let next = episodeButton(prefix: "ios.player.episode.", number: 2)
+        for _ in 0..<5 {
+            if next.exists && next.isHittable && app.frame.insetBy(dx: -2, dy: -2).contains(next.frame) { break }
+            current.swipeRight()
+        }
+        XCTAssertTrue(next.exists && next.isHittable); next.tap()
+        waitFor { !self.element("ios.player.episodes.sheet").exists }
+        waitFor {
+            let info = self.element("ios.player.episode.info").label.replacingOccurrences(of: "٢", with: "2")
+            return info.contains("الحلقة 2")
+        }
+        _ = try nativePausedPosition()
+        shot("next-episode-selected-from-touch-sheet")
+        element("ios.player.close").tap()
+        XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
+    }
     private func verifyControls() {
-        let browse = app.buttons.matching(NSPredicate(format: "label == %@", "تصفّح")).firstMatch
-        XCTAssertTrue(browse.waitForExistence(timeout: 25)); browse.tap()
-        let poster = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.poster.grid-")).firstMatch
-        XCTAssertTrue(poster.waitForExistence(timeout: 20)); poster.tap()
+        openFirstMovie()
         let start = element("ios.detail.play")
-        XCTAssertTrue(start.waitForExistence(timeout: 20)); start.tap()
         let video = element("ios.player.video")
         XCTAssertTrue(video.waitForExistence(timeout: 20))
         waitFor { self.seconds(video) >= 1 }
@@ -55,6 +114,50 @@ final class MovieControlsTests: XCTestCase {
         shot("landscape-controls-restored")
         element("ios.player.close").tap()
         XCTAssertTrue(start.waitForExistence(timeout: 15))
+    }
+    private func openBrowse() {
+        let browse = app.buttons.matching(NSPredicate(format: "label == %@", "تصفّح")).firstMatch
+        XCTAssertTrue(browse.waitForExistence(timeout: 25)); browse.tap()
+    }
+    private func firstPoster() -> XCUIElement {
+        let poster = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.poster.grid-")).firstMatch
+        XCTAssertTrue(poster.waitForExistence(timeout: 20)); return poster
+    }
+    private func openFirstMovie() {
+        openBrowse(); firstPoster().tap()
+        let start = element("ios.detail.play")
+        XCTAssertTrue(start.waitForExistence(timeout: 20)); start.tap()
+    }
+    private func episodeButton(prefix: String, number: Int) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS %@", prefix, "open-movies-\(number)")).firstMatch
+    }
+    private func openEpisodes() {
+        element("ios.player.options").tap()
+        let episodes = element("ios.player.episodes")
+        XCTAssertTrue(episodes.waitForExistence(timeout: 10)); episodes.tap()
+        XCTAssertTrue(element("ios.player.episodes.sheet").waitForExistence(timeout: 10))
+    }
+    private func nativeClock() -> (seconds: Int, playing: Bool)? {
+        let clock = element("ios.player.testClock")
+        guard clock.exists else { return nil }
+        let parts = clock.label.split(separator: "|")
+        guard parts.count == 2, let seconds = Int(parts[0]), let playing = Bool(String(parts[1])) else { return nil }
+        return (seconds, playing)
+    }
+    private func nativePausedPosition() throws -> Int {
+        waitFor { (self.nativeClock()?.seconds ?? 0) >= 29 && self.nativeClock()?.playing == false }
+        let value = try XCTUnwrap(nativeClock())
+        XCTAssertGreaterThanOrEqual(value.seconds, 29); XCTAssertFalse(value.playing)
+        return value.seconds
+    }
+    private func assertNativeClockStaysPaused(at position: Int) throws {
+        let deadline = Date().addingTimeInterval(2)
+        repeat {
+            let value = try XCTUnwrap(nativeClock())
+            XCTAssertFalse(value.playing, "Quality and sheet actions must retain the native paused state")
+            XCTAssertEqual(Double(value.seconds), Double(position), accuracy: 1, "Selecting the current episode must not reopen or reset the decoder")
+            Thread.sleep(forTimeInterval: 0.2)
+        } while Date() < deadline
     }
     private func pauseForInspection() {
         // Cache one snapshot before restarting the real HUD timer. Slow live AX queries must not

@@ -17,13 +17,13 @@ struct IPTVView: View {
             } else {
                 List {
                     if store.storageLoading || store.loading {
-                        HStack { ProgressView(); Text("جارٍ تحميل قنوات IPTV…") }
+                        HStack { ProgressView(); Text("جارٍ تحميل القنوات…") }
                     } else if !store.storageAvailable {
                         Text(store.message ?? "تعذّر الوصول إلى البيانات الآمنة.")
                         Button("إعادة المحاولة") { store.readSources() }
                     } else if store.sources.isEmpty {
                         ContentUnavailableView {
-                            Label("أضف مصدر IPTV", systemImage: "dot.radiowaves.left.and.right")
+                            Label("أضف مصدرًا للتلفزيون", systemImage: PhoneTelevisionSymbol.name)
                         } description: { Text("أضف رابط قائمة M3U أو اشتراك Xtream لعرض قنواتك وتشغيلها داخل التطبيق.") }
                         actions: { Button("إضافة مصدر") { sheet = .source(nil) }.accessibilityIdentifier("ios.iptv.empty.add") }
                             .listRowBackground(Color.clear)
@@ -34,7 +34,8 @@ struct IPTVView: View {
                 }
             }
         }
-        .navigationTitle("IPTV").navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden).background(Theme.canvas)
+        .navigationTitle("التلفزيون").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { sheet = .groups } label: { Image(systemName: "line.3.horizontal.decrease") }
@@ -45,7 +46,7 @@ struct IPTVView: View {
                     Button("إدارة المصادر") { sheet = .manage }
                     Button("تحديث القنوات") { Task { await store.reload(force: true) } }
                 } label: { Image(systemName: "ellipsis.circle") }
-                    .accessibilityLabel("مصادر IPTV").accessibilityIdentifier("ios.iptv.manage")
+                    .accessibilityLabel("مصادر التلفزيون").accessibilityIdentifier("ios.iptv.manage")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { sheet = .source(nil) } label: { Label("إضافة مصدر", systemImage: "plus") }
@@ -78,17 +79,26 @@ private struct IPTVGroupPicker: View {
     @Binding var selection: String?
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
+    @FocusState private var searchFocused: Bool
     var body: some View {
         NavigationStack {
             List {
-                Button { selection = nil; dismiss() } label: { row("كل القنوات", selected: selection == nil) }.accessibilityIdentifier("ios.iptv.groupPicker.all")
+                Button { searchFocused = false; selection = nil; dismiss() } label: { row("كل القنوات", selected: selection == nil) }.accessibilityIdentifier("ios.iptv.groupPicker.all")
                 ForEach(groups.filter { search.isEmpty || $0.localizedStandardContains(search) }, id: \.self) { group in
-                    Button { selection = group; dismiss() } label: { row(group, selected: selection == group) }.accessibilityIdentifier("ios.iptv.groupPicker." + group)
+                    Button { searchFocused = false; selection = group; dismiss() } label: { row(group, selected: selection == group) }.accessibilityIdentifier("ios.iptv.groupPicker." + group)
                 }
             }
             .navigationTitle("تصنيفات القنوات").navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden).background(Theme.canvas)
             .searchable(text: $search, prompt: "ابحث عن تصنيف")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("إغلاق") { dismiss() } } }
+            .searchFocused($searchFocused)
+            .onSubmit(of: .search) { searchFocused = false }
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("إغلاق") { searchFocused = false; dismiss() } }
+                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("تم") { searchFocused = false }.accessibilityIdentifier("ios.iptv.groupPicker.done") }
+            }
+            .onDisappear { searchFocused = false }
         }
     }
     private func row(_ title: String, selected: Bool) -> some View {
@@ -123,7 +133,8 @@ private struct IPTVSourceManager: View {
                 }
                 if let message = store.message { Text(message).foregroundStyle(.secondary) }
             }
-            .navigationTitle("مصادر IPTV").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("مصادر التلفزيون").navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden).background(Theme.canvas)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("إغلاق") { dismiss() } }
                 ToolbarItem(placement: .topBarTrailing) { Button(action: add) { Label("إضافة", systemImage: "plus") } }

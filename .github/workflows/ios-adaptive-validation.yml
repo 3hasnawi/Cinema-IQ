@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: Layout tour or production movie controls regression
+        description: Layout tour, Apple TV parity, or production movie controls regression
         type: choice
-        options: [all, movie_controls, movie_controls_apple]
+        options: [all, parity, movie_controls, movie_controls_apple]
         default: all
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           sudo xcode-select -s "$chosen/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
-          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQ/Resources/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/movie-audio-pattern.mp4 ios/CinemaIQ/Resources/UIPlayerFixture.mp4
           cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQ/Resources/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
@@ -118,12 +118,16 @@ jobs:
           UI_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
-          test_id=CinemaIQUITests/AdaptiveLayoutTests
-          if [ "$UI_TEST_SCENARIO" = movie_controls ]; then test_id=CinemaIQUITests/MovieControlsTests; fi
-          if [ "$UI_TEST_SCENARIO" = movie_controls_apple ]; then test_id=CinemaIQUITests/MovieControlsTests/testAppleControlsReturnAfterAutomaticHide; fi
+          test_ids=(-only-testing:CinemaIQUITests/AdaptiveLayoutTests)
+          if [ "$UI_TEST_SCENARIO" = parity ]; then
+            test_ids=(-only-testing:CinemaIQUITests/ArtworkParityTests -only-testing:CinemaIQUITests/PhoneParityTests)
+            if [ "$IOS_TEST_KIND" = iphone ]; then test_ids+=(-only-testing:CinemaIQUITests/MovieControlsTests); fi
+          fi
+          if [ "$UI_TEST_SCENARIO" = movie_controls ]; then test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests); fi
+          if [ "$UI_TEST_SCENARIO" = movie_controls_apple ]; then test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests/testAppleControlsReturnAfterAutomaticHide); fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
-            -only-testing:"$test_id" \
+            "${test_ids[@]}" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \

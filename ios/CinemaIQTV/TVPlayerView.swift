@@ -125,8 +125,11 @@ struct TVPlayerView: View {
 #if DEBUG
         .overlay(alignment: .topLeading) {
             if UITestSupport.playerFixtureEnabled && !exiting {
-                // Observe the real decoder clock without exposing an extra remote focus target.
-                Text(verbatim: "\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
+                let nativeTime = controller.player.currentTime().seconds
+                let actual = controller.hasNativeItem && nativeTime.isFinite ? Int(nativeTime) : -1
+                // Requested position can remain pending while paused. Expose the actual
+                // decoder clock separately; keep quality values last for existing probes.
+                Text(verbatim: "\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(actual)|\(controller.player.currentItem?.status.rawValue ?? -1)|\(controller.nativeSeekPendingForTesting)|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
                     .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
                     .accessibilityIdentifier("tv.player.testClock").allowsHitTesting(false)
             }

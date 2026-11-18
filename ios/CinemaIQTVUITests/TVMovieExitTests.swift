@@ -28,14 +28,15 @@ final class TVMovieExitTests: XCTestCase {
         let clock = element("tv.player.testClock")
         waitFor(30) {
             let fields = clock.label.split(separator: "|")
-            return fields.count >= 3 && fields[0] == "false" && self.time(clock) >= 29 && (Int(fields[2]) ?? 0) > 0
+            return fields.count >= 8 && fields[0] == "false" && fields[4] == "1" && fields[5] == "false"
+                && self.nativeTime(clock) >= 29 && (Int(fields[2]) ?? 0) > 0
         }
-        let paused = time(clock)
+        let paused = nativeTime(clock)
         Thread.sleep(forTimeInterval: 1.2)
-        XCTAssertEqual(time(clock), paused)
+        XCTAssertEqual(nativeTime(clock), paused)
         shot("queued-background-pause-and-seek-applied-without-auto-playing")
         remote.press(.playPause)
-        waitFor(15) { clock.label.hasPrefix("true|") && self.time(clock) > paused + 1 }
+        waitFor(15) { clock.label.hasPrefix("true|") && self.nativeTime(clock) > paused + 1 }
         returnToDetails(play)
     }
 
@@ -88,7 +89,10 @@ final class TVMovieExitTests: XCTestCase {
         remote.press(.select)
         // A seek can expose the saved time before the first frame renders. Require the
         // real clock to advance beyond it, rather than mistaking buffering for resume.
-        waitFor(30) { self.time(clock) >= before + 2 && clock.label.hasPrefix("true|") }
+        waitFor(30) {
+            self.time(clock) >= before + 2 && clock.label.hasPrefix("true|") &&
+                (compatibility || self.nativeTime(clock) >= before + 2)
+        }
         remote.press(.playPause)
         waitFor(15) { clock.label.hasPrefix("false|") }
         shot("movie-reopened-at-saved-progress")
@@ -110,6 +114,10 @@ final class TVMovieExitTests: XCTestCase {
         waitFor(15) { self.app.state == .runningForeground && play.exists && play.isHittable }; expectFocus(play)
     }
     private func time(_ clock: XCUIElement) -> Int { Int(clock.label.split(separator: "|").dropFirst().first ?? "-1") ?? -1 }
+    private func nativeTime(_ clock: XCUIElement) -> Int {
+        let fields = clock.label.split(separator: "|")
+        return fields.count >= 8 ? Int(fields[3]) ?? -1 : -1
+    }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
     private func expectFocus(_ target: XCUIElement) { waitFor(15) { target.hasFocus } }
     private func waitFor(_ timeout: TimeInterval, _ condition: @escaping () -> Bool) {

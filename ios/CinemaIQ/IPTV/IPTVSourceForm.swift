@@ -67,11 +67,16 @@ struct IPTVSourceForm: View {
                 } footer: { Text("تحفظ بيانات المصدر على هذا الجهاز في Keychain، ولا تُرسل إلى حساب المزامنة.") }
             }
             .scrollDismissesKeyboard(.interactively)
-            .navigationTitle(existing == nil ? "إضافة مصدر IPTV" : "تعديل مصدر IPTV")
+            .scrollContentBackground(.hidden).background(Theme.canvas)
+            .navigationTitle(existing == nil ? "إضافة مصدر للتلفزيون" : "تعديل مصدر التلفزيون")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("إلغاء") { submission?.cancel(); dismiss() }.accessibilityIdentifier("ios.iptv.form.cancel")
+                    Button("إلغاء") { field = nil; submission?.cancel(); dismiss() }.accessibilityIdentifier("ios.iptv.form.cancel")
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("تم") { field = nil }.accessibilityIdentifier("ios.iptv.form.done")
                 }
             }
             .onAppear {
@@ -79,8 +84,9 @@ struct IPTVSourceForm: View {
                 name = existing.name; kind = existing.kind; address = existing.address.absoluteString
                 username = existing.username; password = existing.password; output = existing.output; allowHTTP = existing.allowHTTP
             }
-            .onDisappear { submission?.cancel() }
+            .onDisappear { field = nil; submission?.cancel() }
             .onChange(of: kind) { _, value in
+                field = nil
                 if value == .playlist { username = ""; password = "" }
             }
         }
