@@ -27,6 +27,9 @@ final class TVMovieExitTests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 20)); expectFocus(play)
         for _ in 0..<3 {
             remote.press(.select)
+            // Back must target an actually presented loading/player screen. Before it
+            // exists, Menu legitimately pops the detail page instead of cancelling playback.
+            XCTAssertTrue(element("tv.player.testClock").waitForExistence(timeout: 10))
             returnToDetails(play)
             XCTAssertFalse(element("tv.player.testClock").exists)
         }
