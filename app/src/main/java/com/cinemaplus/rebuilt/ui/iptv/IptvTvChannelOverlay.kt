@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -66,6 +67,7 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
     val logos = rememberIptvLogos()
     val keyboard = LocalSoftwareKeyboardController.current
     val manager = LocalFocusManager.current
+    val inputMode = LocalInputModeManager.current
     val window = LocalWindowInfo.current
     val imeVisible = WindowInsets.isImeVisible
     val editor = remember { IptvTvSearchEditorState() }
@@ -191,6 +193,7 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
             OverlayDestination.Empty -> emptyFocus
         }
         repeat(16) {
+            inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
             withFrameNanos { }
             if (runCatching { requester.requestFocus() }.getOrDefault(false)) { pending = null; return@LaunchedEffect }
         }
