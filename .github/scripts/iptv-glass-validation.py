@@ -96,11 +96,19 @@ def focused_on(text, values=None):
 
 
 def channel_row_visible(name, values=None):
-    # The continuing channel's HUD title is not authorization to expose its clickable guide row.
-    return any(n.get('content-desc') == name or
-               (n.get('clickable') == 'true' and n.get('focusable') == 'true' and
-                name in ' '.join(label(c) for c in n.iter()))
-               for n in (nodes() if values is None else values))
+    # A noninteractive HUD logo/title may have this exact name. Require a row control around it.
+    for node in (nodes() if values is None else values):
+        named = [child for child in node.iter() if child.get('class') != 'android.widget.ImageView' and
+                 name in (child.get('text'), child.get('content-desc'))]
+        if not named: continue
+        if node.get('clickable') == 'true' or node.get('class') == 'android.widget.Button': return True
+        # TV surfaces can expose a separate Button-role child even when disabled/non-focusable.
+        # Require the name and role to share this entire row's bounds, not unrelated HUD controls.
+        bounds = node.get('bounds')
+        if bounds and any(child.get('content-desc') == name and child.get('bounds') == bounds for child in named) and any(
+                child.get('class') == 'android.widget.Button' and child.get('bounds') == bounds for child in node.iter()):
+            return True
+    return False
 
 
 def hud_visible(values=None):
@@ -318,7 +326,8 @@ try:
         subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=black@0.0:s=256x160:d=1,format=rgba',
             '-vf',f'format=rgba,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text={wordmark}:fontsize=64:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2',
             '-frames:v','1','-threads','1','-pix_fmt','rgba',str(fixture/f'logo{number}.png')],check=True,timeout=15)
-        playlist += f'#EXTINF:-1 tvg-id="fixture{number}" tvg-logo="{host}/logo{number}.png" group-title="{group}",{name}\n{host}/live{number}.m3u8\n'
+        title = 'IQ: '+name if number == 1 else name
+        playlist += f'#EXTINF:-1 tvg-id="fixture{number}" tvg-logo="{host}/logo{number}.png" group-title="{group}",{title}\n{host}/live{number}.m3u8\n'
     (fixture/'list.m3u').write_text(playlist)
     now = datetime.now(timezone.utc)
     stamp = lambda value: value.strftime('%Y%m%d%H%M%S +0000')
@@ -360,10 +369,16 @@ try:
     values = wait_live(names[0])
     expect('First entry starts actual playback directly and recovers five initial HTTP503 responses', failures['initial']==5 and requests['/live1.m3u8']>=6)
     expect('Provider now/next programme information is shown', visible('برنامج اختبار حالي',values) and visible('برنامج اختبار تالي',values))
+    expect('Native TV HUD displays the exact clean channel title without its provider prefix',
+           any(node.get('text') == names[0] for node in values) and not visible('IQ: '+names[0],values))
     snapshot('21-glass-playing-hud',values)
     advancing_frames('22-initial-native-video')
 
-    open_channels(names[0]); key(22); seek('Fixture',20)
+    values = open_channels(names[0])
+    expect('Native guide displays the exact clean channel row without its provider prefix',
+           channel_row_visible(names[0],values) and any(node.get('content-desc') == names[0] and
+           node.get('class') != 'android.widget.ImageView' for node in values) and not visible('IQ: '+names[0],values))
+    key(22); seek('Fixture',20)
     snapshot('22b-channel-list-and-categories')
     key(23)
     seek('البحث',19); search('Protected')
