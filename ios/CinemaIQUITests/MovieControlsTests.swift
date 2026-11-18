@@ -80,12 +80,11 @@ final class MovieControlsTests: XCTestCase {
         shot("current-episode-selection-preserves-native-clock")
         openEpisodes()
         let next = episodeButton(prefix: "ios.player.episode.", number: 2)
-        for _ in 0..<5 {
-            if next.exists && app.frame.insetBy(dx: -2, dy: -2).contains(next.frame) && next.isHittable { break }
-            current.swipeRight()
-        }
+        XCTAssertTrue(next.waitForExistence(timeout: 10))
+        let row = try visibleEpisodeRow()
+        revealEpisode(next, in: row)
         XCTAssertTrue(next.exists)
-        XCTAssertTrue(app.frame.insetBy(dx: -2, dy: -2).contains(next.frame))
+        XCTAssertTrue(row.frame.intersection(app.frame).insetBy(dx: -2, dy: -2).contains(next.frame))
         XCTAssertTrue(next.isHittable); next.tap()
         waitFor { !self.element("ios.player.episodes.sheet").exists }
         waitFor {
@@ -140,6 +139,29 @@ final class MovieControlsTests: XCTestCase {
     }
     private func episodeButton(prefix: String, number: Int) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS %@", prefix, "open-movies-\(number)")).firstMatch
+    }
+    private func visibleEpisodeRow() throws -> XCUIElement {
+        let prefix = NSPredicate(format: "identifier BEGINSWITH %@", "ios.player.episode.")
+        let candidates = element("ios.player.episodes.sheet").descendants(matching: .scrollView)
+            .allElementsBoundByIndex.compactMap { row -> (XCUIElement, CGRect)? in
+                let viewport = row.frame.intersection(app.frame)
+                guard !viewport.isEmpty, row.buttons.matching(prefix).firstMatch.exists else { return nil }
+                return (row, viewport)
+            }
+        // The outer sheet also contains episodes; gesture on its smallest actual episode viewport.
+        return try XCTUnwrap(candidates.min { $0.1.width * $0.1.height < $1.1.width * $1.1.height }?.0,
+                             "A visible horizontal episode row must exist inside the sheet")
+    }
+    private func revealEpisode(_ episode: XCUIElement, in row: XCUIElement) {
+        for _ in 0..<6 {
+            let viewport = row.frame.intersection(app.frame), frame = episode.frame
+            if viewport.insetBy(dx: -2, dy: -2).contains(frame) && episode.isHittable { return }
+            // Derive physical direction from the current frame: a fling may have passed the target.
+            let moveRight = frame.minX < viewport.minX
+            let start = row.coordinate(withNormalizedOffset: CGVector(dx: moveRight ? 0.3 : 0.7, dy: 0.5))
+            let end = row.coordinate(withNormalizedOffset: CGVector(dx: moveRight ? 0.7 : 0.3, dy: 0.5))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
     }
     private func openEpisodes() {
         element("ios.player.options").tap()
