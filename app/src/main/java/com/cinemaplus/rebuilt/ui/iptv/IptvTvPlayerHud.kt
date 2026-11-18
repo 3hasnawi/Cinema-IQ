@@ -24,7 +24,6 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -43,6 +42,7 @@ import androidx.tv.material3.ButtonDefaults
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import com.cinemaplus.rebuilt.data.iptv.IptvChannel
+import com.cinemaplus.rebuilt.data.iptv.IptvChannelDisplayName
 import com.cinemaplus.rebuilt.data.iptv.IptvNowNext
 import com.cinemaplus.rebuilt.ui.*
 import java.util.Locale
@@ -57,6 +57,7 @@ private val LocalHudInteractive = staticCompositionLocalOf { true }
     favorite: () -> Unit, previous: () -> Unit,
     channelStep: (Int) -> Unit, tracks: (Int, FocusRequester, Rect) -> Unit, interactive: Boolean = true
 ) {
+    val displayName = remember(channel.name, channel.group) { IptvChannelDisplayName.of(channel) }
     var qualityBounds by remember { mutableStateOf(Rect.Zero) }
     var audioBounds by remember { mutableStateOf(Rect.Zero) }
     var subtitleBounds by remember { mutableStateOf(Rect.Zero) }
@@ -85,7 +86,7 @@ private val LocalHudInteractive = staticCompositionLocalOf { true }
                 // Reserve width without stretching the strip; the logo is a separate unclipped sibling.
                 Spacer(Modifier.width(104.dp))
                 Column(Modifier.weight(.9f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Label(channel.name, 20, bold = true, modifier = Modifier.testTag("iptv.tv.hud.channel"), lines = 1)
+                    Label(displayName, 20, bold = true, modifier = Modifier.testTag("iptv.tv.hud.channel"), lines = 1)
                     Label((if (number > 0) "$number  ·  " else "") + status, 12, Brand.TextSecondary, lines = 1)
                 }
                 Canvas(Modifier.size(16.dp, 36.dp).semantics { contentDescription = "أعلى وأسفل: تغيير القناة" }) {
@@ -124,12 +125,11 @@ private val LocalHudInteractive = staticCompositionLocalOf { true }
                     click = { tracks(C.TRACK_TYPE_TEXT, subtitlesFocus, subtitleBounds) }) {
                     Box(Modifier.onGloballyPositioned { subtitleBounds = it.boundsInWindow() }) { PlayerTransportIcon("CC", Color.White, 23.dp) }
                 }
-                HudButton("السابقة", "previous", enabled = previousAvailable, click = previous) { HudGlyph("previous", Color.White) }
             }
         }
         Box(Modifier.align(Alignment.TopStart).padding(start = 30.dp).offset(y = (-32).dp).size(104.dp),
         contentAlignment = Alignment.TopCenter) {
-            if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = channel.name,
+            if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = displayName,
             imageLoader = logos, contentScale = ContentScale.Fit, alignment = Alignment.TopCenter, modifier = Modifier.fillMaxSize())
             else IptvTelevisionIcon(Modifier.size(80.dp), Color.White)
         }
@@ -183,11 +183,6 @@ private val LocalHudInteractive = staticCompositionLocalOf { true }
                 drawRoundRect(color, Offset(w * .08f, w * .17f), Size(w * .84f, w * .66f), CornerRadius(w * .09f), style = stroke)
                 for (i in 0..2) drawLine(color, Offset(w * (.3f + i * .2f), w * .65f),
                     Offset(w * (.3f + i * .2f), w * (.5f - i * .12f)), stroke.width, StrokeCap.Round)
-            }
-            "previous" -> {
-                val arrow = Path().apply { moveTo(w * .5f, w * .2f); lineTo(w * .2f, w * .48f); lineTo(w * .5f, w * .76f) }
-                drawPath(arrow, color, style = stroke)
-                drawLine(color, Offset(w * .22f, w * .48f), Offset(w * .8f, w * .48f), stroke.width, StrokeCap.Round)
             }
         }
     }
