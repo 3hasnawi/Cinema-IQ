@@ -24,6 +24,17 @@ numerical price or free production allowance was established. The published
 capabilities have been reviewed; authenticated lookup and native playback with
 this provider have not been tested.
 
+The official [getting-started guide](https://knowledgebase.fabricdata.com/origin)
+offers a rate-limited 30-day trial through the
+[provider contact form](https://www.fabricdata.com/contact-us). It describes
+server-to-server metadata requests using a subscription key, and direct CDN
+video delivery to end users unless the contract specifies otherwise. Use a
+small authenticated backend to keep that key out of the app: match the title,
+obtain its VideoId through Entertainment API and request an authorized playback
+link through Video API. Do not treat a GitHub build secret embedded in an IPA as
+protected server-side storage. The backend/account and publication rights are
+not configured in this repository.
+
 ## Alternative: MovieGlu
 
 [MovieGlu's trailer documentation](https://developer.movieglu.com/company/images-and-trailers/)
