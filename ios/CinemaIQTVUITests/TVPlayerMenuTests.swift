@@ -9,6 +9,13 @@ final class TVPlayerMenuTests: XCTestCase {
         continueAfterFailure = false
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player",
                                "-AppleLanguages", "(ar)", "-AppleLocale", "ar_IQ"]
+        if name.contains("testLiveTVDecoderPreferenceDoesNotReplaceNativeMoviePlayer") {
+            app.launchArguments += ["--cinema-ui-testing-engine-preferences", "-apple.playback.engine.v1", "compatibility",
+                                    "-apple.tv.movie.playback.engine.v1", "automatic"]
+        }
+        if name.contains("testQualityChosenBeforeAudioActivationReachesNativeItem") {
+            app.launchArguments.append("--cinema-ui-testing-pending-quality")
+        }
         app.launch()
         let home = app.descendants(matching: .any).matching(identifier: "tv.home.showcase").firstMatch
         XCTAssertTrue(home.waitForExistence(timeout: 30))
@@ -43,6 +50,26 @@ final class TVPlayerMenuTests: XCTestCase {
         expectNativeOption("عادية")
         shot("speed-menu")
         remote.press(.select)
+        closePlayerAndExpectDetails()
+    }
+
+    func testLiveTVDecoderPreferenceDoesNotReplaceNativeMoviePlayer() {
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "tv.compatibility.surface").firstMatch.exists,
+                       "The live-TV decoder choice must not replace the native movie transport")
+        openMenu("الجودة")
+        expectNativeOption("تلقائي")
+        shot("movie-native-despite-live-compatibility-preference")
+        remote.press(.menu)
+        closePlayerAndExpectDetails()
+    }
+
+    func testQualityChosenBeforeAudioActivationReachesNativeItem() {
+        // The normal detail flow sets the quality immediately after open(), before
+        // asynchronous audio activation creates an AVPlayerItem. Inspect that real item.
+        let clock = app.descendants(matching: .any).matching(identifier: "tv.player.testClock").firstMatch
+        XCTAssertTrue(clock.waitForExistence(timeout: 10))
+        XCTAssertEqual(Array(clock.label.split(separator: "|").suffix(2)).map(String.init), ["64000", "1080"])
+        shot("queued-quality-applied-to-real-native-item")
         closePlayerAndExpectDetails()
     }
 
@@ -119,10 +146,19 @@ final class TVPlayerMenuTests: XCTestCase {
 
     private func closePlayerAndExpectDetails() {
         let play = app.buttons["tv.detail.play"]
+        let clock = app.descendants(matching: .any).matching(identifier: "tv.player.testClock").firstMatch
         for _ in 0..<4 {
+            if !clock.exists { break }
             remote.press(.menu)
-            if play.exists && play.isHittable { break }
+            // Wait for dismissal/focus restoration before another Menu. Rapid retries can
+            // navigate past details and send the app to PineBoard; covered AX nodes persist.
+            let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                !clock.exists
+            }, object: nil)
+            if XCTWaiter.wait(for: [returned], timeout: 5) == .completed { break }
+            if app.state != .runningForeground { break }
         }
+        expectFocus(play)
         XCTAssertTrue(play.waitForExistence(timeout: 10) && play.isHittable)
         XCTAssertEqual(app.state, .runningForeground)
     }

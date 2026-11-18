@@ -30,6 +30,7 @@ struct TVDetailView: View {
     @State private var trailerLoading = false
     @State private var trailerTask: Task<Void, Never>?
     @FocusState private var focus: DetailFocus?
+    @FocusState private var storyCloseFocused: Bool
 
     enum DetailFocus: Hashable { case play, trailer, list, story, seasons }
 
@@ -63,16 +64,14 @@ struct TVDetailView: View {
         return ("إخراج", omdb?.director ?? "")
     }
     private var artwork: String {
-        if !current.backdrop.isEmpty { return current.backdrop }
-        if let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
-        return omdb?.largePoster ?? current.poster
+        TVArtworkSelection.url(for: current, tmdb: tmdb, fallbackPoster: omdb?.largePoster ?? "")
     }
     private var seriesContext: Media? { current.isSeries || current.episode > 0 ? current : nil }
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                ShowcaseBackground(url: artwork, belowFold: belowFold)
+                ShowcaseBackground(url: artwork, fallbackURL: TVArtworkSelection.providerFallback(for: current, excluding: artwork), belowFold: belowFold)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 50) {
                         header
@@ -91,7 +90,12 @@ struct TVDetailView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .defaultFocus($focus, .play)
-        .fullScreenCover(isPresented: $showStory) { storyPage.environment(\.layoutDirection, .rightToLeft) }
+        .fullScreenCover(isPresented: $showStory, onDismiss: {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(100))
+                focus = .story
+            }
+        }) { storyPage.environment(\.layoutDirection, .rightToLeft) }
         .task { await load() }
         .onChange(of: current.id) { _, _ in
             trailerTask?.cancel(); trailerTask = nil; trailerID = nil; trailerLoading = false
@@ -124,12 +128,10 @@ struct TVDetailView: View {
             if let error { Text(error).font(.callout).foregroundStyle(.red) }
             FactsLine(facts: facts)
             if !story.isEmpty {
-                Button { showStory = true } label: {
-                    Text(story).font(.callout).foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(4).multilineTextAlignment(.leading)
-                        .frame(maxWidth: 1000, alignment: .leading)
-                }
-                .buttonStyle(.plain).focused($focus, equals: .story)
+                Text(story).font(.callout).foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(4).multilineTextAlignment(.leading)
+                    .frame(maxWidth: 1000, alignment: .leading)
+                    .focusable(false).accessibilityIdentifier("tv.detail.overview")
             }
             HStack(spacing: 22) {
                 Button { if let target { player.play(target, queue: target.episode > 0 ? queue : [], series: seriesContext) } } label: {
@@ -140,21 +142,32 @@ struct TVDetailView: View {
                 Button(action: requestTrailer) {
                     Group {
                         if trailerLoading { ProgressView() }
-                        else { Image(systemName: "play.rectangle").font(.title3) }
-                    }.frame(width: 70, height: 70)
+                        else { Image(systemName: "play.rectangle.fill").font(.system(size: 28, weight: .semibold)) }
+                    }.frame(width: 76, height: 76).contentShape(Circle())
                 }
                 .accessibilityLabel(trailerLoading ? "جارٍ البحث عن التريلر" : "عرض التريلر على YouTube")
                 .buttonStyle(TVCircleButtonStyle())
+                .focusEffectDisabled()
                 .accessibilityIdentifier("tv.detail.trailer")
                 .focused($focus, equals: .trailer)
                 Button { library.toggle(current) } label: {
                     Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
-                        .font(.title3).frame(width: 70, height: 70)
+                        .font(.system(size: 28, weight: .semibold)).frame(width: 76, height: 76).contentShape(Circle())
                 }
                 .accessibilityLabel(library.isFavorite(current) ? "إزالة من قائمتي" : "أضف إلى قائمتي")
                 .buttonStyle(TVCircleButtonStyle())
+                .focusEffectDisabled()
                 .accessibilityIdentifier("tv.detail.list")
                 .focused($focus, equals: .list)
+                if !story.isEmpty {
+                    Button { showStory = true } label: {
+                        Image(systemName: "info").font(.system(size: 28, weight: .semibold))
+                            .frame(width: 76, height: 76).contentShape(Circle())
+                    }
+                    .buttonStyle(TVCircleButtonStyle()).focusEffectDisabled()
+                    .accessibilityLabel("قراءة الوصف كاملًا").accessibilityIdentifier("tv.detail.story")
+                    .focused($focus, equals: .story)
+                }
             }.focusSection()
             HStack(alignment: .top, spacing: 32) {
                 credit("بطولة", people.prefix(3).map(\.name).joined(separator: "، "))
@@ -216,13 +229,26 @@ struct TVDetailView: View {
 
     private var storyPage: some View {
         ZStack {
-            ShowcaseBackground(url: artwork, belowFold: true)
+            ShowcaseBackground(url: artwork, fallbackURL: TVArtworkSelection.providerFallback(for: current, excluding: artwork), belowFold: true)
             VStack(spacing: 30) {
-                Text(current.title).font(.title2.bold())
-                Text(story).font(.body).multilineTextAlignment(.center).frame(maxWidth: 1200)
+                HStack {
+                    Text(current.title).font(.title2.bold())
+                    Spacer()
+                    Button { showStory = false } label: {
+                        Image(systemName: "xmark").font(.system(size: 28, weight: .semibold)).frame(width: 76, height: 76)
+                    }
+                    .buttonStyle(TVCircleButtonStyle()).focusEffectDisabled().focused($storyCloseFocused)
+                    .accessibilityLabel("إغلاق الوصف").accessibilityIdentifier("tv.detail.story.close")
+                }
+                ScrollView {
+                    Text(story).font(.body).multilineTextAlignment(.leading).frame(maxWidth: 1200)
+                        .focusable().focusEffectDisabled()
+                }
             }
             .padding(80)
         }
+        .defaultFocus($storyCloseFocused, true)
+        .onExitCommand { showStory = false }
     }
 
     // MARK: Below the fold
@@ -340,6 +366,7 @@ struct TVDetailView: View {
         defer { loading = false }
         do {
             let (detail, found) = try await SourceClient().detail(initial)
+            try Task.checkCancellation()
             media = detail
             seasons = found
             if !found.contains(where: { $0.id == seasonID }) {
@@ -350,6 +377,7 @@ struct TVDetailView: View {
             async let omdbInfo: OMDbInfo? = OMDb.shared?.info(for: detail)
             async let tmdbWork: TMDBWork? = TMDB.shared?.work(for: detail)
             let (foundOMDb, foundTMDB) = await (omdbInfo, tmdbWork)
+            guard !Task.isCancelled, current.id == detail.id else { return }
             if omdb == nil { omdb = foundOMDb }
             if tmdb == nil { tmdb = foundTMDB }
         } catch is CancellationError {

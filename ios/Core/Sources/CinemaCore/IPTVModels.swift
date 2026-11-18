@@ -57,7 +57,7 @@ public struct IPTVSource: Codable, Identifiable, Sendable, Equatable, CustomStri
     public var description: String { "IPTVSource(id: \(id), kind: \(kind.rawValue))" }
 }
 
-public struct IPTVChannel: Identifiable, Sendable, Equatable {
+public struct IPTVChannel: Codable, Identifiable, Sendable, Equatable {
     public let id: String
     public let sourceID: String
     public let name: String
@@ -70,10 +70,11 @@ public struct IPTVChannel: Identifiable, Sendable, Equatable {
         self.tvgID = tvgID; self.logo = logo; self.url = url
     }
 }
-public struct IPTVCatalog: Sendable {
+public struct IPTVCatalog: Codable, Sendable, Equatable {
     public let channels: [IPTVChannel]
+    public let epgURL: URL?
     public var groups: [String] { Array(Set(channels.map(\.group))).sorted { $0.localizedStandardCompare($1) == .orderedAscending } }
-    public init(channels: [IPTVChannel]) { self.channels = channels }
+    public init(channels: [IPTVChannel], epgURL: URL? = nil) { self.channels = channels; self.epgURL = epgURL }
 }
 public enum IPTVURLPolicy {
     @discardableResult public static func validate(_ url: URL, allowHTTP: Bool) throws -> URL {

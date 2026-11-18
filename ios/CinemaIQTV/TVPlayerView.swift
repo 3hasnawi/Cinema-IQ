@@ -7,7 +7,7 @@ import CinemaCore
 /// episode appears as a contextual button near the end.
 struct TVPlayerView: View {
     let selection: PlaybackSelection
-    @StateObject private var controller = PlaybackController()
+    @StateObject private var controller = PlaybackController(enginePreference: .tvMovies)
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @State private var active: Media?
@@ -20,6 +20,7 @@ struct TVPlayerView: View {
     @AppStorage(TVPlaybackPreference.qualityKey) private var preferredQuality = VideoQuality.automatic.rawValue
     @State private var externalTracks: [SubtitleTrack] = []
     @State private var loading = false
+    @State private var exiting = false
     @State private var resolutionError: String?
     @State private var overlayInfo: OMDbInfo?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -52,11 +53,19 @@ struct TVPlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            // Teardown publishes decoder changes. Do not recreate a focusable loading
+            // button inside a cover that is already dismissing.
+            if !exiting {
             // On an error the system player is taken away, so the remote reaches the panel's buttons and Menu.
             if failure == nil {
             if controller.usesCompatibility {
-                TVCompatibilityTransport(controller: controller, close: { dismiss() }) { compatibilityOptions }
-            } else if controller.hasItem {
+                TVCompatibilityTransport(controller: controller, close: exitPlayer,
+                    actionTitle: inIntro ? "تخطي المقدمة" : (offerNext ? next.map { "الحلقة \($0.episode)" } : nil),
+                    contextualAction: {
+                        if inIntro, let end = skips.introEnd { controller.seek(to: end) }
+                        else if offerNext, let next { active = next }
+                    }) { focus in compatibilityOptions(focus) }
+            } else if controller.hasNativeItem {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
@@ -69,14 +78,14 @@ struct TVPlayerView: View {
             } else {
                 // Do not mount an empty AVKit controller before resolving a compatibility stream: its
                 // disappearing focus context can steal the new transport's initial focus.
-                Button { dismiss() } label: { Color.clear.contentShape(Rectangle()) }
+                Button(action: exitPlayer) { Color.clear.contentShape(Rectangle()) }
                     .buttonStyle(TVArtworkButtonStyle()).accessibilityLabel("إلغاء التحميل")
-                    .onExitCommand { dismiss() }
+                    .onExitCommand(perform: exitPlayer)
             }
             }
             if !controller.playing && !controller.buffering && !loading && !controller.ended &&
                 controller.position > 0 && failure == nil {
-                TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo, bottomPadding: controller.usesCompatibility ? 330 : 220)
+                TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
@@ -103,15 +112,26 @@ struct TVPlayerView: View {
                             Button("الحلقة \(next.episode)") { active = next }
                         }
                         Menu("محرك التشغيل") { engineChoices }
-                        Button("إغلاق") { dismiss() }
+                        Button("إغلاق", action: exitPlayer)
                     }
                 }
                 .padding(60)
                 .background(TVTheme.panel.opacity(0.95), in: RoundedRectangle(cornerRadius: 36, style: .continuous))
                 .focusSection()
-                .onExitCommand { dismiss() }
+                .onExitCommand(perform: exitPlayer)
+            }
             }
         }
+#if DEBUG
+        .overlay(alignment: .topLeading) {
+            if UITestSupport.playerFixtureEnabled && !exiting {
+                // Observe the real decoder clock without exposing an extra remote focus target.
+                Text(verbatim: "\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
+                    .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
+                    .accessibilityIdentifier("tv.player.testClock").allowsHitTesting(false)
+            }
+        }
+#endif
         .task(id: current.id) { await start(current) }
         .task(id: "skips-\(current.id)") { await loadSkips(current) }
         .task(id: "queue-\(current.id)") { await loadQueue(current) }
@@ -123,7 +143,14 @@ struct TVPlayerView: View {
             overlayInfo = found
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: controller.playing)
-        .onDisappear { controller.close() }
+        .onDisappear { exiting = true; controller.close() }
+    }
+
+    private func exitPlayer() {
+        guard !exiting else { return }
+        exiting = true
+        controller.close()
+        dismiss()
     }
 
     /// The error to show, worded for the Apple TV (the shared messages speak of the iPhone's player).
@@ -215,32 +242,52 @@ struct TVPlayerView: View {
         }
         Text("VideoLAN VLCKit · LGPL 2.1+")
     }
-    private var compatibilityOptions: some View {
+    private func compatibilityOptions(_ focus: FocusState<String?>.Binding) -> some View {
         Group {
-            Menu("الجودة") {
+            Menu {
                 Button("تلقائي") { chooseQuality(.automatic) }
                 if streams.contains(where: VideoQuality.looksLikeHLS) {
                     ForEach(VideoQuality.allCases.filter { $0 != .automatic }, id: \.rawValue) { mode in Button(mode.title) { chooseQuality(mode) } }
                 } else { ForEach(streams) { stream in Button(stream.quality) { choose(stream) } } }
-            }
-            Menu("الترجمة") {
+            } label: { movieMenuIcon("الجودة", symbol: "slider.horizontal.3") }
+                .focused(focus, equals: "quality").accessibilityIdentifier("tv.movie.compatibility.quality")
+            Menu {
                 Button("بدون ترجمة") { controller.selectSubtitle(nil, external: externalTracks) }
                 ForEach(externalTracks) { track in Button(track.title) { controller.selectSubtitle("ext:" + track.id, external: externalTracks) } }
                 ForEach(controller.embeddedSubtitles) { track in Button(track.title) { controller.selectSubtitle(track.id, external: externalTracks) } }
                 Menu("الحجم") { ForEach(SubtitlePreference.sizes, id: \.0) { option in Button(option.0) { subtitleSize = option.1 } } }
                 Menu("الخلفية") { ForEach(SubtitlePreference.backgrounds, id: \.0) { option in Button(option.0) { subtitleBackground = option.1 } } }
-            }
-            Menu("الصوت") { ForEach(controller.audioOptions) { option in Button(option.title) { controller.selectAudio(option.id) } } }
-            Menu("المزيد") {
-                Menu("محرك التشغيل") { engineChoices }
-                Menu("السرعة") {
-                    ForEach([Float(0.75), 1, 1.25, 1.5, 2], id: \.self) { value in Button(String(format: "%gx", value)) { controller.setRate(value) } }
+            } label: { movieMenuIcon("الترجمة", symbol: "captions.bubble") }
+                .focused(focus, equals: "subtitles").accessibilityIdentifier("tv.movie.compatibility.subtitles")
+            Menu {
+                ForEach(controller.audioOptions) { option in Button(option.title) { controller.selectAudio(option.id) } }
+            } label: { movieMenuIcon("الصوت", symbol: "waveform") }
+                .focused(focus, equals: "audio").accessibilityIdentifier("tv.movie.compatibility.audio")
+            Menu {
+                ForEach([Float(0.75), 1, 1.25, 1.5, 2], id: \.self) { value in
+                    Button(value == 1 ? "عادية" : String(format: "%gx", value)) { controller.setRate(value) }
                 }
-                if queue.count > 1 { Menu("الحلقات") { ForEach(queue) { episode in Button("الموسم \(episode.season) · الحلقة \(episode.episode) · \(episode.title)") { active = episode } } } }
+            } label: { movieMenuIcon("السرعة", symbol: "gauge.with.dots.needle.67percent") }
+                .focused(focus, equals: "speed").accessibilityIdentifier("tv.movie.compatibility.speed")
+            Menu {
+                engineChoices
+            } label: { movieMenuIcon("محرك التشغيل", symbol: "play.rectangle") }
+                .focused(focus, equals: "engine").accessibilityIdentifier("tv.movie.compatibility.engine")
+            if queue.count > 1 {
+                Menu {
+                    ForEach(queue) { episode in
+                        Button("الموسم \(episode.season) · الحلقة \(episode.episode) · \(episode.title)") { active = episode }
+                    }
+                } label: { movieMenuIcon("الحلقات", symbol: "rectangle.stack") }
+                    .focused(focus, equals: "episodes").accessibilityIdentifier("tv.movie.compatibility.episodes")
             }
-            if inIntro, let end = skips.introEnd { Button("تخطي المقدمة") { controller.seek(to: end) } }
-            if offerNext, let next { Button("الحلقة \(next.episode)") { active = next } }
         }
+        .menuStyle(.button)
+    }
+
+    private func movieMenuIcon(_ title: String, symbol: String) -> some View {
+        Label(title, systemImage: symbol).labelStyle(.iconOnly).font(.system(size: 26))
+            .frame(width: 64, height: 64).accessibilityLabel(title)
     }
 
     /// The "الحلقات" tab of the info panel (swipe down while playing): the season's episodes, the one playing marked.
@@ -289,10 +336,17 @@ struct TVPlayerView: View {
     }
 
     private func applyQualityHint() {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-pending-quality") {
+            controller.setQuality(maximumHeight: 1080, bandwidth: 64_000)
+            return
+        }
+#endif
         controller.setQuality(maximumHeight: qualityMode.height)
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
+        guard !exiting else { return }
 #if DEBUG
         guard let playbackURL = UITestSupport.playbackURL(or: stream.url) else {
             resolutionError = "تعذّر العثور على فيديو الاختبار المحلي."
@@ -304,6 +358,13 @@ struct TVPlayerView: View {
         controller.open(media, url: playbackURL, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-pending-pause") {
+            controller.chooseEngine(.apple)
+            controller.pause()
+            controller.seek(to: 30)
+        }
+#endif
         applyQualityHint()
     }
 
@@ -325,12 +386,14 @@ struct TVPlayerView: View {
     }
 
     private func start(_ media: Media) async {
+        guard !exiting else { return }
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil
         async let tracks = SourceClient().subtitles(media)
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()
+            guard !exiting, current.id == media.id else { return }
             qualityMode = VideoQuality(rawValue: preferredQuality) ?? .automatic
             automaticQuality = qualityMode == .automatic
             guard let first = qualityMode.select(from: result) else { throw CinemaError.noStreams }
@@ -417,6 +480,14 @@ struct SystemPlayer: UIViewControllerRepresentable {
             metadata.append(subtitleItem)
         }
         item.externalMetadata = metadata
+    }
+
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
+        // Discard retained action/view-controller closures and detach AVKit's focus context on exit.
+        controller.transportBarCustomMenuItems = []
+        controller.contextualActions = []
+        controller.customInfoViewControllers = []
+        controller.player = nil
     }
 }
 

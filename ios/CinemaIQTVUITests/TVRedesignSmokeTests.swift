@@ -64,11 +64,11 @@ final class TVRedesignSmokeTests: XCTestCase {
 
     private func openIPTV() {
         remote.press(.menu)
-        let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "IPTV", "الإعدادات"]
+        let order = ["البحث", "الرئيسية", "أفلام", "مسلسلات", "مكتبتي", "التلفزيون", "الإعدادات"]
         for _ in 0..<12 {
             let focused = app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).allElementsBoundByIndex
             let label = focused.first?.label ?? ""
-            if label.contains("IPTV") { remote.press(.select); break }
+            if label.contains("التلفزيون") { remote.press(.select); break }
             let position = order.firstIndex(where: { label.contains($0) })
             remote.press((position ?? 0) < 5 ? .down : .up)
             Thread.sleep(forTimeInterval: 0.3)

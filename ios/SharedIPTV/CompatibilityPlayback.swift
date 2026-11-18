@@ -42,12 +42,17 @@ import CinemaCore
         private var continuation: CheckedContinuation<Void, Never>?
         init(_ player: VLCMediaPlayer) { self.player = player }
         func finish() async {
+            // state is cached by VLCKit and may still say stopped while play() is opening.
+            // Always request shutdown; never release output on the basis of that cached state.
             await withCheckedContinuation { continuation in
                 self.continuation = continuation; player.delegate = self
                 let retired = RetiredPlayer(player)
                 CompatibilityPlayback.shutdownQueue.async { retired.value.stop() }
             }
             player.delegate = nil
+            // Keep the drawable alive until video output has stopped. Clearing it during
+            // dismissal can contend with the decoder's output thread on the main thread.
+            player.drawable = nil
         }
         nonisolated func mediaPlayerStateChanged(_ aNotification: Notification) {
             guard let player = aNotification.object as? VLCMediaPlayer, player.state == .stopped else { return }
@@ -161,11 +166,17 @@ import CinemaCore
         if existing.utf8.count < 100_000 { try? (existing + text + "\n").write(to: file, atomically: true, encoding: .utf8) }
 #endif
     }
-    func close() {
+    static func waitForShutdown() async {
+        if let pendingShutdown { await pendingShutdown.value }
+    }
+
+    @discardableResult func close() -> Task<Void, Never>? {
         diagnostic("close")
         generation = UUID(); task?.cancel(); task = nil; update = nil
-        guard let old = engine else { return }; engine = nil
-        old.delegate = nil; old.pause(); old.drawable = nil
+        guard let old = engine else { return Self.pendingShutdown }; engine = nil
+        // stop() handles pausing too. Do not synchronously pause a network input or tear
+        // down its video output on the UI thread while the decoder is closing.
+        old.delegate = nil
         let previous = Self.pendingShutdown
         Self.pendingShutdown = Task { @MainActor in
             if let previous { await previous.value }
@@ -173,6 +184,7 @@ import CinemaCore
             // Releasing after stop() merely returns can assert/crash or overlap the next decoder.
             await Retirement(old).finish()
         }
+        return Self.pendingShutdown
     }
 }
 

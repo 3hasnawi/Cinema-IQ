@@ -44,6 +44,7 @@ jobs:
           set -o pipefail
           xcodebuild test -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -only-testing:CinemaIQTVUITests/TVRedesignSmokeTests -only-testing:CinemaIQTVUITests/TVVisualAuditTests \
+            -only-testing:CinemaIQTVUITests/TVArtworkFocusTests \
             -resultBundlePath "$RUNNER_TEMP/tvos-audit.xcresult" -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \

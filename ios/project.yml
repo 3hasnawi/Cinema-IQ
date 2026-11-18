@@ -1,6 +1,6 @@
 name: CinemaIQ
 options:
-  preGenCommand: bash scripts/prepare-vlc.sh
+  preGenCommand: bash scripts/prepare-vlc.sh && python3 scripts/prepare-top-shelf.py
   bundleIdPrefix: com.cinemaplus.rebuilt
   deploymentTarget:
     iOS: "18.0"
@@ -97,6 +97,8 @@ targets:
     sources:
       - path: CinemaIQTV
       - path: SharedIPTV
+      - path: SharedTopShelf
+      - path: Generated/TopShelfConfiguration.swift
       - path: CinemaIQ/LibraryStore.swift
       - path: CinemaIQ/CloudSync.swift
       - path: CinemaIQ/PlaybackController.swift
@@ -108,6 +110,8 @@ targets:
       - path: CinemaIQ/Resources/VLCKit-LGPL-2.1.txt
         buildPhase: resources
     dependencies:
+      - target: CinemaIQTopShelf
+        embed: true
       - package: CinemaCore
       - framework: .build/vlc/TVVLCKit-binary/TVVLCKit.xcframework
         embed: true
@@ -117,8 +121,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.tv
-        MARKETING_VERSION: "0.4.5"
-        CURRENT_PROJECT_VERSION: "9"
+        CODE_SIGN_ENTITLEMENTS: Generated/TopShelf.entitlements
+        MARKETING_VERSION: "0.4.6"
+        CURRENT_PROJECT_VERSION: "10"
         TARGETED_DEVICE_FAMILY: "3"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Cinema iQ
@@ -129,6 +134,10 @@ targets:
       properties:
         CFBundleDisplayName: Cinema iQ
         CFBundleDevelopmentRegion: ar
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Viewer
+            CFBundleURLName: com.cinemaplus.rebuilt.tv.top-shelf
+            CFBundleURLSchemes: [cinemaiq]
         OMDbAPIKey: "$(OMDB_API_KEY)"
         YouTubeAPIKey: "$(YOUTUBE_API_KEY)"
         NSLocalNetworkUsageDescription: للاتصال بمصادر IPTV داخل شبكتك.
@@ -157,6 +166,26 @@ targets:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSExceptionMinimumTLSVersion: TLSv1.0
               NSExceptionRequiresForwardSecrecy: false
+  CinemaIQTopShelf:
+    type: app-extension
+    platform: tvOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: CinemaIQTopShelf
+      - path: SharedTopShelf
+      - path: Generated/TopShelfConfiguration.swift
+    dependencies:
+      - package: CinemaCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.tv.topshelf
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Generated/TopShelf-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Generated/TopShelf.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "3"
+
   CinemaIQUITests:
     type: bundle.ui-testing
     platform: iOS

@@ -24,6 +24,7 @@ struct TVPauseInformation: View {
             if !media.overview.isEmpty {
                 Text(media.overview).font(.callout).foregroundStyle(.white.opacity(0.85))
                     .lineLimit(3).multilineTextAlignment(.leading)
+                    .accessibilityIdentifier("tv.player.pausedOverview")
             }
         }
         .frame(maxWidth: 920, maxHeight: .infinity, alignment: .leading)

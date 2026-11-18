@@ -9,10 +9,14 @@ public enum IPTVParser {
         let lines = text.replacingOccurrences(of: "\u{feff}", with: "").split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard let first = lines.first, first.uppercased().hasPrefix("#EXTM3U") else { throw IPTVError.invalidPlaylist }
+        let header = attributes(first)
+        let epgURL = (header["x-tvg-url"] ?? header["url-tvg"] ?? header["tvg-url"])
+            .flatMap { $0.split(separator: ",").first.map(String.init) }
+            .flatMap { IPTVURLPolicy.stream($0, relativeTo: source.address, allowHTTP: source.allowHTTP) }
         // A channel's HLS manifest is one channel, not a list of its media segments/renditions.
         if lines.prefix(40).contains(where: { $0.uppercased().hasPrefix("#EXT-X-") }) {
             return IPTVCatalog(channels: [IPTVChannel(id: source.id + ":direct", sourceID: source.id,
-                name: source.name, group: "مباشر", url: source.address)])
+                name: source.name, group: "مباشر", url: source.address)], epgURL: epgURL)
         }
         var name = "", group = "", tvgID = "", logo: URL?
         var channels: [IPTVChannel] = [], occurrences: [String: Int] = [:]
@@ -39,7 +43,7 @@ public enum IPTVParser {
             }
         }
         guard !channels.isEmpty else { throw IPTVError.noChannels }
-        return IPTVCatalog(channels: channels)
+        return IPTVCatalog(channels: channels, epgURL: epgURL)
     }
 
     public static func xtreamAuthentication(_ data: Data) throws {

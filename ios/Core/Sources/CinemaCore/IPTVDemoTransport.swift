@@ -29,6 +29,14 @@ public struct IPTVDemoTransport: IPTVTransport {
         switch action {
         case "get_live_categories": return Data(#"[{"category_id":"1","category_name":"أخبار"},{"category_id":"2","category_name":"رياضة"}]"#.utf8)
         case "get_live_streams": return Data(#"[{"stream_id":101,"name":"Xtream News","category_id":"1"},{"stream_id":102,"name":"Xtream Sport","category_id":"2"}]"#.utf8)
+        case "get_short_epg":
+            let now = Int(Date().timeIntervalSince1970)
+            let current = Data("نشرة الأخبار التجريبية".utf8).base64EncodedString()
+            let next = Data("البرنامج التالي التجريبي".utf8).base64EncodedString()
+            return try JSONSerialization.data(withJSONObject: ["epg_listings": [
+                ["title": current, "start_timestamp": String(now - 600), "stop_timestamp": String(now + 1200)],
+                ["title": next, "start_timestamp": String(now + 1200), "stop_timestamp": String(now + 3000)]
+            ]])
         default:
             let valid = items.first { $0.name == "username" }?.value == "demo" && items.first { $0.name == "password" }?.value == "demo"
             return Data((valid ? #"{"user_info":{"auth":1,"status":"Active"}}"# : #"{"user_info":{"auth":0}}"#).utf8)

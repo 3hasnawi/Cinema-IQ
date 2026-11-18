@@ -12,7 +12,8 @@ struct TVIPTVView: View {
     @State private var playing: IPTVChannel?
     @State private var returningFromPlayer = false
     @State private var lastChannel: String?
-    @State private var previewedSource: String?
+    @State private var autoplayOnEntry = true
+    @State private var modalTransition = false
     @State private var startInGuide = false
     @State private var lastControl = "add"
     @State private var modalSource: String?
@@ -29,8 +30,9 @@ struct TVIPTVView: View {
         case source(IPTVSource?), sources, groups
         var id: String { switch self { case .source(let value): return value?.id ?? "add"; case .sources: return "sources"; case .groups: return "groups" } }
     }
-    private struct FilterKey: Hashable { let revision: UUID; let query: String; let group: String? }
-    private var filterKey: FilterKey { FilterKey(revision: store.catalogRevision, query: query, group: group) }
+    private struct FilterKey: Hashable { let revision: UUID; let query: String; let group: String?; let source: String? }
+    private struct StartupKey: Hashable { let source: String?; let revision: UUID; let blocked: Bool; let pending: Bool; let tab: TVTab }
+    private var filterKey: FilterKey { FilterKey(revision: store.catalogRevision, query: query, group: group, source: store.selectedID) }
     private var initialFocus: String {
         if let first = visible.first { return "channel." + first.id }
         return store.storageAvailable ? "add" : "return"
@@ -55,7 +57,7 @@ struct TVIPTVView: View {
                 controls
                 if store.loading {
                     HStack(spacing: 20) { ProgressView(); Text("جارٍ تحميل القنوات…") }
-                } else if let message = store.message {
+                } else if let message = store.message, store.catalog.channels.isEmpty {
                     Text(message).foregroundStyle(.secondary).accessibilityIdentifier("tv.iptv.error")
                     Button("إعادة المحاولة", action: refresh).accessibilityIdentifier("tv.iptv.retry")
                 } else {
@@ -84,26 +86,35 @@ struct TVIPTVView: View {
             let forced = forceReload; forceReload = false
             await store.reload(force: forced)
         }
+        .task(id: StartupKey(source: store.selectedID, revision: store.catalogRevision,
+                            blocked: sheet != nil || modalTransition, pending: autoplayOnEntry, tab: router.tab)) {
+            guard autoplayOnEntry, router.tab == .iptv, sheet == nil, !modalTransition, playing == nil,
+                  let source = store.selectedID else { return }
+            let channels = store.catalog.channels.filter { $0.sourceID == source }
+            guard !channels.isEmpty else { return }
+            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+            guard !Task.isCancelled, autoplayOnEntry, store.selectedID == source, sheet == nil, !modalTransition, playing == nil else { return }
+            let recent = store.channelCollection.channels(channels, sourceID: source, section: .recent).first
+            autoplayOnEntry = false; startInGuide = false
+            playing = channels.first(where: { $0.id == lastChannel }) ?? recent ?? channels.first
+        }
         .task(id: filterKey) {
-            let channels = store.catalog.channels, selected = group, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let channels = store.catalog.channels, selected = group, source = store.selectedID, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty { do { try await Task.sleep(for: .milliseconds(200)) } catch { return } }
             let result = await Task.detached(priority: .userInitiated) {
-                channels.filter { (selected == nil || $0.group == selected) &&
+                channels.filter { $0.sourceID == source && (selected == nil || $0.group == selected) &&
                     (text.isEmpty || $0.name.localizedStandardContains(text) || $0.group.localizedStandardContains(text)) }
             }.value
             guard !Task.isCancelled else { return }
             let changed = visible.map(\.id) != result.map(\.id)
             visible = result
-            if previewedSource != store.selectedID, !result.isEmpty, sheet == nil, playing == nil {
-                previewedSource = store.selectedID; startInGuide = true
-                playing = result.first(where: { $0.id == lastChannel }) ?? result.first
-            }
             // A cache refresh on returning from AVKit must not override the restored channel focus.
             if changed, !editingSearch, sheet == nil, playing == nil {
                 if returningFromPlayer { restoreAfterPlayer() } else { focusFirstChannel() }
             }
         }
-        .onChange(of: store.selectedID) { _, _ in group = nil; query = ""; lastChannel = nil }
+        .onChange(of: store.selectedID) { _, _ in group = nil; query = ""; lastChannel = nil; autoplayOnEntry = true }
+        .onChange(of: router.tab) { _, tab in if tab != .iptv { autoplayOnEntry = true } }
         .onChange(of: store.storageLoading) { _, loading in if !loading { focus = initialFocus } }
         .onChange(of: focus) { _, value in
             if value == "search" { editingSearch = true }
@@ -122,16 +133,16 @@ struct TVIPTVView: View {
         }
         .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in
             TVIPTVPlayerView(initial: channel, group: group, startInGuide: startInGuide) { value, selectedGroup in
-                lastChannel = value.id; returningFromPlayer = true; group = selectedGroup; query = ""
+                autoplayOnEntry = false; lastChannel = value.id; returningFromPlayer = true; group = selectedGroup; query = ""
             }.environmentObject(store).environment(\.layoutDirection, .rightToLeft)
         }
-        .onDisappear { focusTask?.cancel() }
+        .onDisappear { focusTask?.cancel(); if router.tab != .iptv { autoplayOnEntry = true } }
         // Let native keyboards, modal lists and AVKit consume Menu before this page's Home fallback.
         .onExitCommand(perform: sheet == nil && playing == nil ? { router.tab = .home } : nil)
     }
     private var header: some View {
         HStack(spacing: 24) {
-            Label("IPTV", systemImage: "dot.radiowaves.left.and.right").font(.system(size: 48, weight: .bold))
+            Label("التلفزيون", image: "TelevisionAntenna").font(.system(size: 48, weight: .bold))
                 .accessibilityIdentifier("tv.iptv.heading")
             Spacer()
             Button { present(.source(nil), from: "add") } label: { Label("إضافة مصدر", systemImage: "plus") }
@@ -173,9 +184,10 @@ struct TVIPTVView: View {
     }
     private func present(_ item: Sheet, from control: String) {
         lastControl = control; modalSource = store.selectedID; modalGroup = group; modalRevision = store.sourceRevision
-        sheet = item
+        modalTransition = true; sheet = item
     }
     private func restoreAfterModal() {
+        modalTransition = false
         let changed = modalSource != store.selectedID || modalGroup != group || modalRevision != store.sourceRevision
         if changed { focusFirstChannel() }
         else { focus = lastControl }

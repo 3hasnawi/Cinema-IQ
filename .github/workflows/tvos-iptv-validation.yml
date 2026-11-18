@@ -5,18 +5,18 @@ on:
       scenario:
         description: Run all IPTV checks or a focused scenario
         type: choice
-        options: [all, quality, visibility, compatibility, guide]
+        options: [all, quality, visibility, compatibility, guide, keyboard, hud, search, interaction]
         default: all
 permissions:
   contents: read
 concurrency:
-  group: tvos-iptv-${{ github.ref }}
+  group: tvos-iptv-${{ github.ref }}-${{ inputs.scenario || 'all' }}
   cancel-in-progress: true
 jobs:
   simulator:
     # Match the existing navigation check's Intel pool; ARM hosts can boot tvOS without a display/focus surface.
     runs-on: macos-15-intel
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode and generate the test project
@@ -64,7 +64,7 @@ jobs:
           set -euo pipefail
           python3 ios/scripts/boot-simulator.py "$TV_TEST_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
       - name: Test M3U entry, Xtream, Keychain persistence and remote playback
-        timeout-minutes: 25
+        timeout-minutes: 35
         env:
           IPTV_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
@@ -74,8 +74,19 @@ jobs:
           if [ "$IPTV_TEST_SCENARIO" = guide ]; then test_id="$test_id/testRemoteChannelSurfingAndFloatingGuide"; fi
           if [ "$IPTV_TEST_SCENARIO" = visibility ]; then test_id="$test_id/testFocusedVideoHasNoButtonBackdrop"; fi
           if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then test_id="$test_id/testCompatibilityDecoderWithRemoteAndTracks"; fi
+          if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then test_id="$test_id/testAddM3USourceWithNativeKeyboard"; fi
+          if [ "$IPTV_TEST_SCENARIO" = hud ]; then test_id="$test_id/testToolbarHidesWhileFocusedAndPopupsRestoreTheirIcons"; fi
+          if [ "$IPTV_TEST_SCENARIO" = search ]; then test_id="$test_id/testGuideSearchDismissesNativeKeyboardAndRestoresNavigation"; fi
+          if [ "$IPTV_TEST_SCENARIO" = interaction ]; then test_id="$test_id/testToolbarHidesWhileFocusedAndPopupsRestoreTheirIcons"; fi
           extra_tests=()
           if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testCompatibilityMovieTransportAndReturnToDetails'); fi
+          if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testXtreamFormShowsCredentialsAndMenuReturnsSafely'); fi
+          if [ "$IPTV_TEST_SCENARIO" = keyboard ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testSourcesGroupsPlaybackAndSelectionPersistence'); fi
+          if [ "$IPTV_TEST_SCENARIO" = interaction ]; then
+            for test in testGuideSearchDismissesNativeKeyboardAndRestoresNavigation testRemoteChannelSurfingAndFloatingGuide; do
+              extra_tests+=("-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/$test")
+            done
+          fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVIPTVDerived" \
             -only-testing:"$test_id" "${extra_tests[@]}" \

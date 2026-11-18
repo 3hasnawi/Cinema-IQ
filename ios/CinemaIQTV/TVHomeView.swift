@@ -17,6 +17,9 @@ struct TVHomeView: View {
     @EnvironmentObject private var router: TVRouter
     @FocusState private var featuredFocus: Bool
     @State private var heroInfo: OMDbInfo?
+    @State private var heroTMDB: TMDBWork?
+    @State private var heroInfoID = ""
+    @State private var heroTMDBID = ""
     @State private var initialFocusAssigned = false
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.scenePhase) private var phase
@@ -28,16 +31,21 @@ struct TVHomeView: View {
 
     private var source: ContentSource { SourcePreference.source(sourceName) }
     private var hero: Media? { featured.indices.contains(heroIndex) ? featured[heroIndex] : featured.first }
+    private var currentHeroInfo: OMDbInfo? { heroInfoID == hero?.id ? heroInfo : nil }
+    private var heroArtwork: String {
+        guard let hero else { return "" }
+        return TVArtworkSelection.url(for: hero, tmdb: heroTMDBID == hero.id ? heroTMDB : nil, fallbackPoster: currentHeroInfo?.largePoster ?? "")
+    }
     private var recent: [Media] { library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source } }
 
     var body: some View {
         GeometryReader { proxy in
             let showcase = proxy.size.height
             ZStack {
-                ShowcaseBackground(url: hero.map { $0.backdrop.isEmpty ? $0.poster : $0.backdrop } ?? "", belowFold: belowFold)
+                ShowcaseBackground(url: heroArtwork, fallbackURL: hero.map { TVArtworkSelection.providerFallback(for: $0, excluding: heroArtwork) } ?? "", belowFold: belowFold)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 56) {
-                        TVFeaturedHero(media: hero, info: heroInfo, count: featured.count, index: heroIndex,
+                        TVFeaturedHero(media: hero, info: currentHeroInfo, count: featured.count, index: heroIndex,
                                        focused: $featuredFocus, loading: loading, error: shelves.isEmpty ? error : nil,
                                        retry: { Task { await load() } }, open: { router.open($0) },
                                        move: { step in
@@ -110,11 +118,16 @@ struct TVHomeView: View {
         }
         .onDisappear { focusRecovery?.cancel(); focusRecovery = nil }
         .task(id: hero?.id) {
-            heroInfo = nil
             guard let hero else { return }
             let info = await OMDb.shared?.info(for: hero)
-            guard !Task.isCancelled else { return }
-            heroInfo = info
+            guard !Task.isCancelled, self.hero?.id == hero.id else { return }
+            heroInfo = info; heroInfoID = hero.id
+        }
+        .task(id: hero?.id) {
+            guard let hero else { return }
+            let artwork = await TMDB.shared?.work(for: hero)
+            guard !Task.isCancelled, self.hero?.id == hero.id else { return }
+            heroTMDB = artwork; heroTMDBID = hero.id
         }
     }
 

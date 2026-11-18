@@ -2,6 +2,7 @@ import SwiftUI
 import CinemaCore
 
 @main struct CinemaIQTVApp: App {
+    @UIApplicationDelegateAdaptor(TVShelfAppDelegate.self) private var appDelegate
     @StateObject private var library = LibraryStore()
     @StateObject private var cloud = CloudSync()
     // Created first, so Core knows the external providers before any page asks for one.
@@ -12,14 +13,16 @@ import CinemaCore
     var body: some Scene {
         WindowGroup {
             TVRootView()
+                .modifier(TVTopShelfIntegration())
                 .environmentObject(library)
                 .environmentObject(cloud)
+                .environmentObject(appDelegate)
                 .environmentObject(providers)
                 .environmentObject(player)
                 .environmentObject(router)
                 .environment(\.layoutDirection, .rightToLeft)
                 .preferredColorScheme(.dark)
-                .task { cloud.start(library: library) }
+                .onOpenURL { appDelegate.receive($0) }
                 .onChange(of: phase) { _, value in
                     if value == .active { cloud.scene(active: true) } else if value == .background { cloud.scene(active: false) }
                 }
@@ -52,7 +55,7 @@ struct TVRootView: View {
             Tab("مكتبتي", systemImage: "books.vertical", value: TVTab.library) {
                 stack(.library) { TVLibraryView() }
             }
-            Tab("IPTV", systemImage: "dot.radiowaves.left.and.right", value: TVTab.iptv) {
+            Tab("التلفزيون", image: "TelevisionAntenna", value: TVTab.iptv) {
                 TVIPTVView()
             }
             Tab("الإعدادات", systemImage: "gearshape", value: TVTab.settings) {
