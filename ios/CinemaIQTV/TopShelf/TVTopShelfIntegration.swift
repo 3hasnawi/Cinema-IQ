@@ -13,6 +13,7 @@ struct TVTopShelfIntegration: ViewModifier {
     @State private var pendingURL: URL?
     func body(content: Content) -> some View {
         content
+            .disabled(bridge.opening)
             .task {
                 // Activate the real account/profile before publishing anything from its library.
                 cloud.start(library: library)

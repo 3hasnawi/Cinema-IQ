@@ -19,7 +19,7 @@ enum TVShelfRenderer {
             return TVTopShelfCarouselContent(style: .details, items: items)
         }
         var sections: [TVTopShelfItemCollection<TVTopShelfSectionedItem>] = []
-        for (title, values) in [("تابع المشاهدة", snapshot.continuing), ("أفلام مميزة", snapshot.featured)] where !values.isEmpty {
+        for (title, values, resumes) in [("تابع المشاهدة", snapshot.continuing, true), ("أفلام مميزة", snapshot.featured, false)] where !values.isEmpty {
             let items = values.map { value in
                 let item = TVTopShelfSectionedItem(identifier: value.mediaID)
                 item.title = value.subtitle.isEmpty ? value.title : value.title + " · " + value.subtitle
@@ -27,7 +27,7 @@ enum TVShelfRenderer {
                 item.playbackProgress = value.progress
                 item.setImageURL(value.imageURL, for: .screenScale1x)
                 item.setImageURL(value.imageURL, for: .screenScale2x)
-                item.displayAction = TopShelfRoute(mediaID: value.mediaID, action: .display).url.map(TVTopShelfAction.init(url:))
+                item.displayAction = TopShelfRoute(mediaID: value.mediaID, action: resumes ? .play : .display).url.map(TVTopShelfAction.init(url:))
                 item.playAction = TopShelfRoute(mediaID: value.mediaID, action: .play).url.map(TVTopShelfAction.init(url:))
                 return item
             }

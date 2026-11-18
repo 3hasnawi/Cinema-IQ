@@ -78,12 +78,6 @@ import CinemaCore
         routeTask = Task { @MainActor in
             defer { if request == token { opening = false } }
             do {
-                _ = try ContentSource.owner(of: route.mediaID)
-                let known = library.recent.first { $0.id == route.mediaID } ?? library.favorites.first { $0.id == route.mediaID } ??
-                    library.progress[route.mediaID]?.media ?? Media(id: route.mediaID, title: "")
-                let (detail, seasons) = try await SourceClient().detail(known)
-                try Task.checkCancellation()
-                guard request == token else { return }
                 router.popup = nil
                 // A Home-screen link can arrive while a suspended movie cover is still presented.
                 // Finish its dismissal before presenting another selection or displaying new details.
@@ -93,6 +87,12 @@ import CinemaCore
                     try Task.checkCancellation()
                     guard request == token else { return }
                 }
+                _ = try ContentSource.owner(of: route.mediaID)
+                let known = library.recent.first { $0.id == route.mediaID } ?? library.favorites.first { $0.id == route.mediaID } ??
+                    library.progress[route.mediaID]?.media ?? Media(id: route.mediaID, title: "")
+                let (detail, seasons) = try await SourceClient().detail(known)
+                try Task.checkCancellation()
+                guard request == token else { return }
                 router.tab = .home
                 router.paths[.home] = [detail]
                 guard route.action == .play else { return }
@@ -123,7 +123,10 @@ import CinemaCore
         try? await Task.sleep(for: .milliseconds(400))
         let snapshot = TVShelfStorage.read(TVShelfStorage.sharedURL)
         let content = snapshot == nil ? nil : await TVShelfContentLoader.load()
-        audit = snapshot?.continuing.first?.mediaID == media.id && content != nil ? "shared-ready" : "shared-unavailable"
+        let first = (content as? TVTopShelfSectionedContent)?.sections.first?.items.first
+        let action = (first?.displayAction?.url).flatMap { TopShelfRoute(url: $0) }
+        audit = snapshot?.continuing.first?.mediaID == media.id && (first?.playbackProgress ?? 0) > 0 &&
+            action?.mediaID == media.id && action?.action == .play ? "shared-ready" : "shared-unavailable"
     }
 #endif
 }

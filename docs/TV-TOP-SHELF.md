@@ -1,6 +1,6 @@
 # Apple TV Top Shelf
 
-User-requested dynamic Apple TV Home screen content. Prefer continue-watching entries and fall back to featured films, with display/play deep links into the existing application.
+User-requested dynamic Apple TV Home screen content. Prefer continue-watching entries and fall back to featured films, with deep links into the existing application. Selecting a continue-watching card resumes directly; selecting a featured card opens details, and its Play action starts playback.
 
 Reserved: ios/project.yml; a dedicated Top Shelf extension and shared snapshot/route helpers; LibraryStore change notification hooks; a small TVApp scene modifier hook; independent Core policies/tests and focused simulator validation. No Android or phone design changes. Preserve existing library keys.
 
@@ -20,7 +20,7 @@ App Group sharing is optional: only a correctly signed shared container may expo
 
 Before generating a signed project, register a real App Group on the signing team, enable it for both `com.cinemaplus.rebuilt.tv` and `com.cinemaplus.rebuilt.tv.topshelf`, and use provisioning profiles containing that same group. Set `CINEMAIQ_APP_GROUP` when running XcodeGen. The two existing unsigned export workflows also accept it from the repository's non-secret Actions variable of the same name. No account identifiers or secrets are hardcoded.
 
-Leaving it empty generates empty entitlements, preserving the normal unsigned/sideload workflow. The extension then races the three built-in public catalogues with an eight-second deadline and caches public featured metadata for fifteen minutes (stale fallback up to seven days). Without a shared group, it cannot read the app's account, selected source, or continue-watching history. A correctly signed App Group is required for personalized continue watching. Sideload tools must preserve and re-sign the embedded extension; this has not been established on the user's physical device or account.
+Leaving it empty generates empty entitlements, preserving the normal unsigned/sideload workflow. The extension then races the three built-in public catalogues with an eight-second deadline and caches public featured metadata for fifteen minutes (stale fallback up to seven days). Without a shared group, it cannot read the app's account, selected source, or continue-watching history. A correctly signed App Group is required for personalized continue watching. Sideload tools must preserve and re-sign the embedded extension (do not enable atvloadly’s Remove Extensions option); this has not been established on the user's physical device or account.
 
 ## Data and lifecycle
 
@@ -33,4 +33,4 @@ The atomic shared file is bounded to 128 KiB, eight entries per section, and sev
 - The simulator audit calls shared loader code inside the host; it is not proof that PineBoard launched the extension process or rendered its shelf. Physical Home-screen rendering, resigner behavior and App Group provisioning remain device checks.
 - Existing iPhone/iPad and Apple TV Release compilation and general navigation checks also run. These checks do not export or publish an IPA and do not change version numbers.
 
-Results are pending. No main merge or publication is requested.
+See PR #149 for current recorded check results. No main merge or publication is requested.
