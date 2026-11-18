@@ -390,7 +390,7 @@ import kotlinx.coroutines.*
             }
         }
     }
-    LaunchedEffect(Unit) { if (television && !guide) { withFrameNanos { }; runCatching { surface.requestFocus() } } }
+    LaunchedEffect(Unit) { if (television && !guide) restorePlayerFocus() }
     LaunchedEffect(controls, guide, panel, interaction, fullscreen, foreground, error, rootWindow.isWindowFocused) {
         if (controls && foreground && rootWindow.isWindowFocused && fullscreen && !guide && panel == null && error == null) {
             delay(5_000)
