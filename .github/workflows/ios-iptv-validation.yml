@@ -10,9 +10,9 @@ on:
         options: [both, iphone, ipad]
         default: both
       scenario:
-        description: Full flow or compatibility decoder only
+        description: Full flow, extended phone flows, or compatibility decoder only
         type: choice
-        options: [all, compatibility]
+        options: [all, extended, compatibility]
         default: all
       runner:
         description: Hosted macOS runner (Intel avoids ARM fleet queue cancellations)
@@ -28,7 +28,7 @@ concurrency:
 jobs:
   simulator:
     runs-on: ${{ inputs.runner || 'macos-15-intel' }}
-    # First-boot migration, five real input/playback cases and evidence cleanup
+    # First-boot migration, six real input/playback cases and evidence cleanup
     # need their own allowance; do not cancel a valid test midway through export.
     timeout-minutes: 55
     strategy:
@@ -132,11 +132,20 @@ jobs:
           IPTV_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
-          test_id=CinemaIQUITests/IPTVFlowTests
-          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then test_id="$test_id/testCompatibilityDecoderWithTracksAndRotation"; fi
+          test_ids=(-only-testing:CinemaIQUITests/IPTVFlowTests)
+          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then
+            test_ids=(-only-testing:CinemaIQUITests/IPTVFlowTests/testCompatibilityDecoderWithTracksAndRotation)
+          fi
+          if [ "$IPTV_TEST_SCENARIO" = extended ]; then
+            test_ids=(
+              -only-testing:CinemaIQUITests/IPTVFlowTests/testM3UBrowserFiltersHTTPConsentAndKeychainPersistence
+              -only-testing:CinemaIQUITests/IPTVFlowTests/testM3UInternalPlayerGuideQualityRotationAndClose
+              -only-testing:CinemaIQUITests/IPTVFlowTests/testKeyboardNextDoneMetadataPopoversAndOfflineLastChannelRestore
+            )
+          fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
-            -only-testing:"$test_id" \
+            "${test_ids[@]}" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \

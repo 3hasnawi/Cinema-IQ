@@ -8,6 +8,11 @@ final class IPTVFlowTests: XCTestCase {
     private let baseArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-iptv", "--cinema-ui-testing-player", "--cinema-ui-testing-hero-artwork"]
     override func setUp() {
         continueAfterFailure = false
+        // These end-to-end cases retain native input, process relaunch and real decoding.
+        // Allow hosted AX/startup overhead without changing any in-app timeout.
+        if name.contains("testM3U") || name.contains("testKeyboardNextDoneMetadataPopoversAndOfflineLastChannelRestore") {
+            executionTimeAllowance = 360
+        }
         KeyboardTestSupport.installIntroductionMonitor(on: self)
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = baseArguments + ["--cinema-ui-testing-iptv-reset"]
@@ -23,7 +28,7 @@ final class IPTVFlowTests: XCTestCase {
         hierarchy.name = "iptv-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
         app.terminate()
     }
-    func testM3UPersistsFiltersAndPlaysInsideApp() {
+    func testM3UBrowserFiltersHTTPConsentAndKeychainPersistence() {
         openAdd()
         fill("ios.iptv.form.name", "M3U Test")
         fill("ios.iptv.form.address", "http://iptv.example/channels.m3u\n")
@@ -38,10 +43,7 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["قناة الرياضة"].exists)
         // The two lists must stay above the system tab bar, including their last visible row.
         if !tablet {
-            let tab = app.tabBars.firstMatch.frame
-            for row in app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.iptv.channel.")).allElementsBoundByIndex where row.isHittable {
-                XCTAssertLessThanOrEqual(row.frame.maxY, tab.minY + 1)
-            }
+            assertVisibleChannelRowsStayAboveTabBar()
         }
         screenshot("m3u-channels")
         // A different channel tunes in place; the current channel opens full screen on a second tap.
@@ -69,8 +71,15 @@ final class IPTVFlowTests: XCTestCase {
         // Keep the isolated Keychain service, remove only the reset launch flag, then relaunch.
         app.terminate(); app.launchArguments = baseArguments; app.launch(); openIPTV()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20), "The saved source must reload from Keychain")
-        app.buttons["قناة الأخبار"].tap()
-        if !element("ios.iptv.player.close").exists { app.buttons["قناة الأخبار"].tap() }
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+    func testM3UInternalPlayerGuideQualityRotationAndClose() {
+        openAdd()
+        fill("ios.iptv.form.name", "M3U Player")
+        fill("ios.iptv.form.address", "https://iptv.example/channels.m3u\n")
+        connect()
+        XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
+        element("ios.iptv.browser.fullscreen").tap()
         XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 20))
         // Playback status stays accessible after the production HUD timer hides its labels.
         waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
@@ -257,6 +266,21 @@ final class IPTVFlowTests: XCTestCase {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         XCTAssertTrue(element("ios.iptv.player.close").exists)
+    }
+    private func assertVisibleChannelRowsStayAboveTabBar() {
+        // Inspect one consistent layout instead of issuing separate AX visibility/frame
+        // requests for every row while the video continues updating its clock.
+        guard let root = try? app.snapshot() else { XCTFail("Channel layout snapshot unavailable"); return }
+        var pending = [root], nodes: [any XCUIElementSnapshot] = []
+        while let node = pending.popLast() { nodes.append(node); pending.append(contentsOf: node.children) }
+        guard let tab = nodes.first(where: { $0.elementType == .tabBar }) else { XCTFail("The native phone tab bar must be present"); return }
+        let rows = nodes.filter {
+            guard $0.identifier.hasPrefix("ios.iptv.channel."), !$0.frame.isEmpty else { return false }
+            let center = CGPoint(x: $0.frame.midX, y: $0.frame.midY)
+            return root.frame.contains(center) && !tab.frame.contains(center)
+        }
+        XCTAssertFalse(rows.isEmpty, "The current channel list must expose visible rows")
+        for row in rows { XCTAssertLessThanOrEqual(row.frame.maxY, tab.frame.minY + 1) }
     }
     private func tapPlayerControl(_ name: String) {
         let identifier = "ios.iptv.player." + name
