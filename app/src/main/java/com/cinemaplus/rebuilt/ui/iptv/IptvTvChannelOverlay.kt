@@ -77,7 +77,6 @@ private inline fun overlayFocusLog(message: () -> String) {
     val manager = LocalFocusManager.current
     val inputMode = LocalInputModeManager.current
     val window = LocalWindowInfo.current
-    val imeVisible = WindowInsets.isImeVisible
     val editor = remember { IptvTvSearchEditorState() }
     var browsingSection by remember { mutableStateOf(section) }
     var query by remember { mutableStateOf("") }
@@ -124,7 +123,7 @@ private inline fun overlayFocusLog(message: () -> String) {
             else -> -1
         }
         return "items=${visible.size} visible=${channelScroll.layoutInfo.visibleItemsInfo.joinToString(",") { it.index.toString() }} " +
-            "window=${window.isWindowFocused} ime=$imeVisible input=${inputMode.inputMode} " +
+            "window=${window.isWindowFocused} ownedEditing=${editor.editing} nativeFocus=${editor.focused} input=${inputMode.inputMode} " +
             "actual=${observed?.destination ?: "none"} actualIndex=$observedIndex"
     }
     fun hideKeyboard() { editor.hideKeyboard(); keyboard?.hide(); manager.clearFocus(force = true) }
@@ -152,7 +151,7 @@ private inline fun overlayFocusLog(message: () -> String) {
     }
     fun back() {
         when {
-            searchMode && (imeVisible || editor.focused) -> {
+            searchMode && (editor.editing || editor.focused) -> {
                 editor.hideKeyboard(); keyboard?.hide()
                 lastDestination = OverlayDestination.SearchDone; pending = OverlayDestination.SearchDone
             }
@@ -184,7 +183,7 @@ private inline fun overlayFocusLog(message: () -> String) {
         if (!window.isWindowFocused) windowLost = true
         else if (windowLost) {
             windowLost = false
-            pending = if (searchMode) { if (editor.focused) null else OverlayDestination.SearchDone } else lastDestination
+            pending = if (searchMode) { if (editor.editing || editor.focused) null else OverlayDestination.SearchDone } else lastDestination
         }
     }
     LaunchedEffect(channels, current.sourceId, collection, browsingSection, query, hiddenGroups, groups, searchSession) {
@@ -201,13 +200,13 @@ private inline fun overlayFocusLog(message: () -> String) {
         }
         filtering = false
     }
-    LaunchedEffect(pending, filtering, visible, categoriesOpen, searchMode, imeVisible, window.isWindowFocused) {
+    LaunchedEffect(pending, filtering, visible, categoriesOpen, searchMode, editor.editing, editor.focused, window.isWindowFocused) {
         val destination = pending ?: run {
             overlayFocusLog { "gate=no-pending ${focusStatus()}" }
             return@LaunchedEffect
         }
-        if (!window.isWindowFocused || imeVisible || filtering) {
-            overlayFocusLog { "gate=window-ime-filter destination=$destination filtering=$filtering ${focusStatus()}" }
+        if (!window.isWindowFocused || (searchMode && (editor.editing || editor.focused)) || filtering) {
+            overlayFocusLog { "gate=window-owned-editor-filter destination=$destination filtering=$filtering ${focusStatus()}" }
             return@LaunchedEffect
         }
         if (searchMode && destination != OverlayDestination.SearchDone) {
@@ -261,7 +260,7 @@ private inline fun overlayFocusLog(message: () -> String) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                     IptvTvGlassPanel(Modifier.width(channelWidth).height(panelHeight).focusGroup().onPreviewKeyEvent { event ->
                         val key = event.nativeKeyEvent
-                        if (key.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && !imeVisible && !editor.focused) {
+                        if (key.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && !editor.editing && !editor.focused) {
                             if (key.action == KeyEvent.ACTION_DOWN) openCategories()
                             true
                         } else false
