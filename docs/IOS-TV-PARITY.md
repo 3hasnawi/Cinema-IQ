@@ -15,6 +15,8 @@ Apple TV implementations and ports applicable improvements to the touch UI.
   episode sheet. Selecting the current
   episode leaves playback intact. Changing quality preserves pause/play intent.
   Closing latches immediately and cancels/ignores late queue and metadata work.
+  Hidden controls retain their layout, disable hit/accessibility interaction and
+  become interactive immediately on reveal; the production idle timeout is kept.
 - Television opts into the shared encrypted catalog cache, last-channel restore,
   reconnect and foreground policies. Current/next EPG times, large frameless logos,
   compact anchored track popovers and idle HUD dismissal use the existing player.

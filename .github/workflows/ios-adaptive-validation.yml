@@ -7,7 +7,7 @@ on:
       scenario:
         description: Layout tour, Apple TV parity, or production movie controls regression
         type: choice
-        options: [all, parity, movie_controls, movie_controls_apple]
+        options: [all, parity, movie_controls, movie_controls_apple, movie_and_episodes]
         default: all
 
 permissions:
@@ -22,7 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: ${{ startsWith(inputs.scenario, 'movie_controls') && fromJSON('["iphone"]') || fromJSON('["iphone","ipad"]') }}
+        device: ${{ startsWith(inputs.scenario, 'movie_') && fromJSON('["iphone"]') || fromJSON('["iphone","ipad"]') }}
     env:
       IOS_TEST_KIND: ${{ matrix.device }}
     steps:
@@ -126,6 +126,10 @@ jobs:
           fi
           if [ "$UI_TEST_SCENARIO" = movie_controls ]; then test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests); fi
           if [ "$UI_TEST_SCENARIO" = movie_controls_apple ]; then test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests/testAppleControlsReturnAfterAutomaticHide); fi
+          if [ "$UI_TEST_SCENARIO" = movie_and_episodes ]; then
+            test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests
+                      -only-testing:CinemaIQUITests/ArtworkParityTests/testSeriesHasSeasonButtonAndHorizontallyScrollableEpisodeCards)
+          fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
             "${test_ids[@]}" \

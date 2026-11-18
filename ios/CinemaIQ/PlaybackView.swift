@@ -127,7 +127,13 @@ struct PlaybackView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .allowsHitTesting(false)
             }
-            if controlsVisible { controls.transition(.opacity) }
+            // Keep geometry ready for a quick second touch while revealing the HUD.
+            // Hidden controls leave both hit testing and the accessibility tree.
+            controls
+                .opacity(controlsVisible ? 1 : 0)
+                .allowsHitTesting(controlsVisible)
+                .accessibilityHidden(!controlsVisible)
+                .animation(controlsVisible || reduceMotion ? nil : .easeInOut(duration: 0.3), value: controlsVisible)
             // Skip the opening: shown during it whether or not the controls are, above the timeline.
             if inIntro, let end = skips.introEnd, resolutionError == nil, controller.error == nil {
                 VStack {

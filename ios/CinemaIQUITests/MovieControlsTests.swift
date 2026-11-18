@@ -57,8 +57,11 @@ final class MovieControlsTests: XCTestCase {
         XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 20))
         let first = episodeButton(prefix: "ios.detail.episode.", number: 1)
         for _ in 0..<8 {
-            if first.exists && first.isHittable { break }; element("ios.detail").swipeUp()
+            if first.exists && app.frame.insetBy(dx: -2, dy: -2).contains(first.frame) && first.isHittable { break }
+            element("ios.detail").swipeUp()
         }
+        XCTAssertTrue(first.exists)
+        XCTAssertTrue(app.frame.insetBy(dx: -2, dy: -2).contains(first.frame))
         XCTAssertTrue(first.isHittable); first.tap()
         let initial = try nativePausedPosition()
         let pausePoint = try XCTUnwrap(snapshotPoint("ios.player.playPause"), "Cache Pause before resuming the episode")
@@ -77,10 +80,12 @@ final class MovieControlsTests: XCTestCase {
         openEpisodes()
         let next = episodeButton(prefix: "ios.player.episode.", number: 2)
         for _ in 0..<5 {
-            if next.exists && next.isHittable && app.frame.insetBy(dx: -2, dy: -2).contains(next.frame) { break }
+            if next.exists && app.frame.insetBy(dx: -2, dy: -2).contains(next.frame) && next.isHittable { break }
             current.swipeRight()
         }
-        XCTAssertTrue(next.exists && next.isHittable); next.tap()
+        XCTAssertTrue(next.exists)
+        XCTAssertTrue(app.frame.insetBy(dx: -2, dy: -2).contains(next.frame))
+        XCTAssertTrue(next.isHittable); next.tap()
         waitFor { !self.element("ios.player.episodes.sheet").exists }
         waitFor {
             let info = self.element("ios.player.episode.info").label.replacingOccurrences(of: "٢", with: "2")

@@ -104,11 +104,13 @@ final class ArtworkParityTests: XCTestCase {
         // Arabic leading order starts at the right. Revealing later cards therefore drags toward the right.
         let last = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier CONTAINS %@", "ios.detail.episode.", "open-movies-4")).firstMatch
         for _ in 0..<5 {
-            if last.exists && last.isHittable && app.frame.insetBy(dx: -2, dy: -2).contains(last.frame) { break }
+            // XCUITest can throw instead of returning false for a fully offscreen card's hit point.
+            if last.exists && app.frame.insetBy(dx: -2, dy: -2).contains(last.frame) && last.isHittable { break }
             row.swipeRight()
         }
-        XCTAssertTrue(last.exists && last.isHittable)
+        XCTAssertTrue(last.exists)
         XCTAssertTrue(app.frame.insetBy(dx: -2, dy: -2).contains(last.frame))
+        XCTAssertTrue(last.isHittable)
         shot("later-episode-card-reachable")
     }
 
@@ -152,10 +154,12 @@ final class ArtworkParityTests: XCTestCase {
     }
     private func reveal(_ control: XCUIElement) {
         for _ in 0..<8 {
-            if control.exists && control.isHittable && app.frame.insetBy(dx: -2, dy: -2).contains(control.frame) { return }
+            if control.exists && app.frame.insetBy(dx: -2, dy: -2).contains(control.frame) && control.isHittable { return }
             element("ios.detail").swipeUp()
         }
-        XCTAssertTrue(control.exists && control.isHittable)
+        XCTAssertTrue(control.exists)
+        XCTAssertTrue(app.frame.insetBy(dx: -2, dy: -2).contains(control.frame))
+        XCTAssertTrue(control.isHittable)
     }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
     private func waitFor(_ condition: @escaping () -> Bool) {
