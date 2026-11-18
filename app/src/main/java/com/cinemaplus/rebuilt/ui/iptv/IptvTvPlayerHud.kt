@@ -128,9 +128,9 @@ private val LocalHudInteractive = staticCompositionLocalOf { true }
             }
         }
         Box(Modifier.align(Alignment.TopStart).padding(start = 30.dp).offset(y = (-32).dp).size(104.dp),
-            contentAlignment = Alignment.Center) {
+        contentAlignment = Alignment.TopCenter) {
             if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = channel.name,
-                imageLoader = logos, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            imageLoader = logos, contentScale = ContentScale.Fit, alignment = Alignment.TopCenter, modifier = Modifier.fillMaxSize())
             else IptvTelevisionIcon(Modifier.size(80.dp), Color.White)
         }
         }
