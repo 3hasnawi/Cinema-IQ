@@ -12,6 +12,7 @@ import CinemaCore
     var body: some Scene {
         WindowGroup {
             TVRootView()
+                .modifier(TVTopShelfIntegration())
                 .environmentObject(library)
                 .environmentObject(cloud)
                 .environmentObject(providers)
@@ -19,7 +20,6 @@ import CinemaCore
                 .environmentObject(router)
                 .environment(\.layoutDirection, .rightToLeft)
                 .preferredColorScheme(.dark)
-                .modifier(TVTopShelfIntegration())
                 .onChange(of: phase) { _, value in
                     if value == .active { cloud.scene(active: true) } else if value == .background { cloud.scene(active: false) }
                 }
