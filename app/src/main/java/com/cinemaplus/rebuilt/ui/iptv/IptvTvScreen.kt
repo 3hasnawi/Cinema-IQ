@@ -1,204 +1,306 @@
 package com.cinemaplus.rebuilt.ui.iptv
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.*
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import coil.compose.AsyncImage
 import com.cinemaplus.rebuilt.data.iptv.*
 import com.cinemaplus.rebuilt.ui.*
 
-private enum class IptvPanel { Sources, Form, Groups, Delete }
+private enum class IptvPanel { Sources, Form, DeleteSource, Categories, Category, DeleteCategory, Hidden }
+private data class IptvPinRequest(val token: Int, val title: String, val setup: Boolean, val success: () -> Unit)
 
+/** The television section resumes a station directly; management is an explicit overlay action. */
 @Composable internal fun IptvTvScreen(onExit: () -> Unit, vm: IptvTvViewModel = viewModel()) {
     val state by vm.state.collectAsState()
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val hostView = androidx.compose.ui.platform.LocalView.current
-    val logos = remember {
-        coil.ImageLoader.Builder(context).allowRgb565(true).crossfade(false)
-            .diskCachePolicy(coil.request.CachePolicy.DISABLED)
-            .memoryCache { coil.memory.MemoryCache.Builder(context).maxSizeBytes(8 * 1024 * 1024).build() }
-            .okHttpClient { okhttp3.OkHttpClient.Builder().followSslRedirects(false).build() }.build()
-    }
-    DisposableEffect(logos) { onDispose { logos.shutdown() } }
+    val latest by rememberUpdatedState(state)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var foreground by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    val window = LocalWindowInfo.current
     var panel by remember { mutableStateOf<IptvPanel?>(null) }
-    val dialogFirst = remember(panel) { FocusRequester() }
     var editing by remember { mutableStateOf<IptvSource?>(null) }
-    var playing by remember { mutableStateOf<IptvChannel?>(null) }
-    var previewedSource by remember { mutableStateOf<String?>(null) }
-    var returnId by remember { mutableStateOf<String?>(null) }
-    var focusedId by remember { mutableStateOf<String?>(null) }
-    var returnEpoch by remember { mutableIntStateOf(0) }
-    var handledFocus by remember { mutableStateOf<String?>(null) }
-    var control by remember { mutableStateOf("add") }
-    val grid = rememberLazyGridState()
-    val cardFocus = remember { FocusRequester() }
-    val addFocus = remember { FocusRequester() }
-    val sourcesFocus = remember { FocusRequester() }
-    val groupFocus = remember { FocusRequester() }
-    val refreshFocus = remember { FocusRequester() }
-    val searchFocus = remember { FocusRequester() }
-    val targetId = returnId?.takeIf { id -> state.visible.any { it.id == id } } ?: state.visible.firstOrNull()?.id
-    val groups = remember(state.channels) { state.channels.map { it.group }.distinct().sorted() }
-    val window = androidx.compose.ui.platform.LocalWindowInfo.current
-    val inputMode = androidx.compose.ui.platform.LocalInputModeManager.current
-    var restoreRequested by remember { mutableStateOf(false) }
-    fun restoreControl() { restoreRequested = true }
-    LaunchedEffect(restoreRequested, panel, window.isWindowFocused) {
-        if (restoreRequested && panel == null && window.isWindowFocused) repeat(24) {
-            inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
-            withFrameNanos { }
-            val target = when (control) { "sources" -> sourcesFocus; "group" -> groupFocus; "refresh" -> refreshFocus; "search" -> searchFocus; else -> addFocus }
-            if (runCatching { target.requestFocus() }.getOrDefault(false)) {
-                restoreRequested = false; return@LaunchedEffect
-            }
+    var playingId by remember { mutableStateOf<String?>(null) }
+    var sessionEpoch by remember { mutableIntStateOf(0) }
+    var enteredSource by remember { mutableStateOf<String?>(null) }
+    var managingGroup by remember { mutableStateOf("") }
+    var pin by remember { mutableStateOf<IptvPinRequest?>(null) }
+    var pinToken by remember { mutableIntStateOf(0) }
+    var pinError by remember { mutableStateOf<String?>(null) }
+    var pinAttempt by remember { mutableIntStateOf(0) }
+    var dialogEpoch by remember { mutableIntStateOf(0) }
+    var categoryReturnFocus by remember { mutableStateOf(false) }
+    var deleteReturnFocus by remember { mutableStateOf(false) }
+    var restoreWhenReady by remember { mutableStateOf(false) }
+    var sourceAuthorized by remember { mutableStateOf(false) }
+    val first = remember(panel, managingGroup, dialogEpoch) { FocusRequester() }
+    val landingFocus = remember { FocusRequester() }
+    val categoryScroll = rememberLazyListState()
+    val hiddenScroll = rememberLazyListState()
+    val categoryCounts = remember(state.rawChannels, state.selectedId) {
+        IptvNavigation.categories(state.rawChannels, state.selectedId.orEmpty())
+    }
+    val hidden = remember(categoryCounts, state.categoryPolicy, state.selectedId) {
+        categoryCounts.keys.filterTo(linkedSetOf()) {
+            IptvCategoryPolicy.key(state.selectedId.orEmpty(), it) in state.categoryPolicy.hidden
         }
     }
-    fun dismiss() { vm.cancelConnection(); panel = null; restoreControl() }
-    BackHandler(enabled = playing == null && panel == null, onBack = onExit)
-    Box(Modifier.fillMaxSize().background(Ink)) {
-        if (playing != null) {
-            val channel = playing!!
-            IptvTvPlayer(channel, state.channels, state.group?.takeIf { it == channel.group }, true,
-                state.sources.firstOrNull { it.id == channel.sourceId }?.allowHttp == true, vm::refreshPlayback, collection = state.collection, favorite = vm::toggleFavorite, watched = vm::noteWatched, loadProgrammes = vm::programmes) { last, selectedGroup ->
-                playing = null; vm.returnFromPlayer(selectedGroup); returnId = last.id; returnEpoch++
-            }
-        } else Column(Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Label("التلفزيون", 30, bold = true)
-                Spacer(Modifier.weight(1f))
-                IptvButton("إضافة مصدر", Modifier.focusRequester(addFocus), state.storageReady && !state.busy) {
-                    control = "add"; editing = null; panel = IptvPanel.Form
-                }
-                IptvButton("العودة", onClick = onExit)
-            }
-            Row(Modifier.fillMaxWidth().onPreviewKeyEvent { event ->
-                val key = event.nativeKeyEvent
-                val ime = androidx.core.view.ViewCompat.getRootWindowInsets(hostView)
-                    ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
-                if (key.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN && !ime &&
-                    !state.busy && !state.filtering && state.visible.isNotEmpty()) {
-                    if (key.action == android.view.KeyEvent.ACTION_DOWN) { returnId = null; returnEpoch++ }
-                    true
-                } else false
-            }, horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                IptvButton(state.selected?.name ?: "المصادر", Modifier.focusRequester(sourcesFocus), !state.busy && state.sources.isNotEmpty()) {
-                    control = "sources"; panel = IptvPanel.Sources
-                }
-                IptvButton(state.group ?: "كل القنوات", Modifier.focusRequester(groupFocus), state.channels.isNotEmpty() && !state.busy) {
-                    control = "group"; panel = IptvPanel.Groups
-                }
-                OutlinedTextField(state.query, vm::query, label = { Text("ابحث عن قناة") }, singleLine = true,
-                    modifier = Modifier.weight(1f).focusRequester(searchFocus).onFocusChanged { if (it.isFocused) control = "search" })
-                IptvButton("تحديث", Modifier.focusRequester(refreshFocus), state.selected != null && !state.busy) {
-                    control = "refresh"; returnId = focusedId; vm.reload(force = true)
-                }
-            }
-            if (state.storageLoading || state.busy || state.filtering) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Accent)
-            state.message?.let { Label(it, 14, Brand.Danger) }
-            if (!state.storageLoading && !state.busy && state.sources.isEmpty()) {
-                Label("أضف رابط قائمة M3U أو حساب Xtream من مزوّدك لعرض القنوات هنا.", 17, Brand.TextTertiary)
-            } else if (!state.busy && !state.filtering && state.visible.isEmpty()) {
-                Label("لا توجد قنوات تطابق البحث أو التصنيف.", 16, Brand.TextTertiary)
-            }
-            Label("${state.visible.size} قناة", 13, Brand.TextTertiary)
-            LazyVerticalGrid(columns = GridCells.Fixed(3), state = grid, modifier = Modifier.fillMaxWidth().weight(1f),
-                contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                items(state.visible, key = { it.id }) { channel ->
-                    IptvChannelCard(channel, logos, if (channel.id == targetId) Modifier.focusRequester(cardFocus) else Modifier,
-                        focused = { focusedId = channel.id }) { playing = channel }
-                }
-            }
-        }
-        when (panel) {
-            IptvPanel.Form -> key(editing?.id ?: "new") { IptvSourceForm(editing, state, ::dismiss) { source ->
-                vm.connect(source) { panel = null; returnId = null; returnEpoch++ }
-            } }
-            IptvPanel.Sources -> IptvDialog("المصادر", { panel = null; restoreControl() }, dialogFirst) {
-                state.sources.forEachIndexed { index, source ->
-                    IptvButton((if (source.id == state.selectedId) "✓ " else "") + source.name, if (index == 0) Modifier.focusRequester(dialogFirst) else Modifier) {
-                        panel = null; returnId = null; vm.select(source)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IptvButton("تعديل") { editing = source; panel = IptvPanel.Form }
-                        IptvButton("حذف") { editing = source; panel = IptvPanel.Delete }
-                    }
-                    HorizontalDivider(color = Brand.BorderStrong)
-                }
-                IptvButton("إغلاق") { panel = null; restoreControl() }
-            }
-            IptvPanel.Groups -> IptvDialog("تصنيفات القنوات", { panel = null; restoreControl() }, dialogFirst) {
-                IptvButton("كل القنوات", Modifier.focusRequester(dialogFirst)) { panel = null; returnId = null; vm.group(null) }
-                LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(groups, key = { it }) { group -> IptvButton(group) { panel = null; returnId = null; vm.group(group) } }
-                }
-                IptvButton("إغلاق") { panel = null; restoreControl() }
-            }
-            IptvPanel.Delete -> IptvDialog("حذف المصدر", { panel = null; restoreControl() }, dialogFirst) {
-                Label("هل تريد حذف ${editing?.name.orEmpty()} من هذا الجهاز؟", 17)
-                state.message?.let { Label(it, 13, Brand.Danger) }
-                IptvButton("حذف", enabled = !state.busy) { editing?.let { vm.remove(it) { panel = null; returnId = null; returnEpoch++ } } }
-                IptvButton("إلغاء", Modifier.focusRequester(dialogFirst), enabled = !state.busy) { panel = null; restoreControl() }
-            }
-            null -> Unit
+    val locked = remember(categoryCounts, state.categoryPolicy, state.selectedId) {
+        categoryCounts.keys.filterTo(linkedSetOf()) {
+            IptvCategoryPolicy.key(state.selectedId.orEmpty(), it) in state.categoryPolicy.locked
         }
     }
-    LaunchedEffect(state.selectedId, state.visible, state.busy, state.filtering, panel) {
-        if (!state.busy && !state.filtering && panel == null && playing == null && previewedSource != state.selectedId && state.visible.isNotEmpty()) {
-            previewedSource = state.selectedId
-            playing = state.visible.firstOrNull { it.id == returnId }
-                ?: IptvTvStartup.channel(state.visible, state.selectedId.orEmpty(), state.collection.recent)
-        }
-    }
-    LaunchedEffect(state.focusEpoch, returnEpoch, playing == null, state.storageLoading, state.busy, state.filtering) {
-        val event = "${state.focusEpoch}:$returnEpoch"
-        if (handledFocus == event) return@LaunchedEffect
-        if (playing != null || panel != null || state.busy || state.filtering || state.storageLoading) return@LaunchedEffect
-        val index = state.visible.indexOfFirst { it.id == targetId }
-        if (index >= 0) grid.scrollToItem(index)
-        repeat(12) {
-            withFrameNanos { }
-            if (runCatching { if (index >= 0) cardFocus.requestFocus() else addFocus.requestFocus() }.getOrDefault(false)) {
-                handledFocus = event; return@LaunchedEffect
-            }
-        }
-    }
-}
+    val current = state.rawChannels.firstOrNull { it.sourceId == state.selectedId && it.id == playingId }
+    val playing = current?.takeIf(vm::canPlay)
 
-@Composable private fun IptvChannelCard(channel: IptvChannel, logos: coil.ImageLoader, modifier: Modifier, focused: () -> Unit, open: () -> Unit) {
-    var hasFocus by remember { mutableStateOf(false) }
-    Surface(modifier.fillMaxWidth().height(112.dp)
-        .onFocusChanged { hasFocus = it.isFocused; if (it.isFocused) focused() }.clip(RoundedCornerShape(18.dp))
-        .clickable(onClick = open).semantics { contentDescription = channel.name },
-        shape = RoundedCornerShape(18.dp), color = if (hasFocus) Brand.Raised else Panel,
-        border = BorderStroke(if (hasFocus) 2.dp else 1.dp, if (hasFocus) Accent else Brand.BorderStrong)) {
-        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Glass), contentAlignment = Alignment.Center) {
-                if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = null, modifier = Modifier.fillMaxSize().padding(5.dp), contentScale = ContentScale.Fit, imageLoader = logos)
-                else Label("TV", 16, bold = true)
+    fun cancelPin() {
+        restoreWhenReady = latest.securityBusy
+        pinToken++; pin = null; pinError = null; dialogEpoch++
+    }
+    fun requirePin(title: String, setup: Boolean = false, success: () -> Unit) {
+        pinToken++; pinError = null; pinAttempt++
+        pin = IptvPinRequest(pinToken, title, setup, success)
+    }
+    fun dismiss() {
+        if (panel == IptvPanel.Form) vm.cancelConnection()
+        panel = null; sourceAuthorized = false
+    }
+    fun openSources(target: IptvPanel = IptvPanel.Sources) {
+        val open = {
+            sourceAuthorized = true; editing = null
+            panel = if (target == IptvPanel.Sources && latest.sources.isEmpty()) IptvPanel.Form else target
+        }
+        // A new import must not bypass existing category locks by creating fresh source/channel IDs.
+        if (latest.categoryPolicy.locked.isNotEmpty()) requirePin("إدارة المصادر", success = open) else open()
+    }
+    fun play(channel: IptvChannel) {
+        val snapshot = latest
+        if (channel.sourceId != snapshot.selectedId) return
+        when (snapshot.categoryPolicy.gate(channel, snapshot.unlockedCategories)) {
+            IptvCategoryGate.Hidden -> Unit
+            IptvCategoryGate.Allowed -> { sessionEpoch++; playingId = channel.id; dismiss() }
+            IptvCategoryGate.PinRequired -> requirePin(channel.group) {
+                if (latest.selectedId == channel.sourceId) {
+                    vm.unlockCategory(channel.group); sessionEpoch++; playingId = channel.id; dismiss()
+                }
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Label(channel.name, 16, bold = true, lines = 2)
-                Label(channel.group, 12, Brand.TextTertiary, lines = 1)
+        }
+    }
+    fun resumeLatest() {
+        val snapshot = latest
+        val source = snapshot.selectedId ?: return
+        val categoryKeys = HashMap<Pair<String, String>, String>()
+        val candidates = snapshot.rawChannels.filter {
+            categoryKeys.getOrPut(it.sourceId to it.group) { IptvCategoryPolicy.key(it) } !in snapshot.categoryPolicy.hidden
+        }
+        IptvTvStartup.channel(candidates, source, snapshot.collection.recent)?.let(::play)
+    }
+    fun categoryAction(group: String, action: String) {
+        val source = latest.selectedId ?: return
+        val key = IptvCategoryPolicy.key(source, group)
+        val commit = {
+            if (latest.selectedId == source) vm.changeCategory(group, action) {
+                categoryReturnFocus = false; deleteReturnFocus = false; dialogEpoch++
+                panel = if (action == "restore") IptvPanel.Hidden else IptvPanel.Categories
+                val now = vm.state.value
+                val active = now.rawChannels.firstOrNull { it.id == playingId }
+                if (active != null && !vm.canPlay(active)) { sessionEpoch++; playingId = now.channels.firstOrNull(vm::canPlay)?.id }
             }
+        }
+        when {
+            action == "lock" && !latest.pinConfigured && latest.categoryPolicy.locked.isEmpty() ->
+                requirePin("إنشاء رمز الحماية", setup = true, success = commit)
+            action == "lock" || action == "unlock" || key in latest.categoryPolicy.locked -> requirePin(group, success = commit)
+            else -> commit()
+        }
+    }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) foreground = true
+            if (event == Lifecycle.Event.ON_STOP) {
+                foreground = false
+                vm.clearUnlocks(); cancelPin()
+                latest.rawChannels.firstOrNull { it.id == playingId }?.let {
+                    if (!vm.canPlay(it)) enteredSource = null
+                }
+                if (panel == IptvPanel.Form) vm.cancelConnection()
+                panel = null; editing = null; sourceAuthorized = false
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer); vm.clearUnlocks() }
+    }
+    LaunchedEffect(state.storageReady, state.selectedId, state.rawChannels, state.busy, panel, foreground) {
+        if (foreground && state.storageReady && state.rawChannels.isNotEmpty() && enteredSource != state.selectedId && panel == null && pin == null) {
+            enteredSource = state.selectedId
+            resumeLatest()
+        }
+    }
+    LaunchedEffect(playing == null, panel, pin, window.isWindowFocused, state.storageReady, state.busy) {
+        if (playing == null && panel == null && pin == null && window.isWindowFocused && !state.busy && !state.storageLoading) repeat(16) {
+            withFrameNanos { }
+            if (runCatching { landingFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
+        }
+    }
+    LaunchedEffect(restoreWhenReady, state.securityBusy, pin?.token) {
+        if (restoreWhenReady && !state.securityBusy && pin == null) { restoreWhenReady = false; dialogEpoch++ }
+    }
+    BackHandler(enabled = playing == null && panel == null && pin == null) { vm.clearUnlocks(); onExit() }
+    Box(Modifier.fillMaxSize().background(Ink)) {
+        if (playing != null) key(playing.sourceId, state.selected, sessionEpoch) {
+            // Channel surfing updates the canonical ID without reallocating the player's remembered listener state.
+            val seed = remember { playing }
+            IptvTvPlayer(seed, state.channels, null, true, state.selected?.allowHttp == true, vm::refreshPlayback,
+                collection = state.collection, favorite = vm::toggleFavorite, watched = { channel ->
+                    if (vm.canPlay(channel)) { playingId = channel.id; vm.noteWatched(channel) }
+                }, loadProgrammes = vm::programmes, categoryCounts = categoryCounts, lockedGroups = locked, hiddenGroups = hidden,
+                requestGroupAccess = { group, done ->
+                    val snapshot = latest
+                    val key = IptvCategoryPolicy.key(snapshot.selectedId.orEmpty(), group)
+                    if (key in snapshot.categoryPolicy.locked && key !in snapshot.unlockedCategories) {
+                        val source = snapshot.selectedId
+                        requirePin(group) { if (latest.selectedId == source) { vm.unlockCategory(group); done() } }
+                    } else done()
+                }, manageCategory = { group ->
+                    categoryReturnFocus = false
+                    managingGroup = group.orEmpty()
+                    panel = if (group == null) IptvPanel.Categories else IptvPanel.Category
+                }, manageSources = { openSources() }, channelChanged = { channel ->
+                    if (vm.canPlay(channel)) playingId = channel.id
+                }) { _, _ -> vm.clearUnlocks(); onExit() }
+        } else Column(Modifier.fillMaxSize().padding(48.dp).testTag("iptv.tv.landing"),
+            verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            IptvTelevisionIcon(Modifier.size(64.dp), Brand.TextSecondary)
+            Spacer(Modifier.height(20.dp)); Label("التلفزيون", 30, bold = true)
+            if (state.storageLoading || state.busy) {
+                Spacer(Modifier.height(20.dp)); CircularProgressIndicator(color = Accent)
+                Spacer(Modifier.height(14.dp)); Label("جارٍ استعادة آخر قناة…", 16, Brand.TextSecondary)
+            } else {
+                Spacer(Modifier.height(18.dp))
+                state.message?.let { Label(it, 15, Brand.Danger) }
+                val resumable = state.rawChannels.any { it.group !in hidden }
+                if (state.storageReady) {
+                    when {
+                        resumable -> IptvButton("متابعة آخر قناة", Modifier.focusRequester(landingFocus)) { resumeLatest() }
+                        state.sources.isEmpty() -> IptvButton("إضافة مصدر", Modifier.focusRequester(landingFocus)) { openSources(IptvPanel.Form) }
+                        categoryCounts.isNotEmpty() -> IptvButton("إدارة التصنيفات", Modifier.focusRequester(landingFocus)) { panel = IptvPanel.Categories }
+                        else -> IptvButton("إدارة المصادر", Modifier.focusRequester(landingFocus)) { openSources() }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    if (state.sources.isNotEmpty() && (resumable || categoryCounts.isNotEmpty())) IptvButton("إدارة المصادر") { openSources() }
+                    if (categoryCounts.isNotEmpty() && resumable) IptvButton("إدارة التصنيفات") { panel = IptvPanel.Categories }
+                }
+                IptvButton("العودة", if (!state.storageReady) Modifier.focusRequester(landingFocus) else Modifier) { vm.clearUnlocks(); onExit() }
+            }
+        }
+        key(panel, managingGroup, dialogEpoch) {
+            when (panel) {
+                IptvPanel.Form -> if (sourceAuthorized) key(editing?.id ?: "new") {
+                    IptvSourceForm(editing, state, ::dismiss) { source ->
+                        vm.connect(source) { panel = null; sourceAuthorized = false; enteredSource = null; playingId = null }
+                    }
+                }
+                IptvPanel.Sources -> if (sourceAuthorized) IptvDialog("المصادر", ::dismiss, first, compact = true) {
+                    state.sources.forEachIndexed { index, source ->
+                        IptvButton((if (source.id == state.selectedId) "✓ " else "") + source.name,
+                            if (index == 0) Modifier.focusRequester(first) else Modifier, !state.busy) {
+                            dismiss(); playingId = null; enteredSource = null; vm.select(source)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            IptvButton("تعديل", enabled = !state.busy) { editing = source; panel = IptvPanel.Form }
+                            IptvButton("حذف", enabled = !state.busy) { editing = source; panel = IptvPanel.DeleteSource }
+                        }
+                    }
+                    IptvButton("إضافة مصدر", enabled = !state.busy) { editing = null; panel = IptvPanel.Form }
+                    IptvButton("تحديث القنوات", enabled = !state.busy) { vm.reload(force = true) }
+                    IptvButton("رجوع", onClick = ::dismiss)
+                }
+                IptvPanel.DeleteSource -> if (sourceAuthorized) IptvDialog("حذف المصدر", ::dismiss, first, compact = true) {
+                    Label("حذف ${editing?.name.orEmpty()} من هذا الجهاز؟", 17)
+                    state.message?.let { Label(it, 13, Brand.Danger) }
+                    IptvButton("إلغاء", Modifier.focusRequester(first), !state.busy) { panel = IptvPanel.Sources }
+                    IptvButton("حذف", enabled = !state.busy) { editing?.let { source -> vm.remove(source) {
+                        dismiss(); playingId = null; enteredSource = null
+                    } } }
+                }
+                IptvPanel.Categories, IptvPanel.Hidden -> IptvDialog(if (panel == IptvPanel.Hidden) "التصنيفات المحذوفة" else "إدارة التصنيفات", ::dismiss, first, compact = true) {
+                    val values = categoryCounts.keys.filter { if (panel == IptvPanel.Hidden) it in hidden else it !in hidden }
+                    val firstGroup = values.firstOrNull { it == managingGroup } ?: values.firstOrNull()
+                    val scroll = if (panel == IptvPanel.Hidden) hiddenScroll else categoryScroll
+                    LaunchedEffect(firstGroup, dialogEpoch) {
+                        val index = firstGroup?.let(values::indexOf) ?: -1
+                        if (index >= 0) scroll.scrollToItem(index)
+                    }
+                    state.message?.let { Label(it, 13, Brand.Danger) }
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp), state = scroll,
+                        contentPadding = PaddingValues(6.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(values, key = { it }) { group ->
+                            IptvButton(group + if (group in locked) "  🔒" else "", Modifier.fillMaxWidth()
+                                .then(if (group == firstGroup) Modifier.focusRequester(first) else Modifier), !state.securityBusy) {
+                                managingGroup = group
+                                categoryReturnFocus = false
+                                if (panel == IptvPanel.Hidden) categoryAction(group, "restore") else panel = IptvPanel.Category
+                            }
+                        }
+                    }
+                    if (panel == IptvPanel.Categories && hidden.isNotEmpty()) IptvButton("المحذوفة (${hidden.size})") { panel = IptvPanel.Hidden }
+                    IptvButton("رجوع", if (firstGroup == null) Modifier.focusRequester(first) else Modifier, !state.securityBusy) {
+                        if (panel == IptvPanel.Hidden) panel = IptvPanel.Categories else dismiss()
+                    }
+                }
+                IptvPanel.Category -> IptvDialog(managingGroup, ::dismiss, first, compact = true) {
+                    state.message?.let { Label(it, 13, Brand.Danger) }
+                    IptvButton("فتح التصنيف", enabled = !state.securityBusy) {
+                        latest.rawChannels.firstOrNull { it.group == managingGroup }?.let(::play)
+                    }
+                    IptvButton(if (managingGroup in locked) "إلغاء القفل برمز PIN" else "قفل برمز PIN",
+                        if (categoryReturnFocus) Modifier.focusRequester(first) else Modifier, enabled = !state.securityBusy) {
+                        categoryReturnFocus = true
+                        categoryAction(managingGroup, if (managingGroup in locked) "unlock" else "lock")
+                    }
+                    IptvButton("حذف التصنيف", enabled = !state.securityBusy) { deleteReturnFocus = false; panel = IptvPanel.DeleteCategory }
+                    IptvButton("رجوع", if (!categoryReturnFocus) Modifier.focusRequester(first) else Modifier, !state.securityBusy) { panel = IptvPanel.Categories }
+                }
+                IptvPanel.DeleteCategory -> IptvDialog("حذف «$managingGroup»؟", ::dismiss, first, compact = true) {
+                    Label("يُحذف التصنيف وقنواته من قوائم الجهاز. يمكنك استعادته من المحذوفة؛ الاشتراك لا يتغير.", 15)
+                    state.message?.let { Label(it, 13, Brand.Danger) }
+                    IptvButton("إلغاء", if (!deleteReturnFocus) Modifier.focusRequester(first) else Modifier, !state.securityBusy) { panel = IptvPanel.Category }
+                    IptvButton("حذف التصنيف", if (deleteReturnFocus) Modifier.focusRequester(first) else Modifier, !state.securityBusy) {
+                        deleteReturnFocus = true; categoryAction(managingGroup, "hide")
+                    }
+                }
+                null -> Unit
+            }
+        }
+        pin?.let { request ->
+            IptvPinPrompt(request.title, request.setup, state.securityBusy, pinError ?: state.message, pinAttempt,
+                cancel = ::cancelPin, submit = { value ->
+                    if (request.setup) vm.createPin(value) {
+                        if (pin?.token == request.token) { pin = null; dialogEpoch++; request.success() }
+                    } else vm.verifyPin(value) { result ->
+                        if (pin?.token == request.token) when (result) {
+                            IptvPinResult.Accepted -> { pin = null; dialogEpoch++; request.success() }
+                            IptvPinResult.Missing -> { pinError = "رمز الحماية غير متاح. لم يتم فتح التصنيف."; pinAttempt++ }
+                            is IptvPinResult.Wrong -> { pinError = "رمز غير صحيح. المحاولات المتبقية: ${result.remainingAttempts}"; pinAttempt++ }
+                            is IptvPinResult.Wait -> { pinError = "انتظر ${(result.retryAfterMillis / 1000).coerceAtLeast(1)} ثانية قبل المحاولة مجددًا."; pinAttempt++ }
+                        }
+                    }
+                })
         }
     }
 }

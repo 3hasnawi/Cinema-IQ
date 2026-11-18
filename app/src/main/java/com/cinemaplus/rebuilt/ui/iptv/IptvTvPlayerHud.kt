@@ -1,7 +1,6 @@
 package com.cinemaplus.rebuilt.ui.iptv
 
 import android.view.KeyEvent
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -13,18 +12,17 @@ import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -49,7 +47,7 @@ import com.cinemaplus.rebuilt.data.iptv.IptvNowNext
 import com.cinemaplus.rebuilt.ui.*
 import java.util.Locale
 
-private val HudFocus = Color(0xFFCC4165)
+private val LocalHudInteractive = staticCompositionLocalOf { true }
 
 /** Compact live-TV controls; the uninterrupted picture remains visible above the bottom strip. */
 @Composable internal fun IptvTvPlayerHud(
@@ -57,7 +55,7 @@ private val HudFocus = Color(0xFFCC4165)
     videoHeight: Int, audioLanguage: String?, isFavorite: Boolean, previousAvailable: Boolean, logos: ImageLoader,
     entryFocus: FocusRequester, focusChanged: (Boolean) -> Unit, channels: () -> Unit,
     favorite: () -> Unit, previous: () -> Unit,
-    channelStep: (Int) -> Unit, tracks: (Int, FocusRequester, Rect) -> Unit
+    channelStep: (Int) -> Unit, tracks: (Int, FocusRequester, Rect) -> Unit, interactive: Boolean = true
 ) {
     var qualityBounds by remember { mutableStateOf(Rect.Zero) }
     var audioBounds by remember { mutableStateOf(Rect.Zero) }
@@ -70,64 +68,71 @@ private val HudFocus = Color(0xFFCC4165)
             ?.let { Locale.forLanguageTag(it).getDisplayLanguage(Locale("ar")) }
             ?.takeIf { it.isNotBlank() } ?: "الصوت"
     }
-    Column(Modifier.fillMaxWidth().testTag("iptv.tv.hud").onPreviewKeyEvent { event ->
-        val key = event.nativeKeyEvent
-        if (key.keyCode == KeyEvent.KEYCODE_DPAD_UP || key.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-            if (key.action == KeyEvent.ACTION_DOWN) channelStep(if (key.keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else 1)
-            true
-        } else false
-    }
-        .background(Brush.verticalGradient(listOf(Color.Transparent, Ink.copy(alpha = .63f), Ink.copy(alpha = .91f))))
-        .padding(start = 30.dp, end = 30.dp, top = 28.dp, bottom = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(84.dp), contentAlignment = Alignment.Center) {
-                if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = channel.name,
-                    imageLoader = logos, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
-                else IptvTelevisionIcon(Modifier.size(64.dp), Color.White)
-            }
-            Column(Modifier.widthIn(max = 390.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Label(channel.name, 20, bold = true, modifier = Modifier.testTag("iptv.tv.hud.channel"), lines = 1)
-                Label((if (number > 0) "$number  ·  " else "") + status, 12, Brand.TextSecondary, lines = 1)
-            }
-            Canvas(Modifier.size(16.dp, 36.dp).semantics { contentDescription = "أعلى وأسفل: تغيير القناة" }) {
-                val w = size.width; val h = size.height; val stroke = 1.5.dp.toPx()
-                drawLine(Color.White, Offset(w * .2f, h * .2f), Offset(w * .5f, h * .1f), stroke, StrokeCap.Round)
-                drawLine(Color.White, Offset(w * .5f, h * .1f), Offset(w * .8f, h * .2f), stroke, StrokeCap.Round)
-                drawLine(Color.White, Offset(w * .2f, h * .8f), Offset(w * .5f, h * .9f), stroke, StrokeCap.Round)
-                drawLine(Color.White, Offset(w * .5f, h * .9f), Offset(w * .8f, h * .8f), stroke, StrokeCap.Round)
-            }
-            Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                if (programmes.current == null && programmes.next == null) Label("لا تتوفر معلومات", 13, Brand.TextSecondary)
-                else {
-                    ProgrammeLine("الآن", programmes.current)
-                    ProgrammeLine("التالي", programmes.next)
+    CompositionLocalProvider(LocalHudInteractive provides interactive) {
+        Box(Modifier.fillMaxWidth().testTag("iptv.tv.hud").onPreviewKeyEvent { event ->
+            if (!interactive) return@onPreviewKeyEvent false
+            val key = event.nativeKeyEvent
+            if (key.keyCode == KeyEvent.KEYCODE_DPAD_UP || key.keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (key.action == KeyEvent.ACTION_DOWN) channelStep(if (key.keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else 1)
+                true
+            } else false
+        }) {
+        Column(Modifier.fillMaxWidth().background(IptvTvGlass.HudBrush, RoundedCornerShape(20.dp))
+            .padding(start = 30.dp, end = 30.dp, top = 16.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Reserve width without stretching the strip; the logo is a separate unclipped sibling.
+                Spacer(Modifier.width(104.dp))
+                Column(Modifier.weight(.9f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Label(channel.name, 20, bold = true, modifier = Modifier.testTag("iptv.tv.hud.channel"), lines = 1)
+                    Label((if (number > 0) "$number  ·  " else "") + status, 12, Brand.TextSecondary, lines = 1)
+                }
+                Canvas(Modifier.size(16.dp, 36.dp).semantics { contentDescription = "أعلى وأسفل: تغيير القناة" }) {
+                    val w = size.width; val h = size.height; val stroke = 1.5.dp.toPx()
+                    drawLine(Color.White, Offset(w * .2f, h * .2f), Offset(w * .5f, h * .1f), stroke, StrokeCap.Round)
+                    drawLine(Color.White, Offset(w * .5f, h * .1f), Offset(w * .8f, h * .2f), stroke, StrokeCap.Round)
+                    drawLine(Color.White, Offset(w * .2f, h * .8f), Offset(w * .5f, h * .9f), stroke, StrokeCap.Round)
+                    drawLine(Color.White, Offset(w * .5f, h * .9f), Offset(w * .8f, h * .8f), stroke, StrokeCap.Round)
+                }
+                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    if (programmes.current == null && programmes.next == null) Label("لا تتوفر معلومات", 13, Brand.TextSecondary)
+                    else {
+                        ProgrammeLine("الآن", programmes.current)
+                        ProgrammeLine("التالي", programmes.next)
+                    }
                 }
             }
+            HorizontalDivider(color = Color.White.copy(alpha = .12f))
+            Row(Modifier.fillMaxWidth().onFocusChanged { focusChanged(it.hasFocus) }
+                .horizontalScroll(rememberScrollState()).padding(vertical = 3.dp),
+                horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                HudButton("القنوات", "channels", Modifier.focusRequester(entryFocus), click = channels) { HudGlyph("tv", Color.White) }
+                HudButton("المفضلة", "favorite", Modifier.semantics { stateDescription = if (isFavorite) "مضافة إلى المفضلة" else "غير مضافة" }, click = favorite) {
+                    Icon(if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null,
+                        Modifier.size(23.dp), tint = Color.White)
+                }
+                HudButton(audio, "audio", Modifier.widthIn(max = 175.dp).focusRequester(audioFocus),
+                    click = { tracks(C.TRACK_TYPE_AUDIO, audioFocus, audioBounds) }) {
+                    Box(Modifier.onGloballyPositioned { audioBounds = it.boundsInWindow() }) { HudGlyph("audio", Color.White) }
+                }
+                HudButton(if (videoHeight > 0) "${videoHeight}p" else "الجودة", "quality", Modifier.focusRequester(qualityFocus),
+                    click = { tracks(C.TRACK_TYPE_VIDEO, qualityFocus, qualityBounds) }) {
+                    Box(Modifier.onGloballyPositioned { qualityBounds = it.boundsInWindow() }) { HudGlyph("quality", Color.White) }
+                }
+                HudButton("الترجمة", "subtitles", Modifier.focusRequester(subtitlesFocus),
+                    click = { tracks(C.TRACK_TYPE_TEXT, subtitlesFocus, subtitleBounds) }) {
+                    Box(Modifier.onGloballyPositioned { subtitleBounds = it.boundsInWindow() }) { PlayerTransportIcon("CC", Color.White, 23.dp) }
+                }
+                HudButton("السابقة", "previous", enabled = previousAvailable, click = previous) { HudGlyph("previous", Color.White) }
+            }
         }
-        HorizontalDivider(color = Color.White.copy(alpha = .22f))
-        Row(Modifier.fillMaxWidth().onFocusChanged { focusChanged(it.hasFocus) }
-            .horizontalScroll(rememberScrollState()).padding(vertical = 3.dp),
-            horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-            HudButton("القنوات", "channels", Modifier.focusRequester(entryFocus), click = channels) { HudGlyph("tv", Color.White) }
-            HudButton("المفضلة", "favorite", Modifier.semantics { stateDescription = if (isFavorite) "مضافة إلى المفضلة" else "غير مضافة" }, click = favorite) {
-                Icon(if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null,
-                    Modifier.size(23.dp), tint = Color.White)
-            }
-            HudButton(audio, "audio", Modifier.widthIn(max = 175.dp).focusRequester(audioFocus),
-                click = { tracks(C.TRACK_TYPE_AUDIO, audioFocus, audioBounds) }) {
-                Box(Modifier.onGloballyPositioned { audioBounds = it.boundsInWindow() }) { HudGlyph("audio", Color.White) }
-            }
-            HudButton(if (videoHeight > 0) "${videoHeight}p" else "الجودة", "quality", Modifier.focusRequester(qualityFocus),
-                click = { tracks(C.TRACK_TYPE_VIDEO, qualityFocus, qualityBounds) }) {
-                Box(Modifier.onGloballyPositioned { qualityBounds = it.boundsInWindow() }) { HudGlyph("quality", Color.White) }
-            }
-            HudButton("الترجمة", "subtitles", Modifier.focusRequester(subtitlesFocus),
-                click = { tracks(C.TRACK_TYPE_TEXT, subtitlesFocus, subtitleBounds) }) {
-                Box(Modifier.onGloballyPositioned { subtitleBounds = it.boundsInWindow() }) { PlayerTransportIcon("CC", Color.White, 23.dp) }
-            }
-            HudButton("السابقة", "previous", enabled = previousAvailable, click = previous) { HudGlyph("previous", Color.White) }
+        Box(Modifier.align(Alignment.TopStart).padding(start = 30.dp).offset(y = (-32).dp).size(104.dp),
+            contentAlignment = Alignment.Center) {
+            if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = channel.name,
+                imageLoader = logos, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            else IptvTelevisionIcon(Modifier.size(80.dp), Color.White)
+        }
         }
     }
 }
@@ -145,14 +150,16 @@ private val HudFocus = Color(0xFFCC4165)
 
 @Composable private fun HudButton(label: String, id: String, modifier: Modifier = Modifier, enabled: Boolean = true,
     click: () -> Unit, icon: @Composable () -> Unit) {
-    Button(onClick = click, enabled = enabled, modifier = modifier.heightIn(min = 44.dp).testTag("iptv.tv.hud.$id")
+    val interactive = LocalHudInteractive.current
+    Button(onClick = { if (interactive) click() }, enabled = enabled, modifier = modifier.heightIn(min = 44.dp)
+        .focusProperties { canFocus = interactive && enabled }.testTag("iptv.tv.hud.$id")
         .alpha(if (enabled) 1f else .35f).semantics {
             contentDescription = when (id) { "audio" -> "الصوت: $label"; "quality" -> "الجودة: $label"; else -> label }
         },
         shape = ButtonDefaults.shape(RoundedCornerShape(7.dp)),
         scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         colors = ButtonDefaults.colors(containerColor = Color.Transparent, contentColor = Color.White,
-            focusedContainerColor = HudFocus, focusedContentColor = Color.White),
+            focusedContainerColor = IptvTvGlass.Focus, focusedContentColor = Color.White),
         contentPadding = PaddingValues(horizontal = 13.dp, vertical = 8.dp)) {
         icon(); Spacer(Modifier.width(8.dp)); Label(label, 13, bold = true, lines = 1)
     }
