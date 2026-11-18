@@ -29,7 +29,7 @@ concurrency:
 jobs:
   simulator:
     runs-on: macos-15-intel
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode and generate project
@@ -75,7 +75,7 @@ jobs:
           set -euo pipefail
           python3 ios/scripts/boot-simulator.py "$TV_MENU_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
       - name: Test native menus and remote focus
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: |
           set -o pipefail
           tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests

@@ -89,7 +89,11 @@ struct TVCompatibilityTransport<Options: View>: View {
         .ignoresSafeArea()
         .focusScope(focusScope)
         .defaultFocus($focus, "surface")
-        .task { await Task.yield(); focus = "surface"; resetFocus(in: focusScope) }
+        .task {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            focus = "surface"; resetFocus(in: focusScope)
+        }
         .onPlayPauseCommand { controller.togglePlay(); controls = true; interaction += 1 }
         .onExitCommand { if controls && focus != "surface" { controls = false; focus = "surface" } else { close() } }
         .onChange(of: actionTitle) { if actionTitle == nil && focus == "action" { focus = "surface" } }

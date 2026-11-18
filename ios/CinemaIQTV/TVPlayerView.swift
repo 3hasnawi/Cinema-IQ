@@ -20,6 +20,7 @@ struct TVPlayerView: View {
     @AppStorage(TVPlaybackPreference.qualityKey) private var preferredQuality = VideoQuality.automatic.rawValue
     @State private var externalTracks: [SubtitleTrack] = []
     @State private var loading = false
+    @State private var exiting = false
     @State private var resolutionError: String?
     @State private var overlayInfo: OMDbInfo?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -52,10 +53,13 @@ struct TVPlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            // Teardown publishes decoder changes. Do not recreate a focusable loading
+            // button inside a cover that is already dismissing.
+            if !exiting {
             // On an error the system player is taken away, so the remote reaches the panel's buttons and Menu.
             if failure == nil {
             if controller.usesCompatibility {
-                TVCompatibilityTransport(controller: controller, close: { dismiss() },
+                TVCompatibilityTransport(controller: controller, close: exitPlayer,
                     actionTitle: inIntro ? "تخطي المقدمة" : (offerNext ? next.map { "الحلقة \($0.episode)" } : nil),
                     contextualAction: {
                         if inIntro, let end = skips.introEnd { controller.seek(to: end) }
@@ -74,9 +78,9 @@ struct TVPlayerView: View {
             } else {
                 // Do not mount an empty AVKit controller before resolving a compatibility stream: its
                 // disappearing focus context can steal the new transport's initial focus.
-                Button { dismiss() } label: { Color.clear.contentShape(Rectangle()) }
+                Button(action: exitPlayer) { Color.clear.contentShape(Rectangle()) }
                     .buttonStyle(TVArtworkButtonStyle()).accessibilityLabel("إلغاء التحميل")
-                    .onExitCommand { dismiss() }
+                    .onExitCommand(perform: exitPlayer)
             }
             }
             if !controller.playing && !controller.buffering && !loading && !controller.ended &&
@@ -108,18 +112,19 @@ struct TVPlayerView: View {
                             Button("الحلقة \(next.episode)") { active = next }
                         }
                         Menu("محرك التشغيل") { engineChoices }
-                        Button("إغلاق") { dismiss() }
+                        Button("إغلاق", action: exitPlayer)
                     }
                 }
                 .padding(60)
                 .background(TVTheme.panel.opacity(0.95), in: RoundedRectangle(cornerRadius: 36, style: .continuous))
                 .focusSection()
-                .onExitCommand { dismiss() }
+                .onExitCommand(perform: exitPlayer)
+            }
             }
         }
 #if DEBUG
         .overlay(alignment: .topLeading) {
-            if UITestSupport.playerFixtureEnabled {
+            if UITestSupport.playerFixtureEnabled && !exiting {
                 // Observe the real decoder clock without exposing an extra remote focus target.
                 Text("\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
                     .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
@@ -138,7 +143,14 @@ struct TVPlayerView: View {
             overlayInfo = found
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: controller.playing)
-        .onDisappear { controller.close() }
+        .onDisappear { exiting = true; controller.close() }
+    }
+
+    private func exitPlayer() {
+        guard !exiting else { return }
+        exiting = true
+        controller.close()
+        dismiss()
     }
 
     /// The error to show, worded for the Apple TV (the shared messages speak of the iPhone's player).
@@ -334,6 +346,7 @@ struct TVPlayerView: View {
     }
 
     private func open(_ media: Media, stream: StreamChoice, resume: Double) {
+        guard !exiting else { return }
 #if DEBUG
         guard let playbackURL = UITestSupport.playbackURL(or: stream.url) else {
             resolutionError = "تعذّر العثور على فيديو الاختبار المحلي."
@@ -366,12 +379,14 @@ struct TVPlayerView: View {
     }
 
     private func start(_ media: Media) async {
+        guard !exiting else { return }
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil
         async let tracks = SourceClient().subtitles(media)
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()
+            guard !exiting, current.id == media.id else { return }
             qualityMode = VideoQuality(rawValue: preferredQuality) ?? .automatic
             automaticQuality = qualityMode == .automatic
             guard let first = qualityMode.select(from: result) else { throw CinemaError.noStreams }

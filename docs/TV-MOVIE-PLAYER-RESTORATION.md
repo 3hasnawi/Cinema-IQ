@@ -28,6 +28,9 @@ VLC retains its drawable/player until its stopped event before releasing output.
 Quality hints may arrive before asynchronous audio activation creates an item.
 Keep both the resolution and bandwidth cap and apply them to that eventual item;
 the focused queued-quality simulator case reads the actual AVPlayerItem properties.
+During dismissal, an exit latch prevents decoder cleanup from remounting the
+loading button. Cancelled compatibility-focus tasks also stop before resetting
+focus; pending source results cannot reopen an exiting player.
 
 New tests: Core ownership, duplicate release, activation failure and deliberately
 blocked shutdown while MainActor remains responsive. Simulator exit cases play

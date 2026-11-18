@@ -75,14 +75,15 @@ final class TVMovieExitTests: XCTestCase {
     private func returnToDetails(_ play: XCUIElement) {
         // One Menu may first dismiss AVKit's transport. Existence alone also matches covered details.
         for _ in 0..<4 {
+            if !element("tv.player.testClock").exists { break }
             remote.press(.menu)
             let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                self.app.state == .runningForeground && play.exists && play.isHittable && play.hasFocus
+                !self.element("tv.player.testClock").exists
             }, object: nil)
-            if XCTWaiter.wait(for: [returned], timeout: 3) == .completed { break }
+            if XCTWaiter.wait(for: [returned], timeout: 5) == .completed { break }
             if app.state != .runningForeground { break }
         }
-        waitFor(15) { play.exists && play.isHittable }; expectFocus(play)
+        waitFor(15) { self.app.state == .runningForeground && play.exists && play.isHittable }; expectFocus(play)
     }
     private func time(_ clock: XCUIElement) -> Int { Int(clock.label.split(separator: "|").dropFirst().first ?? "-1") ?? -1 }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }

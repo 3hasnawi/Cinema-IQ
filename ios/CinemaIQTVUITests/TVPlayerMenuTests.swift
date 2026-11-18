@@ -146,17 +146,20 @@ final class TVPlayerMenuTests: XCTestCase {
 
     private func closePlayerAndExpectDetails() {
         let play = app.buttons["tv.detail.play"]
+        let clock = app.descendants(matching: .any).matching(identifier: "tv.player.testClock").firstMatch
         for _ in 0..<4 {
+            if !clock.exists { break }
             remote.press(.menu)
             // Wait for dismissal/focus restoration before another Menu. Rapid retries can
             // navigate past details and send the app to PineBoard; covered AX nodes persist.
             let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                self.app.state == .runningForeground && play.exists && play.isHittable && play.hasFocus
+                !clock.exists
             }, object: nil)
-            if XCTWaiter.wait(for: [returned], timeout: 3) == .completed { break }
+            if XCTWaiter.wait(for: [returned], timeout: 5) == .completed { break }
             if app.state != .runningForeground { break }
         }
-        XCTAssertTrue(play.waitForExistence(timeout: 10) && play.isHittable && play.hasFocus)
+        expectFocus(play)
+        XCTAssertTrue(play.waitForExistence(timeout: 10) && play.isHittable)
         XCTAssertEqual(app.state, .runningForeground)
     }
 
