@@ -1,5 +1,14 @@
 name: Apple TV Top Shelf checks
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/SharedTopShelf/**'
+      - 'ios/CinemaIQTopShelf/**'
+      - 'ios/CinemaIQTV/TopShelf/**'
+      - 'ios/Core/Sources/CinemaCore/TopShelf.swift'
+      - 'ios/CinemaIQTVUITests/TVTopShelfFlowTests.swift'
+      - '.github/workflows/tvos-top-shelf.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -52,8 +61,8 @@ jobs:
           xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVTopShelfDerived" \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
-            2>&1 | tee "$RUNNER_TEMP/tvos-iptv-build.log" | grep -E 'error:|TEST BUILD (SUCCEEDED|FAILED)' || true
-          grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/tvos-iptv-build.log"
+            2>&1 | tee "$RUNNER_TEMP/tvos-top-shelf-build.log" | grep -E 'error:|TEST BUILD (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/tvos-top-shelf-build.log"
       - name: Boot TV simulator with a display
         timeout-minutes: 9
         run: |
@@ -123,6 +132,6 @@ jobs:
           path: |
             ${{ runner.temp }}/topshelf-*.log
             ${{ runner.temp }}/topshelf-*-evidence
-            ${{ runner.temp }}/tvos-iptv-build.log
+            ${{ runner.temp }}/tvos-top-shelf-build.log
           retention-days: 1
           if-no-files-found: warn
