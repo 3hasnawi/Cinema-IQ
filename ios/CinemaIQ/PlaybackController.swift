@@ -128,13 +128,13 @@ struct MediaOption: Identifiable, Hashable {
         hasNativeItem = true
         statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             Task { @MainActor in
-                guard let self, player.currentItem === item else { return }
-                if item.status == .failed { nativeFailure(item) }
-                else if item.status == .readyToPlay, let target = pendingNativeSeek {
+                guard let self, self.player.currentItem === item else { return }
+                if item.status == .failed { self.nativeFailure(item) }
+                else if item.status == .readyToPlay, let target = self.pendingNativeSeek {
                     // An initial seek can be discarded while a paused item is preparing.
                     // Apply the latest requested time only once the actual item is ready.
-                    pendingNativeSeek = nil
-                    player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+                    self.pendingNativeSeek = nil
+                    self.player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                 }
             }
         }
