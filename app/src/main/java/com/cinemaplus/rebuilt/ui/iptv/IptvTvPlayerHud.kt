@@ -52,9 +52,9 @@ private val LocalHudInteractive = staticCompositionLocalOf { true }
 /** Compact live-TV controls; the uninterrupted picture remains visible above the bottom strip. */
 @Composable internal fun IptvTvPlayerHud(
     channel: IptvChannel, number: Int, status: String, programmes: IptvNowNext,
-    videoHeight: Int, audioLanguage: String?, isFavorite: Boolean, previousAvailable: Boolean, logos: ImageLoader,
+    videoHeight: Int, audioLanguage: String?, isFavorite: Boolean, logos: ImageLoader,
     entryFocus: FocusRequester, focusChanged: (Boolean) -> Unit, channels: () -> Unit,
-    favorite: () -> Unit, previous: () -> Unit,
+    favorite: () -> Unit,
     channelStep: (Int) -> Unit, tracks: (Int, FocusRequester, Rect) -> Unit, interactive: Boolean = true
 ) {
     val displayName = remember(channel.name, channel.group) { IptvChannelDisplayName.of(channel) }
