@@ -41,6 +41,7 @@ struct MediaOption: Identifiable, Hashable {
     private var wantsPlay = true
     private var restartOnResume = false
     private var pendingMovieSeek: Double?
+    private var pendingNativeSeek: Double?
     private var pendingMode: IPTVPlaybackMode?
     private let enginePreference: PlaybackEnginePreference
     var hasItem: Bool { currentURL != nil }
@@ -122,13 +123,18 @@ struct MediaOption: Identifiable, Hashable {
     private func openNative(url: URL, resume: Double, playing shouldPlay: Bool = true) {
         usesCompatibility = false; ended = false; wantsPlay = shouldPlay; restartOnResume = false; pendingMode = nil
         let item = AVPlayerItem(url: url)
+        pendingNativeSeek = resume.isFinite && resume > 0 ? resume : nil
         player.replaceCurrentItem(with: item)
         hasNativeItem = true
-        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            if item.status == .failed {
-                Task { @MainActor in
-                    guard self?.player.currentItem === item else { return }
-                    self?.nativeFailure(item)
+        statusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            Task { @MainActor in
+                guard let self, player.currentItem === item else { return }
+                if item.status == .failed { nativeFailure(item) }
+                else if item.status == .readyToPlay, let target = pendingNativeSeek {
+                    // An initial seek can be discarded while a paused item is preparing.
+                    // Apply the latest requested time only once the actual item is ready.
+                    pendingNativeSeek = nil
+                    player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
                 }
             }
         }
@@ -157,7 +163,6 @@ struct MediaOption: Identifiable, Hashable {
             Task { @MainActor in self?.tick() }
         }
         selectionTask = Task { [weak self] in await self?.loadSelectionGroups(item) }
-        if resume.isFinite && resume > 0 { player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
         player.defaultRate = rate
         applyNativeQuality()
         if shouldPlay { player.play() }
@@ -256,7 +261,7 @@ struct MediaOption: Identifiable, Hashable {
     private func tick() {
         guard let item = player.currentItem else { return }
         let now = player.currentTime().seconds, length = item.duration.seconds
-        if now.isFinite { position = now }
+        if now.isFinite && pendingNativeSeek == nil { position = now }
         if length.isFinite && length > 0 { duration = length }
         updateCue()
         ticks += 1
@@ -295,6 +300,7 @@ struct MediaOption: Identifiable, Hashable {
             }
             compatibility.seek(target); return
         }
+        if let item = player.currentItem, item.status != .readyToPlay { pendingNativeSeek = target; return }
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
     }
     func skip(_ delta: Double) { seek(to: position + delta) }
@@ -387,6 +393,7 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     private func releaseNative() {
+        pendingNativeSeek = nil
         selectionTask?.cancel(); selectionTask = nil
         player.currentItem?.cancelPendingSeeks()
         player.currentItem?.asset.cancelLoading()

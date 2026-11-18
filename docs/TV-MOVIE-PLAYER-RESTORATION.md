@@ -33,6 +33,9 @@ activation must therefore use the latest play/pause, seek and engine intent rath
 than unconditionally starting playback. A native simulator case queues pause and
 a 30-second seek before activation, verifies that the clock stays paused, then
 resumes with the real remote.
+Native resume/queued seeks wait for the current item's ready state, including an
+initially paused item; its preparation clock must not discard the requested time.
+Closed/replaced items cannot apply their late ready-state seek to the next video.
 During dismissal, an exit latch prevents decoder cleanup from remounting the
 loading button. Cancelled compatibility-focus tasks also stop before resetting
 focus; pending source results cannot reopen an exiting player.
