@@ -8,6 +8,7 @@ on:
       - 'ios/CinemaIQTV/TopShelf/**'
       - 'ios/Core/Sources/CinemaCore/TopShelf.swift'
       - 'ios/CinemaIQTVUITests/TVTopShelfFlowTests.swift'
+      - 'ios/scripts/drive-top-shelf-link.py'
       - '.github/workflows/tvos-top-shelf.yml'
   workflow_dispatch:
 permissions:
@@ -95,26 +96,28 @@ jobs:
         timeout-minutes: 14
         run: |
           set -euo pipefail
+          runner="$RUNNER_TEMP/TVTopShelfDerived/Build/Products/Debug-appletvsimulator/CinemaIQTVUITests-Runner.app"
+          runner_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$runner/Info.plist")"
           for action in display play; do
-            xcrun simctl launch --terminate-running-process "$TV_TEST_DEVICE" com.cinemaplus.rebuilt.tv \
-              -ios.contentSource.v1 ext:demo --cinema-ui-testing-player
-            if [ "$action" = display ]; then
-              item=sintel
-              test_case=testSystemDisplayURLShowsDetails
-              # Exercise display links while the app already has a movie cover open.
-              xcrun simctl openurl "$TV_TEST_DEVICE" "cinemaiq://top-shelf?media=ext%3Ademo%3Abig-buck-bunny&action=play"
-              python3 -c 'import time; time.sleep(5)'
-            else
-              item=big-buck-bunny
-              test_case=testSystemPlayURLStartsTheExistingPlayer
-            fi
-            xcrun simctl openurl "$TV_TEST_DEVICE" "cinemaiq://top-shelf?media=ext%3Ademo%3A$item&action=$action"
+            if [ "$action" = display ]; then test_case=testSystemDisplayURLShowsDetails
+            else test_case=testSystemPlayURLStartsTheExistingPlayer; fi
+            python3 ios/scripts/drive-top-shelf-link.py "$TV_TEST_DEVICE" "$action" "$runner_id" \
+              > "$RUNNER_TEMP/topshelf-$action-driver.log" 2>&1 &
+            driver_pid=$!
+            trap 'kill "$driver_pid" 2>/dev/null || true' EXIT
+            set +e
             xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
               -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVTopShelfDerived" \
               -only-testing:"CinemaIQTVUITests/TVTopShelfFlowTests/$test_case" \
               -resultBundlePath "$RUNNER_TEMP/topshelf-$action.xcresult" -parallel-testing-enabled NO \
               CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
               > "$RUNNER_TEMP/topshelf-$action.log" 2>&1
+            test_status=$?
+            wait "$driver_pid"
+            driver_status=$?
+            set -e
+            test "$test_status" -eq 0 && test "$driver_status" -eq 0
+            trap - EXIT
           done
       - name: Export actual screenshots and diagnostics
         if: always()
