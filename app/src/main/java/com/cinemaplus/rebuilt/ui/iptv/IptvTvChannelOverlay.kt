@@ -67,11 +67,12 @@ private inline fun overlayFocusLog(message: () -> String) {
     channels: List<IptvChannel>, current: IptvChannel, section: IptvChannelSection,
     collection: IptvChannelCollection, tune: (IptvChannel, IptvChannelSection) -> Unit, close: () -> Unit,
     categoryCounts: Map<String, Int>? = null, lockedGroups: Set<String> = emptySet(), hiddenGroups: Set<String> = emptySet(),
-    requestGroupAccess: ((String, () -> Unit) -> Unit)? = null, manageCategory: ((String?) -> Unit)? = null,
-    manageSources: (() -> Unit)? = null
+    requestGroupAccess: ((String?, () -> Unit, () -> Unit) -> Unit)? = null, manageCategory: ((String?) -> Unit)? = null,
+    manageSources: (() -> Unit)? = null, canonicalNumbers: Map<String, Int>? = null,
+    sectionChanged: (IptvChannelSection) -> Unit = {}
 ) {
     val groups = categoryCounts ?: remember(channels, current.sourceId) { IptvNavigation.categories(channels, current.sourceId) }
-    val numbering = remember(channels, current.sourceId) { IptvNavigation.numbers(channels, current.sourceId) }
+    val numbering = canonicalNumbers ?: remember(channels, current.sourceId) { IptvNavigation.numbers(channels, current.sourceId) }
     val logos = rememberIptvLogos()
     val keyboard = LocalSoftwareKeyboardController.current
     val manager = LocalFocusManager.current
@@ -82,6 +83,8 @@ private inline fun overlayFocusLog(message: () -> String) {
     var query by remember { mutableStateOf("") }
     var searchMode by remember { mutableStateOf(false) }
     var searchSession by remember { mutableStateOf(false) }
+    val initialGroup = (section as? IptvChannelSection.Group)?.name
+    var admissionPending by remember { mutableStateOf(initialGroup != null && initialGroup in lockedGroups) }
     var beforeSearchSection by remember { mutableStateOf(section) }
     var beforeSearchChannelId by remember { mutableStateOf(current.id) }
     var categoriesOpen by remember { mutableStateOf(false) }
@@ -132,18 +135,33 @@ private inline fun overlayFocusLog(message: () -> String) {
         lastDestination = OverlayDestination.Channels; pending = OverlayDestination.Channels
     }
     fun cancelSearch() {
-        if (searchSession) {
-            browsingSection = beforeSearchSection; focusedChannelId = beforeSearchChannelId
-            query = ""; searchSession = false; filtering = true
+        if (!searchSession) { returnToChannels(); return }
+        val origin = beforeSearchSection
+        val originGroup = (origin as? IptvChannelSection.Group)?.name
+        val originChannel = beforeSearchChannelId
+        hideKeyboard(); query = ""; searchSession = false; searchMode = false; filtering = true
+        val restore = {
+            browsingSection = origin; sectionChanged(origin); focusedChannelId = originChannel
+            returnToChannels()
         }
-        returnToChannels()
+        // A global search ended the old visit. Returning to it is a fresh admission.
+        if (originGroup != null && originGroup in lockedGroups) {
+            categoriesOpen = true; focusedCategoryKey = "group:$originGroup"
+            lastDestination = OverlayDestination.Categories; pending = OverlayDestination.Categories
+        }
+        requestGroupAccess?.invoke(originGroup, restore, {})
+            ?: if (originGroup == null || originGroup !in lockedGroups) restore() else Unit
     }
     fun beginSearch() {
         if (!searchSession) {
             beforeSearchSection = browsingSection; beforeSearchChannelId = focusedChannelId
-            searchSession = true; browsingSection = IptvChannelSection.All; filtering = true
+            searchSession = true
         }
-        categoriesOpen = false; searchMode = true; pending = null
+        val start = {
+            browsingSection = IptvChannelSection.All; sectionChanged(IptvChannelSection.All)
+            filtering = true; categoriesOpen = false; searchMode = true; pending = null
+        }
+        requestGroupAccess?.invoke(null, start, {}) ?: start()
     }
     fun finishSearch() {
         hideKeyboard(); searchMode = false; focusedChannelId = ""
@@ -167,16 +185,31 @@ private inline fun overlayFocusLog(message: () -> String) {
     }
     fun chooseSection(value: IptvChannelSection) {
         if (value != browsingSection || query.isNotEmpty()) filtering = true
-        browsingSection = value; query = ""; searchSession = false; focusedChannelId = ""
+        browsingSection = value; sectionChanged(value); query = ""; searchSession = false; focusedChannelId = ""
         returnToChannels()
     }
     fun selectCategory(entry: OverlayCategory) {
         val group = (entry.section as? IptvChannelSection.Group)?.name
-        if (entry.locked && group != null) requestGroupAccess?.invoke(group) { chooseSection(entry.section) }
-        else chooseSection(entry.section)
+        requestGroupAccess?.invoke(group, { chooseSection(entry.section) }, {})
+            ?: if (!entry.locked) chooseSection(entry.section) else Unit
     }
     BackHandler(onBack = ::back)
     DisposableEffect(Unit) { onDispose { editor.hideKeyboard(); keyboard?.hide() } }
+    LaunchedEffect(Unit) {
+        if (admissionPending) {
+            val accepted = {
+                admissionPending = false; chooseSection(section); focusedChannelId = current.id
+            }
+            val denied = {
+                admissionPending = false; chooseSection(IptvChannelSection.All)
+                // Preserve a useful, non-secret return target when initial admission is cancelled.
+                requestGroupAccess?.invoke(null, {}, {})
+                categoriesOpen = true; focusedCategoryKey = "group:$initialGroup"
+                lastDestination = OverlayDestination.Categories; pending = OverlayDestination.Categories
+            }
+            requestGroupAccess?.invoke(initialGroup, accepted, denied) ?: denied()
+        }
+    }
 
     // Only explicit navigation requests restore focus. Filter results and row focus updates never take it away.
     LaunchedEffect(window.isWindowFocused) {
@@ -186,11 +219,14 @@ private inline fun overlayFocusLog(message: () -> String) {
             pending = if (searchMode) { if (editor.editing || editor.focused) null else OverlayDestination.SearchDone } else lastDestination
         }
     }
-    LaunchedEffect(channels, current.sourceId, collection, browsingSection, query, hiddenGroups, groups, searchSession) {
+    LaunchedEffect(channels, current.sourceId, collection, browsingSection, query, hiddenGroups, groups, searchSession, admissionPending) {
         filtering = true
+        if (admissionPending) { visible = emptyList(); return@LaunchedEffect }
         val group = (browsingSection as? IptvChannelSection.Group)?.name
         if (group != null && (group !in groups || group in hiddenGroups)) {
-            browsingSection = IptvChannelSection.All; focusedChannelId = ""; pending = OverlayDestination.Channels
+            browsingSection = IptvChannelSection.All; sectionChanged(IptvChannelSection.All)
+            requestGroupAccess?.invoke(null, {}, {})
+            focusedChannelId = ""; pending = OverlayDestination.Channels
             return@LaunchedEffect
         }
         visible = withContext(Dispatchers.Default) {
@@ -200,12 +236,12 @@ private inline fun overlayFocusLog(message: () -> String) {
         }
         filtering = false
     }
-    LaunchedEffect(pending, filtering, visible, categoriesOpen, searchMode, editor.editing, editor.focused, window.isWindowFocused) {
+    LaunchedEffect(pending, filtering, visible, categoriesOpen, searchMode, editor.editing, editor.focused, window.isWindowFocused, admissionPending) {
         val destination = pending ?: run {
             overlayFocusLog { "gate=no-pending ${focusStatus()}" }
             return@LaunchedEffect
         }
-        if (!window.isWindowFocused || (searchMode && (editor.editing || editor.focused)) || filtering) {
+        if (!window.isWindowFocused || admissionPending || (searchMode && (editor.editing || editor.focused)) || filtering) {
             overlayFocusLog { "gate=window-owned-editor-filter destination=$destination filtering=$filtering ${focusStatus()}" }
             return@LaunchedEffect
         }
