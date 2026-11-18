@@ -5,9 +5,22 @@ on:
     paths:
       - 'ios/CinemaIQTV/TVPlayerView.swift'
       - 'ios/CinemaIQTV/TVPauseInformation.swift'
+      - 'ios/CinemaIQTV/TVCompatibilityTransport.swift'
+      - 'ios/CinemaIQ/PlaybackController.swift'
+      - 'ios/SharedIPTV/PlaybackAudioSession.swift'
+      - 'ios/SharedIPTV/CompatibilityPlayback.swift'
+      - 'ios/Core/Sources/CinemaCore/PlaybackSessionCoordinator.swift'
       - 'ios/CinemaIQTVUITests/TVPlayerMenuTests.swift'
+      - 'ios/CinemaIQTVUITests/TVMovieCompatibilityTests.swift'
+      - 'ios/CinemaIQTVUITests/TVMovieExitTests.swift'
       - '.github/workflows/tvos-player-menus.yml'
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: Full movie regression or focused startup/rapid Back checks
+        type: choice
+        options: [all, rapid-exit, queued-quality, startup-intent]
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -16,7 +29,7 @@ concurrency:
 jobs:
   simulator:
     runs-on: macos-15-intel
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode and generate project
@@ -26,6 +39,8 @@ jobs:
           sudo xcode-select -s "$newest/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
+          cp ios/CinemaIQUITests/Fixtures/movie-audio-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQTV/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
       - name: Create Apple TV simulator
@@ -58,16 +73,28 @@ jobs:
         timeout-minutes: 9
         run: |
           set -euo pipefail
-          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 \
-            "$RUNNER_TEMP/TVMenus/Build/Products/Debug-appletvsimulator/CinemaIQTV.app/UIPlayerFixture.mp4"
           python3 ios/scripts/boot-simulator.py "$TV_MENU_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
       - name: Test native menus and remote focus
-        timeout-minutes: 15
+        timeout-minutes: 20
         run: |
           set -o pipefail
+          tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests
+                 -only-testing:CinemaIQTVUITests/TVMovieCompatibilityTests
+                 -only-testing:CinemaIQTVUITests/TVMovieExitTests)
+          if [ "${{ inputs.scenario || 'all' }}" = rapid-exit ]; then
+            tests=(-only-testing:CinemaIQTVUITests/TVMovieExitTests/testBackWhileMovieIsOpeningDoesNotReappearOrTrapRemote)
+          fi
+          if [ "${{ inputs.scenario || 'all' }}" = queued-quality ]; then
+            tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests/testQualityChosenBeforeAudioActivationReachesNativeItem)
+          fi
+          if [ "${{ inputs.scenario || 'all' }}" = startup-intent ]; then
+            tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests/testQualityChosenBeforeAudioActivationReachesNativeItem
+                   -only-testing:CinemaIQTVUITests/TVMovieExitTests/testPausedOpeningKeepsBackgroundIntentAndQueuedSeekUntilRemoteResume
+                   -only-testing:CinemaIQTVUITests/TVMovieExitTests/testNativeMovieBackAfterTwoMinutesAndImmediateResume)
+          fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
-            -only-testing:CinemaIQTVUITests/TVPlayerMenuTests \
+            "${tests[@]}" \
             -resultBundlePath "$RUNNER_TEMP/player-menus.xcresult" \
             -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
