@@ -10,10 +10,15 @@ on:
         options: [both, iphone, ipad]
         default: both
       scenario:
-        description: Full flow or compatibility decoder only
+        description: Full flow, extended phone flows, or compatibility decoder only
         type: choice
-        options: [all, compatibility]
+        options: [all, extended, compatibility]
         default: all
+      runner:
+        description: Hosted macOS runner (Intel avoids ARM fleet queue cancellations)
+        type: choice
+        options: [macos-15-intel, macos-15]
+        default: macos-15-intel
 
 permissions:
   contents: read
@@ -22,8 +27,10 @@ concurrency:
   cancel-in-progress: true
 jobs:
   simulator:
-    runs-on: macos-15
-    timeout-minutes: 35
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
+    # First-boot migration, six real input/playback cases and evidence cleanup
+    # need their own allowance; do not cancel a valid test midway through export.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -125,11 +132,20 @@ jobs:
           IPTV_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
-          test_id=CinemaIQUITests/IPTVFlowTests
-          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then test_id="$test_id/testCompatibilityDecoderWithTracksAndRotation"; fi
+          test_ids=(-only-testing:CinemaIQUITests/IPTVFlowTests)
+          if [ "$IPTV_TEST_SCENARIO" = compatibility ]; then
+            test_ids=(-only-testing:CinemaIQUITests/IPTVFlowTests/testCompatibilityDecoderWithTracksAndRotation)
+          fi
+          if [ "$IPTV_TEST_SCENARIO" = extended ]; then
+            test_ids=(
+              -only-testing:CinemaIQUITests/IPTVFlowTests/testM3UBrowserFiltersHTTPConsentAndKeychainPersistence
+              -only-testing:CinemaIQUITests/IPTVFlowTests/testM3UInternalPlayerGuideQualityRotationAndClose
+              -only-testing:CinemaIQUITests/IPTVFlowTests/testKeyboardNextDoneMetadataPopoversAndOfflineLastChannelRestore
+            )
+          fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
-            -only-testing:"$test_id" \
+            "${test_ids[@]}" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
@@ -139,6 +155,7 @@ jobs:
       - name: Export simulator evidence
         if: always()
         run: |
+          python3 ios/scripts/collect-ui-fallback.py
           python3 - <<'PY'
           import os, pathlib, shutil, subprocess
           try:
@@ -151,8 +168,8 @@ jobs:
               print('Decoder diagnostics unavailable; continuing to export actual test results')
           PY
           if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
-            find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence" || true
+            if [ -d "$RUNNER_TEMP/ios-evidence" ]; then find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete; fi
           fi
           grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
       - uses: actions/upload-artifact@v4
@@ -164,6 +181,7 @@ jobs:
             ${{ runner.temp }}/ios-build.log
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
+            ${{ runner.temp }}/ios-fallback-evidence
             ${{ runner.temp }}/simulator-ready.png
           retention-days: 1
           if-no-files-found: warn

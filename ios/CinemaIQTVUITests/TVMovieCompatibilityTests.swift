@@ -38,8 +38,13 @@ final class TVMovieCompatibilityTests: XCTestCase {
         XCTAssertFalse(app.buttons["إخفاء"].exists)
         shot("movie-compatibility-restored-pause-layout")
         remote.press(.up); expectFocus(quality); remote.press(.select)
-        let automatic = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label == %@", "تلقائي", "selected, تلقائي")).firstMatch
+        // Query the presented native menu by type first. Searching every application
+        // descendant with a compound label predicate can stall tvOS's AX snapshot service.
+        let menu = app.collectionViews.firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 10))
+        let automatic = menu.cells.firstMatch
         XCTAssertTrue(automatic.waitForExistence(timeout: 10))
+        XCTAssertTrue(automatic.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "تلقائي")).firstMatch.exists)
         shot("movie-compatibility-quality-menu")
         remote.press(.menu); expectFocus(quality)
         remote.press(.menu); expectFocus(surface)

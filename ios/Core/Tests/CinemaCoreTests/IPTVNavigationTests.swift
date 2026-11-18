@@ -19,6 +19,27 @@ final class IPTVNavigationTests: XCTestCase {
         XCTAssertEqual(IPTVNavigation.neighbor(of: "A", step: -1, in: [values[0]])?.id, "A")
         XCTAssertNil(IPTVNavigation.neighbor(of: "A", step: 1, in: []))
     }
+    func testRecentSurfingKeepsEntryOrderWhenWatchingReordersTheDisplayedList() {
+        let catalog = [channel("A"), channel("B"), channel("C")]
+        var collection = IPTVChannelCollection()
+        ["C", "B", "A"].forEach { collection.watched($0) }
+        let entry = collection.channels(catalog, sourceID: "one", section: .recent).map(\.id)
+        collection.watched("B")
+        let ranked = collection.channels(catalog, sourceID: "one", section: .recent)
+        XCTAssertEqual(ranked.map(\.id), ["B", "A", "C"])
+        let surfing = IPTVNavigation.preservingOrder(ranked, sourceID: "one", ids: entry)
+        XCTAssertEqual(surfing.map(\.id), ["A", "B", "C"])
+        XCTAssertEqual(IPTVNavigation.neighbor(of: "B", step: 1, in: surfing)?.id, "C")
+        XCTAssertEqual(IPTVNavigation.neighbor(of: "B", step: -1, in: surfing)?.id, "A")
+    }
+    func testFrozenRecentOrderResolvesFreshChannelsAndOmitsDeletedMembershipAndOtherSources() {
+        let fresh = IPTVChannel(id: "A", sourceID: "one", name: "Updated", group: "News", url: URL(string: "https://media.example/fresh.m3u8")!)
+        let available = [channel("B", source: "two"), channel("C"), fresh]
+        let result = IPTVNavigation.preservingOrder(available, sourceID: "one", ids: ["A", "B", "A", "C", "deleted"])
+        XCTAssertEqual(result.map(\.id), ["A", "C"])
+        XCTAssertEqual(result.first?.url, fresh.url)
+        XCTAssertTrue(IPTVNavigation.preservingOrder([], sourceID: "one", ids: ["A"]).isEmpty)
+    }
     func testCatalogNumbersStayStableAcrossFiltersWithoutCrossSourceOrDuplicateIds() {
         let values = [channel("A"), channel("Foreign", source: "two"), channel("B", "Sport"), channel("A"), channel("C")]
         let numbers = IPTVNavigation.numbers(values, sourceID: "one")

@@ -15,5 +15,14 @@ enum IPTVFixtureSupport {
     }
 }
 
-typealias IPTVFixtureTransport = IPTVDemoTransport
+struct IPTVFixtureTransport: IPTVTransport {
+    private let fixtures = IPTVDemoTransport()
+    func data(from url: URL) async throws -> Data {
+        try Task.checkCancellation()
+        if ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-iptv-offline") {
+            throw URLError(.notConnectedToInternet)
+        }
+        return try await fixtures.data(from: url)
+    }
+}
 #endif

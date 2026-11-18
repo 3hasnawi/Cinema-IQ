@@ -5,10 +5,15 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: Layout tour or production movie controls regression
+        description: Layout tour, Apple TV parity, or production movie controls regression
         type: choice
-        options: [all, movie_controls, movie_controls_apple]
+        options: [all, parity, movie_controls, movie_controls_apple, movie_and_episodes, episodes]
         default: all
+      runner:
+        description: Hosted macOS runner for simulator validation
+        type: choice
+        options: [macos-15-intel, macos-15]
+        default: macos-15-intel
 
 permissions:
   contents: read
@@ -17,12 +22,12 @@ concurrency:
   cancel-in-progress: true
 jobs:
   simulator:
-    runs-on: macos-15-intel
-    timeout-minutes: 55
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
+    timeout-minutes: ${{ inputs.scenario == 'parity' && 65 || 55 }}
     strategy:
       fail-fast: false
       matrix:
-        device: ${{ startsWith(inputs.scenario, 'movie_controls') && fromJSON('["iphone"]') || fromJSON('["iphone","ipad"]') }}
+        device: ${{ (startsWith(inputs.scenario, 'movie_') || inputs.scenario == 'episodes') && fromJSON('["iphone"]') || fromJSON('["iphone","ipad"]') }}
     env:
       IOS_TEST_KIND: ${{ matrix.device }}
     steps:
@@ -40,7 +45,7 @@ jobs:
           sudo xcode-select -s "$chosen/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
-          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQ/Resources/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/movie-audio-pattern.mp4 ios/CinemaIQ/Resources/UIPlayerFixture.mp4
           cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQ/Resources/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
@@ -113,17 +118,27 @@ jobs:
           xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Test touch navigation and playback rotation
-        timeout-minutes: 25
+        # Parity contains ten independent phone cases; retain their individual limits.
+        timeout-minutes: ${{ inputs.scenario == 'parity' && 35 || 25 }}
         env:
           UI_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
           set -o pipefail
-          test_id=CinemaIQUITests/AdaptiveLayoutTests
-          if [ "$UI_TEST_SCENARIO" = movie_controls ]; then test_id=CinemaIQUITests/MovieControlsTests; fi
-          if [ "$UI_TEST_SCENARIO" = movie_controls_apple ]; then test_id=CinemaIQUITests/MovieControlsTests/testAppleControlsReturnAfterAutomaticHide; fi
+          test_ids=(-only-testing:CinemaIQUITests/AdaptiveLayoutTests)
+          if [ "$UI_TEST_SCENARIO" = parity ]; then
+            test_ids=(-only-testing:CinemaIQUITests/ArtworkParityTests -only-testing:CinemaIQUITests/PhoneParityTests)
+            if [ "$IOS_TEST_KIND" = iphone ]; then test_ids+=(-only-testing:CinemaIQUITests/MovieControlsTests); fi
+          fi
+          if [ "$UI_TEST_SCENARIO" = movie_controls ]; then test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests); fi
+          if [ "$UI_TEST_SCENARIO" = movie_controls_apple ]; then test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests/testAppleControlsReturnAfterAutomaticHide); fi
+          if [ "$UI_TEST_SCENARIO" = episodes ]; then test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests/testPendingPauseEpisodeSheetKeepsCurrentAndSelectsNext); fi
+          if [ "$UI_TEST_SCENARIO" = movie_and_episodes ]; then
+            test_ids=(-only-testing:CinemaIQUITests/MovieControlsTests
+                      -only-testing:CinemaIQUITests/ArtworkParityTests/testSeriesHasSeasonButtonAndHorizontallyScrollableEpisodeCards)
+          fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQ \
             -destination "id=$IOS_TEST_DEVICE" \
-            -only-testing:"$test_id" \
+            "${test_ids[@]}" \
             -derivedDataPath "$RUNNER_TEMP/iOSDerived" -resultBundlePath "$RUNNER_TEMP/ios-layout.xcresult" \
             -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
@@ -133,9 +148,10 @@ jobs:
       - name: Export simulator evidence
         if: always()
         run: |
+          python3 ios/scripts/collect-ui-fallback.py
           if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
-            find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence" || true
+            if [ -d "$RUNNER_TEMP/ios-evidence" ]; then find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete; fi
           fi
           grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
       - uses: actions/upload-artifact@v4
@@ -146,6 +162,7 @@ jobs:
             ${{ runner.temp }}/ios-build.log
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
+            ${{ runner.temp }}/ios-fallback-evidence
             ${{ runner.temp }}/simulator-ready.png
           retention-days: 1
           if-no-files-found: warn

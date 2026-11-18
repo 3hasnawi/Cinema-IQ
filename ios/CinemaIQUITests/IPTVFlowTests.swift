@@ -5,9 +5,15 @@ import UIKit
 final class IPTVFlowTests: XCTestCase {
     private let app = XCUIApplication()
     private var tablet: Bool { UIDevice.current.userInterfaceIdiom == .pad }
-    private let baseArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-iptv", "--cinema-ui-testing-player"]
+    private let baseArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-iptv", "--cinema-ui-testing-player", "--cinema-ui-testing-hero-artwork"]
     override func setUp() {
         continueAfterFailure = false
+        // These end-to-end cases retain native input, process relaunch and real decoding.
+        // Allow hosted AX/startup overhead without changing any in-app timeout.
+        if name.contains("testM3U") || name.contains("testKeyboardNextDoneMetadataPopoversAndOfflineLastChannelRestore") {
+            executionTimeAllowance = 360
+        }
+        KeyboardTestSupport.installIntroductionMonitor(on: self)
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = baseArguments + ["--cinema-ui-testing-iptv-reset"]
         if name.contains("testCompatibilityDecoderWithTracksAndRotation") { app.launchArguments += ["--cinema-ui-testing-compatibility"] }
@@ -16,11 +22,13 @@ final class IPTVFlowTests: XCTestCase {
     }
     override func tearDown() {
         screenshot("last-state")
-        let hierarchy = XCTAttachment(string: app.debugDescription)
+        let tree = app.debugDescription
+        SimulatorEvidence.hierarchy(tree, test: name)
+        let hierarchy = XCTAttachment(string: tree)
         hierarchy.name = "iptv-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
         app.terminate()
     }
-    func testM3UPersistsFiltersAndPlaysInsideApp() {
+    func testM3UBrowserFiltersHTTPConsentAndKeychainPersistence() {
         openAdd()
         fill("ios.iptv.form.name", "M3U Test")
         fill("ios.iptv.form.address", "http://iptv.example/channels.m3u\n")
@@ -35,10 +43,7 @@ final class IPTVFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["قناة الرياضة"].exists)
         // The two lists must stay above the system tab bar, including their last visible row.
         if !tablet {
-            let tab = app.tabBars.firstMatch.frame
-            for row in app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.iptv.channel.")).allElementsBoundByIndex where row.isHittable {
-                XCTAssertLessThanOrEqual(row.frame.maxY, tab.minY + 1)
-            }
+            assertVisibleChannelRowsStayAboveTabBar()
         }
         screenshot("m3u-channels")
         // A different channel tunes in place; the current channel opens full screen on a second tap.
@@ -66,8 +71,15 @@ final class IPTVFlowTests: XCTestCase {
         // Keep the isolated Keychain service, remove only the reset launch flag, then relaunch.
         app.terminate(); app.launchArguments = baseArguments; app.launch(); openIPTV()
         XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20), "The saved source must reload from Keychain")
-        app.buttons["قناة الأخبار"].tap()
-        if !element("ios.iptv.player.close").exists { app.buttons["قناة الأخبار"].tap() }
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+    func testM3UInternalPlayerGuideQualityRotationAndClose() {
+        openAdd()
+        fill("ios.iptv.form.name", "M3U Player")
+        fill("ios.iptv.form.address", "https://iptv.example/channels.m3u\n")
+        connect()
+        XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
+        element("ios.iptv.browser.fullscreen").tap()
         XCTAssertTrue(element("ios.iptv.player.close").waitForExistence(timeout: 20))
         // Playback status stays accessible after the production HUD timer hides its labels.
         waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
@@ -140,7 +152,8 @@ final class IPTVFlowTests: XCTestCase {
         fill("ios.iptv.form.address", "https://xtream.example\n")
         fill("ios.iptv.form.username", "demo\n")
         let password = app.secureTextFields["ios.iptv.form.password"]
-        XCTAssertTrue(password.waitForExistence(timeout: 10)); password.tap(); password.typeText("demo\n")
+        XCTAssertTrue(password.waitForExistence(timeout: 10)); password.tap(); dismissKeyboardIntroductionIfPresent(); password.typeText("demo\n")
+        dismissKeyboardIntroductionIfPresent()
         connect()
         XCTAssertTrue(app.buttons["Xtream News"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["Xtream Sport"].exists)
@@ -148,10 +161,104 @@ final class IPTVFlowTests: XCTestCase {
         element("ios.iptv.browser.search.toggle").tap()
         let search = app.textFields["ios.iptv.browser.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 10))
-        search.tap(); search.typeText("News")
+        search.tap(); dismissKeyboardIntroductionIfPresent(); search.typeText("News")
         waitFor { self.app.buttons["Xtream News"].exists && !self.app.buttons["Xtream Sport"].exists }
+        dismissKeyboardIntroductionIfPresent()
+        let done = app.buttons["ios.iptv.browser.search.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10)); done.tap()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertTrue(search.exists, "Search results must remain available after Done dismisses the keyboard")
         screenshot("xtream-search")
         XCTAssertEqual(app.state, .runningForeground)
+    }
+    func testCategorySearchSubmitAndDoneDismissBeforeSelection() {
+        openAdd()
+        fill("ios.iptv.form.name", "Category Keyboard\n")
+        // Native Next must leave the address as the first responder, then URL Done dismisses.
+        typeIntoFocusedField("https://iptv.example/channels.m3u\n")
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(app.textFields["ios.iptv.form.address"].value as? String, "https://iptv.example/channels.m3u")
+        connect()
+        XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
+        app.buttons["ios.iptv.groups"].tap()
+        let search = app.textFields["ios.iptv.groupPicker.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10)); search.tap(); dismissKeyboardIntroductionIfPresent(); search.typeText("Sport\n")
+        dismissKeyboardIntroductionIfPresent()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(search.value as? String, "Sport")
+        search.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        let clear = element("ios.iptv.groupPicker.search.clear")
+        XCTAssertTrue(clear.waitForExistence(timeout: 10)); clear.tap()
+        dismissKeyboardIntroductionIfPresent()
+        let done = app.buttons["ios.iptv.groupPicker.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10)); done.tap()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        let sport = element("ios.iptv.groupPicker.رياضة")
+        XCTAssertTrue(sport.waitForExistence(timeout: 10)); sport.tap()
+        waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        screenshot("category-search-submit-done-and-selection")
+    }
+    func testKeyboardNextDoneMetadataPopoversAndOfflineLastChannelRestore() {
+        openAdd()
+        app.segmentedControls.buttons["Xtream"].tap()
+        fill("ios.iptv.form.name", "Keyboard Cache\n")
+        // Send input to the actual first responder to verify native Next traversal,
+        // rather than tapping each destination field and masking a focus failure.
+        typeIntoFocusedField("https://xtream.example\n")
+        typeIntoFocusedField("demo\n")
+        typeIntoFocusedField("demo\n")
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(app.textFields["ios.iptv.form.address"].value as? String, "https://xtream.example")
+        XCTAssertEqual(app.textFields["ios.iptv.form.username"].value as? String, "demo")
+        connect()
+        XCTAssertTrue(app.buttons["Xtream News"].waitForExistence(timeout: 20))
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        app.buttons["Xtream Sport"].tap()
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        app.buttons["Xtream News"].tap()
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        element("ios.iptv.browser.fullscreen").tap()
+        let programmes = element("ios.iptv.player.programmes")
+        waitFor { programmes.exists && programmes.label.contains("نشرة الأخبار التجريبية") && programmes.label.contains("البرنامج التالي التجريبي") }
+        tapPlayerControl("quality")
+        let popup = element("ios.iptv.track.popup")
+        XCTAssertTrue(popup.waitForExistence(timeout: 10)); inside(popup)
+        XCTAssertLessThan(popup.frame.height, app.frame.height * 0.8, "Track options should fit their content instead of occupying a large sheet")
+        element("ios.iptv.quality.auto").tap()
+        waitFor { !popup.exists }
+        tapPlayerControl("channels")
+        XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 10))
+        let guideSearch = app.textFields["ios.iptv.guide.search"]
+        XCTAssertTrue(guideSearch.waitForExistence(timeout: 10)); guideSearch.tap(); dismissKeyboardIntroductionIfPresent(); guideSearch.typeText("Sport\n")
+        dismissKeyboardIntroductionIfPresent()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(guideSearch.value as? String, "Sport", "Native Search must dismiss the keyboard without clearing the query")
+        guideSearch.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        dismissKeyboardIntroductionIfPresent()
+        let guideDone = app.buttons["ios.iptv.guide.search.done"]
+        XCTAssertTrue(guideDone.waitForExistence(timeout: 10)); guideDone.tap()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        element("ios.iptv.guide.group.الأخيرة").tap()
+        let sport = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "ios.iptv.guide.channel.", "Xtream Sport")).firstMatch
+        XCTAssertTrue(sport.waitForExistence(timeout: 10)); sport.tap()
+        waitFor { self.element("ios.iptv.player.title").label == "Xtream Sport" }
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        screenshot("television-programmes-and-touch-popovers")
+        tapPlayerControl("close")
+        waitFor { (self.element("ios.iptv.browser.section.الأخيرة").value as? String) == "محدد" }
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        // Retain Keychain/cache and block every catalogue request on the next launch.
+        // Reentry must still restore the recent channel from the encrypted local cache.
+        app.terminate(); app.launchArguments = baseArguments + ["--cinema-ui-testing-iptv-offline"]; app.launch(); openIPTV()
+        XCTAssertTrue(app.buttons["Xtream Sport"].waitForExistence(timeout: 20))
+        waitFor { (self.element("ios.iptv.player.surface").value as? String) == "بث مباشر" }
+        element("ios.iptv.browser.fullscreen").tap()
+        waitFor { self.element("ios.iptv.player.title").label == "Xtream Sport" }
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        screenshot("cached-last-channel-restored-without-provider-network")
     }
     private func showPlayerControls() {
         for _ in 0..<4 {
@@ -159,6 +266,21 @@ final class IPTVFlowTests: XCTestCase {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         XCTAssertTrue(element("ios.iptv.player.close").exists)
+    }
+    private func assertVisibleChannelRowsStayAboveTabBar() {
+        // Inspect one consistent layout instead of issuing separate AX visibility/frame
+        // requests for every row while the video continues updating its clock.
+        guard let root = try? app.snapshot() else { XCTFail("Channel layout snapshot unavailable"); return }
+        var pending = [root], nodes: [any XCUIElementSnapshot] = []
+        while let node = pending.popLast() { nodes.append(node); pending.append(contentsOf: node.children) }
+        guard let tab = nodes.first(where: { $0.elementType == .tabBar }) else { XCTFail("The native phone tab bar must be present"); return }
+        let rows = nodes.filter {
+            guard $0.identifier.hasPrefix("ios.iptv.channel."), !$0.frame.isEmpty else { return false }
+            let center = CGPoint(x: $0.frame.midX, y: $0.frame.midY)
+            return root.frame.contains(center) && !tab.frame.contains(center)
+        }
+        XCTAssertFalse(rows.isEmpty, "The current channel list must expose visible rows")
+        for row in rows { XCTAssertLessThanOrEqual(row.frame.maxY, tab.frame.minY + 1) }
     }
     private func tapPlayerControl(_ name: String) {
         let identifier = "ios.iptv.player." + name
@@ -176,7 +298,19 @@ final class IPTVFlowTests: XCTestCase {
             let clip = name == "close" ? root.frame :
                 (nodes.first(where: { $0.identifier == "ios.iptv.player.controls" })?.frame ?? root.frame.insetBy(dx: 16, dy: 0))
             if !frame.isEmpty && point.x.isFinite && point.y.isFinite && root.frame.contains(point) && clip.insetBy(dx: 2, dy: 0).contains(point) {
+                if name == "close", (nodes.first(where: { $0.identifier == "ios.iptv.player.surface" })?.value as? String) == "بث مباشر" {
+                    // Cache geometry before the production timeout, then reveal a fresh HUD.
+                    // No live AX/snapshot queries can consume its five seconds before Close.
+                    waitFor { !self.element("ios.iptv.player.close").exists }
+                    center.tap()
+                    app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+                    XCTAssertTrue(element("ios.iptv.browser.fullscreen").waitForExistence(timeout: 10))
+                    return
+                }
                 app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+                if name == "close" {
+                    XCTAssertTrue(element("ios.iptv.browser.fullscreen").waitForExistence(timeout: 10))
+                }
                 return
             }
             let strip = element("ios.iptv.player.controls")
@@ -186,15 +320,21 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func openIPTV() {
         if tablet {
-            // Exercise iPad's native IPTV tab/sidebar instead of a Browse stack restored across rotation.
-            let tab = app.descendants(matching: .any).matching(NSPredicate(
-                format: "label == %@ AND (elementType == %d OR elementType == %d)", "IPTV",
-                XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue)).firstMatch
-            if !tab.exists || !tab.isHittable {
-                let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
-                if sidebar.exists && sidebar.isHittable { sidebar.tap() }
+            // Collapsed top tabs can expose a clipped AX frame that still hits Home.
+            // Open the actual native sidebar and select its exact television cell.
+            func sidebarRow() -> XCUIElement? {
+                app.cells.matching(NSPredicate(format: "label == %@", "التلفزيون"))
+                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
             }
-            XCTAssertTrue(tab.waitForExistence(timeout: 25)); tab.tap()
+            if sidebarRow() == nil {
+                let toggle = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'"))
+                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+                XCTAssertNotNil(toggle, "The iPad sidebar must be reachable"); toggle?.tap()
+            }
+            waitFor { sidebarRow() != nil }; sidebarRow()?.tap()
+            let hide = app.buttons.matching(NSPredicate(format: "label == 'Hide Sidebar' OR (label CONTAINS 'إخفاء' AND label CONTAINS 'الشريط الجانبي')"))
+                .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+            hide?.tap()
             // iPad may move Add into its native toolbar overflow beside the tab capsule.
             XCTAssertTrue(element("ios.iptv.groups").waitForExistence(timeout: 20))
             screenshot("ipad-entry")
@@ -225,7 +365,16 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func fill(_ id: String, _ value: String) {
         let field = app.textFields[id]
-        XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(value)
+        XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); dismissKeyboardIntroductionIfPresent(); field.typeText(value)
+        dismissKeyboardIntroductionIfPresent()
+    }
+    private func typeIntoFocusedField(_ value: String) {
+        dismissKeyboardIntroductionIfPresent()
+        app.typeText(value)
+        dismissKeyboardIntroductionIfPresent()
+    }
+    private func dismissKeyboardIntroductionIfPresent() {
+        KeyboardTestSupport.dismissIntroductionIfPresent(in: app)
     }
     private func connect() {
         let button = element("ios.iptv.form.connect")
@@ -273,7 +422,10 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func inside(_ element: XCUIElement) { XCTAssertTrue(element.exists && app.frame.insetBy(dx: -2, dy: -2).contains(element.frame)) }
     private func screenshot(_ title: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = (tablet ? "ipad-" : "iphone-") + title; attachment.lifetime = .keepAlways; add(attachment)
+        let capture = XCUIScreen.main.screenshot()
+        let label = (tablet ? "ipad-" : "iphone-") + title
+        SimulatorEvidence.screenshot(capture, test: name, name: label)
+        let attachment = XCTAttachment(screenshot: capture)
+        attachment.name = label; attachment.lifetime = .keepAlways; add(attachment)
     }
 }

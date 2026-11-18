@@ -13,6 +13,7 @@ struct DetailView: View {
     @State private var seasonID = 0
     @State private var error: String?
     @State private var loading = true
+    @State private var loadID = UUID()
     @State private var expanded = false
     @State private var omdb: OMDbInfo?
     /// IMDb ratings of the episodes by season (season → episode → rating), from OMDb.
@@ -66,11 +67,11 @@ struct DetailView: View {
             }
             .padding(.bottom, 30)
         }
-        .background(Theme.ink)
+        .background(Theme.canvas)
         .accessibilityIdentifier("ios.detail")
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
-        .task { await load() }
+        .task(id: initial.id) { await load() }
     }
 
     private var header: some View {
@@ -78,9 +79,7 @@ struct DetailView: View {
             // Pulling the page down stretches the artwork instead of showing an empty gap.
             let stretch = max(0, geometry.frame(in: .scrollView).minY)
             ZStack {
-                Color.clear
-                    .overlay { Artwork(url: headerImage) }
-                    .clipped()
+                HeroArtwork(url: headerImage, fallbackURL: TVArtworkSelection.providerFallback(for: current, excluding: headerImage))
                 LinearGradient(stops: [
                     .init(color: .clear, location: 0.35),
                     .init(color: Theme.ink.opacity(0.75), location: 0.75),
@@ -116,15 +115,9 @@ struct DetailView: View {
         }
     }
 
-    /// OMDb's large poster when the work was found there, the source's artwork otherwise.
+    /// Use the same matched-landscape priority as Apple TV, with provider artwork while loading or on failure.
     private var headerImage: String {
-        if layout.spacious {
-            if !current.backdrop.isEmpty { return current.backdrop }
-            if let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
-        }
-        if let poster = omdb?.largePoster, !poster.isEmpty { return poster }
-        if current.backdrop.isEmpty, let backdrop = tmdb?.backdrop, !backdrop.isEmpty { return backdrop }
-        return current.backdrop.isEmpty ? current.poster : current.backdrop
+        TVArtworkSelection.url(for: current, tmdb: tmdb, fallbackPoster: omdb?.largePoster ?? "")
     }
     /// The source's Arabic story first; OMDb's (English) plot when the source has none.
     private var storyText: String {
@@ -159,10 +152,11 @@ struct DetailView: View {
             .disabled(target == nil || !current.isSupported)
             .accessibilityIdentifier("ios.detail.play")
             Button { library.toggle(current) } label: {
-                Image(systemName: library.isFavorite(current) ? "checkmark" : "plus").font(.headline)
+                Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
+                    .font(.headline).frame(width: 50, height: 50)
+                    .glass(in: Circle(), interactive: true).contentShape(Circle())
             }
-            .secondaryAction()
-            .buttonBorderShape(.circle)
+            .buttonStyle(.plain)
             .accessibilityLabel(library.isFavorite(current) ? "إزالة من قائمتي" : "إضافة إلى قائمتي")
             .accessibilityIdentifier("ios.detail.favorite")
         }
@@ -175,51 +169,70 @@ struct DetailView: View {
                 .font(.subheadline)
                 .foregroundStyle(Theme.muted)
                 .lineLimit(expanded ? nil : 4)
+                .accessibilityIdentifier("ios.detail.overview")
             Button(expanded ? "أقل" : "المزيد") { withAnimation(.smooth) { expanded.toggle() } }
                 .font(.footnote.weight(.semibold))
                 .tint(Theme.accent)
+                .accessibilityIdentifier("ios.detail.story.toggle")
         }
     }
 
     private var episodeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("الحلقات").font(.title3.bold())
-                Spacer()
-                if seasons.count > 1 {
-                    Menu {
-                        Picker("الموسم", selection: $seasonID) {
-                            ForEach(seasons) { season in Text(seasonTitle(season)).tag(season.id) }
+            Text("الحلقات").font(.title3.bold())
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(seasons) { season in
+                        Button { seasonID = season.id } label: {
+                            Text(seasonTitle(season)).font(.subheadline.weight(.semibold))
+                                .foregroundStyle(season.id == seasonID ? Theme.accent : .white)
+                                .padding(.horizontal, 14).frame(minHeight: 44)
+                                .glass(in: Capsule(), tint: season.id == seasonID ? Theme.accent.opacity(0.16) : nil,
+                                       interactive: true)
+                                .overlay(Capsule().stroke(season.id == seasonID ? Theme.accent.opacity(0.8) : .clear, lineWidth: 1))
                         }
-                    } label: {
-                        Label(seasons.first { $0.id == seasonID }.map(seasonTitle) ?? "الموسم \(seasonID)", systemImage: "chevron.down")
-                            .font(.subheadline.weight(.semibold))
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(season.id == seasonID ? .isSelected : [])
+                        .accessibilityIdentifier("ios.detail.season.\(season.id)")
                     }
-                    .menuStyle(.button)
-                    .secondaryAction()
-                } else {
-                    Text(seasons.first.map(seasonTitle) ?? "الموسم \(seasonID)").font(.subheadline).foregroundStyle(Theme.muted)
                 }
             }
-            LazyVStack(spacing: 14) {
-                ForEach(episodes) { episode in
-                    EpisodeRow(episode: episode, seriesTitle: current.title,
-                               rating: episodeRatings[seasonID]?[episode.episode], aired: aired(episode),
-                               fraction: library.fraction(episode),
-                               completed: library.progress[episode.id]?.completed == true) { play(episode) }
+            .scrollIndicators(.hidden)
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: 12) {
+                    ForEach(episodes) { episode in
+                        EpisodeCard(episode: episode, seriesTitle: current.title,
+                                    rating: episodeRatings[seasonID]?[episode.episode], aired: aired(episode),
+                                    fraction: library.fraction(episode),
+                                    completed: library.progress[episode.id]?.completed == true) { play(episode) }
+                    }
                 }
+                .scrollTargetLayout()
             }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollIndicators(.hidden)
+            // A different season starts at its first card rather than retaining the old season's offset.
+            .id(seasonID)
+            .accessibilityIdentifier("ios.detail.episodes")
             // One OMDb request per season, only once the season is shown.
             .task(id: seasonID) {
-                guard seasonID > 0, episodeRatings[seasonID] == nil, let client = OMDb.shared else { return }
-                let found = await client.seasonDetails(for: current, season: seasonID)
-                if !found.ratings.isEmpty { episodeRatings[seasonID] = found.ratings }
-                if !found.released.isEmpty { omdbSeasons[seasonID] = found }
+#if DEBUG
+                guard !HeroArtwork.fixtureEnabled else { return }
+#endif
+                let selected = seasonID, work = current
+                guard selected > 0, episodeRatings[selected] == nil, let client = OMDb.shared else { return }
+                let found = await client.seasonDetails(for: work, season: selected)
+                guard !Task.isCancelled, seasonID == selected, current.id == work.id else { return }
+                if !found.ratings.isEmpty { episodeRatings[selected] = found.ratings }
+                if !found.released.isEmpty { omdbSeasons[selected] = found }
             }
             // TMDB's dates for the chosen season, once the series is matched.
             .task(id: "\(seasonID)-\(tmdb?.id ?? 0)") {
-                guard seasonID > 0, tmdbSeasons[seasonID] == nil, let work = tmdb, let client = TMDB.shared else { return }
-                if let found = await client.season(seasonID, of: work) { tmdbSeasons[seasonID] = found }
+                let selected = seasonID, identity = current.id
+                guard selected > 0, tmdbSeasons[selected] == nil, let work = tmdb, let client = TMDB.shared else { return }
+                let found = await client.season(selected, of: work)
+                guard !Task.isCancelled, seasonID == selected, current.id == identity, tmdb?.id == work.id else { return }
+                if let found { tmdbSeasons[selected] = found }
             }
         }
     }
@@ -280,30 +293,54 @@ struct DetailView: View {
     }
 
     private func load() async {
-        loading = true; error = nil
-        defer { loading = false }
+        let request = UUID(), requested = initial
+        loadID = request; loading = true; error = nil
+        if media?.id != requested.id {
+            media = nil; seasons = []; seasonID = 0; omdb = nil; tmdb = nil
+            episodeRatings = [:]; tmdbSeasons = [:]; omdbSeasons = [:]; expanded = false
+        }
+        defer { if loadID == request { loading = false } }
         do {
-            let (detail, found) = try await SourceClient().detail(initial)
+            let (detail, found) = try await SourceClient().detail(requested)
+            try Task.checkCancellation()
+            guard loadID == request else { return }
             media = detail
             seasons = found
-            // OMDb and TMDB at the same time.
-            async let omdbInfo: OMDbInfo? = OMDb.shared?.info(for: detail)
-            async let tmdbWork: TMDBWork? = TMDB.shared?.work(for: detail)
-            let (foundOMDb, foundTMDB) = await (omdbInfo, tmdbWork)
-            if omdb == nil { omdb = foundOMDb }
-            if tmdb == nil { tmdb = foundTMDB }
             if !found.contains(where: { $0.id == seasonID }) {
                 let opened: Int? = initial.episode > 0 && found.contains(where: { $0.id == initial.season }) ? initial.season : nil
-                seasonID = opened ?? found.first?.id ?? 0
+                let continued = target.flatMap { target in found.contains(where: { $0.id == target.season }) ? target.season : nil }
+                seasonID = opened ?? continued ?? found.first?.id ?? 0
             }
+            // Publish each provider's result independently; a slow ratings lookup must not delay landscape artwork.
+            async let ratings: Void = loadOMDb(for: detail, request: request)
+            async let artwork: Void = loadTMDB(for: detail, request: request)
+            _ = await (ratings, artwork)
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription
+            if !Task.isCancelled, loadID == request { self.error = error.localizedDescription }
         }
+    }
+
+    private func loadOMDb(for detail: Media, request: UUID) async {
+#if DEBUG
+        guard !HeroArtwork.fixtureEnabled else { return }
+#endif
+        let found = await OMDb.shared?.info(for: detail)
+        guard !Task.isCancelled, loadID == request, current.id == detail.id else { return }
+        if let found { omdb = found }
+    }
+
+    private func loadTMDB(for detail: Media, request: UUID) async {
+#if DEBUG
+        guard !HeroArtwork.fixtureEnabled else { return }
+#endif
+        let found = await TMDB.shared?.work(for: detail)
+        guard !Task.isCancelled, loadID == request, current.id == detail.id else { return }
+        if let found { tmdb = found }
     }
 }
 
-private struct EpisodeRow: View {
+private struct EpisodeCard: View {
     @Environment(\.contentLayout) private var layout
     let episode: Media
     let seriesTitle: String
@@ -312,6 +349,7 @@ private struct EpisodeRow: View {
     let fraction: Double
     let completed: Bool
     let action: () -> Void
+    private var width: CGFloat { layout.spacious ? 300 : min(270, max(210, layout.size.width - 2 * layout.detailInset - 32)) }
     private var name: String {
         let title = episode.episodeTitle.isEmpty ? episode.title : episode.episodeTitle
         return title == seriesTitle ? "" : title
@@ -324,9 +362,9 @@ private struct EpisodeRow: View {
     }
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
                 ArtworkTile(url: episode.poster.isEmpty ? episode.backdrop : episode.poster, aspect: 16.0 / 9.0, corner: 12)
-                    .frame(width: layout.episodeImageWidth)
+                    .frame(width: width)
                     .overlay {
                         Image(systemName: "play.fill")
                             .font(.subheadline)
@@ -348,6 +386,7 @@ private struct EpisodeRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .frame(width: width, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

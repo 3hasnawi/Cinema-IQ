@@ -69,7 +69,17 @@ struct TVPlayerView: View {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
-                         episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel })
+                         episodesKey: queue.map(\.id).joined(separator: ",") + "|" + current.id, episodes: { episodesPanel },
+                         playPause: {
+#if DEBUG
+                            controller.recordRemotePlayPauseForTesting()
+#endif
+                            controller.togglePlay()
+                         }, trace: { event in
+#if DEBUG
+                            controller.recordNativePresentationForTesting(event)
+#endif
+                         })
                 // AVKit positions its transport popovers in playback coordinates. Mirroring that
                 // controller with the surrounding Arabic UI can put a menu beyond the screen edge.
                 // Arabic labels retain their natural text direction; only the system chrome is LTR.
@@ -125,10 +135,18 @@ struct TVPlayerView: View {
 #if DEBUG
         .overlay(alignment: .topLeading) {
             if UITestSupport.playerFixtureEnabled && !exiting {
-                // Observe the real decoder clock without exposing an extra remote focus target.
-                Text(verbatim: "\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
+                let nativeTime = controller.player.currentTime().seconds
+                let actual = controller.hasNativeItem && nativeTime.isFinite ? Int(nativeTime) : -1
+                // Requested position can remain pending while paused. Expose the actual
+                // decoder clock separately; keep quality values last for existing probes.
+                VStack(spacing: 0) {
+                Text(verbatim: "\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(actual)|\(controller.player.currentItem?.status.rawValue ?? -1)|\(controller.nativeSeekPendingForTesting)|\(controller.remotePlayPauseCountForTesting)|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
                     .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
                     .accessibilityIdentifier("tv.player.testClock").allowsHitTesting(false)
+                Text(verbatim: controller.nativeTraceForTesting)
+                    .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
+                    .accessibilityIdentifier("tv.player.nativeTrace").allowsHitTesting(false)
+                }
             }
         }
 #endif
@@ -427,12 +445,17 @@ struct SystemPlayer: UIViewControllerRepresentable {
     let actions: () -> [UIAction]
     let episodesKey: String
     let episodes: () -> [UIViewController]
+    let playPause: () -> Void
+    let trace: (String) -> Void
 
-    final class Coordinator {
+    @MainActor final class Coordinator {
         var menuKey: String?
         var actionKey: String?
         var titleKey: String?
         var episodesKey: String?
+        var playPause: () -> Void = {}
+        var trace: (String) -> Void = { _ in }
+        lazy var remote = TVMoviePlayPauseAdapter { [weak self] in self?.playPause() }
     }
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -446,11 +469,22 @@ struct SystemPlayer: UIViewControllerRepresentable {
         // One subtitle button: Cinema iQ's menu (source files, embedded tracks, size and background). Allowing no
         // language hides the system's own subtitle button.
         controller.allowedSubtitleOptionLanguages = ["zxx"]
+        context.coordinator.playPause = playPause
+        context.coordinator.trace = trace
+        context.coordinator.remote.install(on: controller.view)
+        let report = trace
+        Task { @MainActor in report("avkit-bind") }
         return controller
     }
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
         let state = context.coordinator
-        if controller.player !== player { controller.player = player }
+        state.playPause = playPause
+        state.trace = trace
+        if controller.player !== player {
+            controller.player = player
+            let report = trace
+            Task { @MainActor in report("avkit-rebind") }
+        }
         if state.menuKey != menuKey {
             state.menuKey = menuKey
             controller.transportBarCustomMenuItems = menus()
@@ -487,6 +521,11 @@ struct SystemPlayer: UIViewControllerRepresentable {
         controller.transportBarCustomMenuItems = []
         controller.contextualActions = []
         controller.customInfoViewControllers = []
+        coordinator.remote.uninstall()
+        let report = coordinator.trace
+        Task { @MainActor in report("avkit-detach") }
+        coordinator.playPause = {}
+        coordinator.trace = { _ in }
         controller.player = nil
     }
 }

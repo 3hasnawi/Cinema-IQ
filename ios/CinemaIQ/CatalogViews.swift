@@ -14,6 +14,8 @@ struct CatalogGrid: View {
     @State private var message: String?
     /// The tab (movies or series) whose items are loaded.
     @State private var loadedSeries: Bool?
+    @State private var generation = UUID()
+    @State private var paginationTask: Task<Void, Never>?
 
     var body: some View {
         ScrollView {
@@ -27,14 +29,14 @@ struct CatalogGrid: View {
                 LazyVGrid(columns: layout.gridColumns, spacing: 18) {
                     ForEach(items) { media in
                         PosterCard(media: media, routeKey: "grid-\(media.id)", width: nil)
-                            .onAppear { if media.id == items.last?.id { Task { await load() } } }
+                            .onAppear { if media.id == items.last?.id { requestPage() } }
                     }
                 }
                 .padding(.horizontal, layout.sideInset)
                 if loading {
                     ProgressView().padding()
                 } else if let message {
-                    ErrorState(message: message) { Task { await load() } }
+                    ErrorState(message: message, retry: requestPage)
                 } else if items.isEmpty && !more {
                     ContentUnavailableView("لا توجد نتائج", systemImage: "magnifyingglass",
                                            description: Text("جرّب كلمة أخرى أو مصدراً آخر."))
@@ -47,34 +49,49 @@ struct CatalogGrid: View {
         .task(id: series) {
             // Returning from a title page re-runs this task: keep the loaded grid and its scroll position.
             if loadedSeries == series && !items.isEmpty { return }
+            paginationTask?.cancel(); paginationTask = nil
+            let request = UUID(); generation = request
             items = []; page = 0; more = true; message = nil; loading = false
             // Typing restarts this task, so a search runs once the viewer pauses.
             if !query.isEmpty {
                 try? await Task.sleep(for: .milliseconds(350))
                 if Task.isCancelled { return }
             }
-            await load()
+            await load(request)
+        }
+        .onDisappear {
+            generation = UUID(); paginationTask?.cancel(); paginationTask = nil; loading = false
         }
     }
 
-    private func load() async {
-        guard !loading, more else { return }
+    private func requestPage() {
+        guard !loading, more, paginationTask == nil else { return }
+        let request = generation
+        paginationTask = Task {
+            await load(request)
+            if generation == request { paginationTask = nil }
+        }
+    }
+
+    private func load(_ request: UUID) async {
+        guard generation == request, !Task.isCancelled, !loading, more else { return }
         let kind = series
+        let requestedPage = page + 1
         loading = true; message = nil
-        defer { loading = false }
+        defer { if generation == request { loading = false } }
         do {
-            let result = try await SourceClient().catalog(source, series: kind, query: query, page: page + 1)
+            let result = try await SourceClient().catalog(source, series: kind, query: query, page: requestedPage)
             // A late answer for the other tab must not be mixed into this one.
-            guard kind == series, !Task.isCancelled else { return }
+            guard generation == request, kind == series, !Task.isCancelled else { return }
             let existing = Set(items.map(\.id))
             let additions = result.filter { !existing.contains($0.id) }
             items.append(contentsOf: additions)
             loadedSeries = kind
-            page += 1
+            page = requestedPage
             more = !additions.isEmpty && source != .dawwirli
         } catch is CancellationError {
         } catch {
-            if kind == series && !Task.isCancelled { message = error.localizedDescription }
+            if generation == request && kind == series && !Task.isCancelled { message = error.localizedDescription }
         }
     }
 }
@@ -85,7 +102,7 @@ struct BrowseView: View {
     var body: some View {
         CatalogGrid(source: SourcePreference.source(sourceName), query: "")
             .id(sourceName)
-            .background(Theme.ink)
+            .background(Theme.canvas)
             .navigationTitle("تصفّح")
             .navigationDestination(isPresented: $fixtureIPTV) { IPTVView() }
             .task {
@@ -96,7 +113,7 @@ struct BrowseView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 NavigationLink { IPTVView() } label: {
                     HStack(spacing: 12) {
-                        Label("IPTV", systemImage: "dot.radiowaves.left.and.right").font(.headline)
+                        Label("التلفزيون", systemImage: PhoneTelevisionSymbol.name).font(.headline)
                         Spacer()
                         Text("القنوات المباشرة").font(.subheadline).foregroundStyle(.secondary)
                         Image(systemName: "chevron.forward").font(.caption)
@@ -107,7 +124,7 @@ struct BrowseView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("ios.browse.iptv")
                 .padding(.horizontal, 18).padding(.vertical, 8)
-                .background(Theme.ink)
+                .background(Theme.canvas)
             }
             .toolbar { ToolbarItem(placement: .topBarTrailing) { SourceMenu() } }
     }
@@ -118,6 +135,7 @@ struct SearchView: View {
     @EnvironmentObject private var library: LibraryStore
     @AppStorage(SourcePreference.key) private var sourceName = SourcePreference.fallback.rawValue
     @State private var query = ""
+    @FocusState private var searchFocused: Bool
     private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     var body: some View {
         Group {
@@ -139,7 +157,7 @@ struct SearchView: View {
                                 Button("مسح") { library.clearSearches() }.font(.subheadline)
                             }
                             ForEach(library.searches, id: \.self) { text in
-                                Button { query = text } label: {
+                                Button { query = text; searchFocused = false } label: {
                                     Label(text, systemImage: "clock.arrow.circlepath")
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.vertical, 8)
@@ -153,10 +171,13 @@ struct SearchView: View {
                 }
             }
         }
-        .background(Theme.ink)
+        .background(Theme.canvas)
         .navigationTitle("البحث")
         .searchable(text: $query, prompt: "اسم الفيلم أو المسلسل")
-        .onSubmit(of: .search) { library.remember(search: trimmed) }
+        .searchFocused($searchFocused)
+        .onSubmit(of: .search) { library.remember(search: trimmed); searchFocused = false }
+        .scrollDismissesKeyboard(.interactively)
+        .onDisappear { searchFocused = false }
         .toolbar { ToolbarItem(placement: .topBarTrailing) { SourceMenu() } }
     }
 }
@@ -201,7 +222,7 @@ struct LibraryView: View {
             }
             .padding(.vertical, 8)
         }
-        .background(Theme.ink)
+        .background(Theme.canvas)
         .navigationTitle("مكتبتي")
     }
 }
@@ -216,6 +237,8 @@ enum SubtitlePreference {
     static let backgrounds: [(String, Double)] = [("بدون", 0), ("خفيفة", 0.25), ("متوسطة", 0.5), ("داكنة", 0.75)]
 }
 
+private enum AccountInput: Hashable { case email, password, profile }
+
 struct SettingsView: View {
     @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
@@ -224,6 +247,8 @@ struct SettingsView: View {
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
+    @AppStorage(PhonePlaybackPreference.qualityKey) private var preferredQuality = VideoQuality.automatic.rawValue
+    @FocusState private var accountInput: AccountInput?
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
     var body: some View {
         Form {
@@ -245,7 +270,7 @@ struct SettingsView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                AccountRows()
+                AccountRows(focusedInput: $accountInput)
             } header: {
                 Text("حساب Cinema iQ والمزامنة")
             } footer: {
@@ -264,6 +289,20 @@ struct SettingsView: View {
                 Text("اختر المصدر الذي تدعمه شبكة الإنترنت لديك. الأعمال المحفوظة تبقى مرتبطة بمصدرها الأصلي.")
             }
             ExternalSourcesSection()
+            Section {
+                Picker("الجودة المفضلة", selection: $preferredQuality) {
+                    ForEach(VideoQuality.allCases, id: \.rawValue) { quality in
+                        Text(quality.title).tag(quality.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("ios.settings.quality")
+                .accessibilityValue((VideoQuality(rawValue: preferredQuality) ?? .automatic).title)
+            } header: {
+                Text("التشغيل")
+            } footer: {
+                Text("يختار «تلقائي» البث المتكيف عند توفره. الجودة المتاحة تعتمد على المصدر، ويمكن تغييرها أثناء المشاهدة.")
+            }
             Section {
                 Picker("الترجمة المفضلة", selection: $subtitleLanguage) {
                     ForEach(SubtitlePreference.languages.indices, id: \.self) { index in Text(SubtitlePreference.languages[index].0).tag(SubtitlePreference.languages[index].1) }
@@ -294,12 +333,25 @@ struct SettingsView: View {
             }
         }
         .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.interactively)
         .frame(maxWidth: layout.formWidth)
         .frame(maxWidth: .infinity)
-        .background(Theme.ink)
+        .background(Theme.canvas)
         .accessibilityIdentifier("ios.settings")
         .navigationTitle("الإعدادات")
         .navigationBarTitleDisplayMode(.inline)
+        // One form owns the keyboard toolbar and lifecycle; a Group of rows would
+        // propagate those modifiers into individual virtualized Form cells.
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                if accountInput != nil {
+                    Spacer()
+                    Button("تم") { accountInput = nil }
+                        .accessibilityIdentifier("ios.account.keyboard.done")
+                }
+            }
+        }
+        .onDisappear { accountInput = nil }
     }
 }
 
@@ -337,6 +389,7 @@ private struct AccountRows: View {
     @State private var password = ""
     @State private var profileName = ""
     @State private var confirmImport = false
+    @FocusState.Binding var focusedInput: AccountInput?
     private var profileBinding: Binding<String> {
         Binding(get: { cloud.profileID ?? "" }, set: { id in
             guard !id.isEmpty else { return }
@@ -344,6 +397,7 @@ private struct AccountRows: View {
         })
     }
     var body: some View {
+        Group {
         if !cloud.configured {
             Text("إعداد المزامنة غير متوفر في هذه النسخة.").foregroundStyle(.secondary)
         } else if let session = cloud.session {
@@ -354,7 +408,17 @@ private struct AccountRows: View {
                 Button("إعادة إرسال رابط التأكيد") { Task { await cloud.resendVerification() } }
             } else if cloud.profiles.isEmpty {
                 TextField("اسم الملف الشخصي", text: $profileName)
-                Button("إنشاء ملف شخصي") { Task { await cloud.createFirstProfile(name: profileName) } }
+                    .focused($focusedInput, equals: .profile)
+                    .submitLabel(.done).onSubmit { focusedInput = nil }
+                    .disabled(cloud.busy)
+                    .accessibilityIdentifier("ios.account.profileName")
+                Button("إنشاء ملف شخصي") {
+                    focusedInput = nil
+                    let name = profileName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty, !cloud.busy else { return }
+                    Task { await cloud.createFirstProfile(name: name) }
+                }
+                .disabled(profileName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cloud.busy)
             } else {
                 Picker("الملف الشخصي", selection: profileBinding) {
                     if cloud.profileID == nil { Text("اختر ملفاً").tag("") }
@@ -374,29 +438,50 @@ private struct AccountRows: View {
                     if !cloud.status.isEmpty { Text(cloud.status).font(.footnote).foregroundStyle(Theme.muted) }
                 }
             }
-            Button("تسجيل الخروج", role: .destructive) { Task { await cloud.signOut() } }
+            Button("تسجيل الخروج", role: .destructive) { focusedInput = nil; Task { await cloud.signOut() } }
         } else {
             TextField("البريد الإلكتروني", text: $email)
                 .textContentType(.emailAddress)
                 .keyboardType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedInput, equals: .email)
+                .submitLabel(.next).onSubmit { focusedInput = .password }
+                .disabled(cloud.busy)
+                .accessibilityIdentifier("ios.account.email")
             SecureField("كلمة المرور", text: $password)
                 .textContentType(.password)
-            Button("تسجيل الدخول") {
-                Task { await cloud.signIn(email: email, password: password); password = "" }
-            }
+                .focused($focusedInput, equals: .password)
+                .submitLabel(.done).onSubmit { focusedInput = nil }
+                .disabled(cloud.busy)
+                .accessibilityIdentifier("ios.account.password")
+            Button("تسجيل الدخول") { submit(signUp: false) }
             .disabled(email.isEmpty || password.isEmpty || cloud.busy)
-            Button("إنشاء حساب جديد") {
-                Task { await cloud.signUp(email: email, password: password); password = "" }
-            }
+            .accessibilityIdentifier("ios.account.login")
+            Button("إنشاء حساب جديد") { submit(signUp: true) }
             .disabled(email.isEmpty || password.count < 6 || cloud.busy)
-            Button("نسيت كلمة المرور") { Task { await cloud.resetPassword(email: email) } }
+            .accessibilityIdentifier("ios.account.create")
+            Button("نسيت كلمة المرور") {
+                focusedInput = nil
+                let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+                Task { await cloud.resetPassword(email: address) }
+            }
                 .disabled(email.isEmpty || cloud.busy)
         }
         if cloud.busy { ProgressView().frame(maxWidth: .infinity) }
         if let message = cloud.message {
             Text(message).font(.footnote).foregroundStyle(Theme.accent)
+        }
+        }
+    }
+
+    private func submit(signUp: Bool) {
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines), secret = password
+        guard !cloud.busy, !address.isEmpty, !secret.isEmpty, !signUp || secret.count >= 6 else { return }
+        focusedInput = nil; password = ""
+        Task {
+            if signUp { await cloud.signUp(email: address, password: secret) }
+            else { await cloud.signIn(email: address, password: secret) }
         }
     }
 }

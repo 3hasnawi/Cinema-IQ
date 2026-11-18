@@ -27,7 +27,7 @@ struct RootView: View {
             }
             // The phone retains its five tabs and reaches IPTV from Browse; iPad also has a sidebar entry.
             if UIDevice.current.userInterfaceIdiom == .pad {
-                Tab("IPTV", systemImage: "dot.radiowaves.left.and.right", value: AppTab.iptv) {
+                Tab("التلفزيون", systemImage: PhoneTelevisionSymbol.name, value: AppTab.iptv) {
                     RoutedStack { IPTVView() }
                 }
             }

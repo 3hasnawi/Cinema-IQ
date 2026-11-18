@@ -3,6 +3,11 @@ import SwiftUI
 /// Cinema iQ colours, shared with the Android app.
 enum Theme {
     static let ink = Color(red: 0x1E / 255, green: 0x17 / 255, blue: 0x22 / 255)
+    static let canvas = LinearGradient(colors: [
+        Color(red: 0.24, green: 0.29, blue: 0.36),
+        Color(red: 0.14, green: 0.19, blue: 0.27),
+        Color(red: 0.07, green: 0.10, blue: 0.17)
+    ], startPoint: .topTrailing, endPoint: .bottomLeading)
     static let panel = Color(red: 0x2B / 255, green: 0x22 / 255, blue: 0x30 / 255)
     static let accent = Color(red: 1, green: 0x8A / 255, blue: 0x2B / 255)
     static let muted = Color(red: 0xB5 / 255, green: 0xA9 / 255, blue: 0xBC / 255)

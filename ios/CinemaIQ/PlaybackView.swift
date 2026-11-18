@@ -41,10 +41,11 @@ struct PlaybackView: View {
     /// IntroDB timings of what plays: the opening (skip button) and the start of the end credits.
     @State private var skips = SkipSegments()
     @State private var fetchedSeries: Media?
-    @StateObject private var controller = PlaybackController()
+    @StateObject private var controller = PlaybackController(enginePreference: .phoneMovies)
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var previousIdleSetting = false
     @State private var streams: [StreamChoice] = []
     @State private var quality: String?
@@ -52,10 +53,17 @@ struct PlaybackView: View {
     @State private var loading = false
     @State private var resolutionError: String?
     @State private var controlsVisible = true
+    @State private var exiting = false
+    @State private var episodesVisible = false
+    @State private var overlayInfo: OMDbInfo?
+    @State private var pauseFactsHeight: CGFloat = 0
     @State private var scrubbing: Double?
     /// The options panel: nil closed, otherwise the page shown in it.
     @State private var optionsPage: OptionsPage?
     @State private var optionsHeight: CGFloat = 0
+    @State private var qualityMode = VideoQuality.automatic
+    @State private var automaticQuality = true
+    @AppStorage(PhonePlaybackPreference.qualityKey) private var preferredQuality = VideoQuality.automatic.rawValue
     @AppStorage(SubtitlePreference.sizeKey) private var subtitleSize = 20.0
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
@@ -67,17 +75,24 @@ struct PlaybackView: View {
         guard let index = list.firstIndex(where: { $0.id == media.id }), list.indices.contains(index + 1) else { return nil }
         return list[index + 1]
     }
-    /// From the start of the end credits when IntroDB knows it, else for the last 15 seconds (as on Android).
+    /// Use IntroDB's credits, or the same final 20 seconds offered by the TV player.
     private var offerNext: Bool {
         guard next != nil, !controller.ended, let left = controller.remaining else { return false }
         if let credits = skips.creditsStart, controller.duration > 0, credits < controller.duration, controller.position >= credits { return true }
-        return left <= 15
+        return left <= 20
     }
     private var inIntro: Bool { skips.inIntro(controller.position) }
+    private var pausedInformation: Bool {
+        !controller.playing && !controller.buffering && !loading && !controller.ended &&
+            controller.position > 0 && resolutionError == nil && controller.error == nil
+    }
+    private var compactPlayer: Bool { layout.size.width > layout.size.height && layout.size.height < 500 }
+    private var pauseFactsVisible: Bool { pausedInformation && (!compactPlayer || (!offerNext && controller.notice == nil)) }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
+            if !exiting {
             PlaybackVideoSurface(controller: controller)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
@@ -87,7 +102,10 @@ struct PlaybackView: View {
                 .accessibilityValue(clock(controller.position))
             // Decoder views are deliberately noninteractive; a stable SwiftUI layer owns picture taps.
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { controlsVisible.toggle() }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    if optionsPage != nil { optionsPage = nil; controlsVisible = true }
+                    else { controlsVisible.toggle() }
+                }
             } label: {
                 Color.clear.contentShape(Rectangle())
             }
@@ -95,7 +113,28 @@ struct PlaybackView: View {
             .accessibilityLabel(controlsVisible ? "إخفاء أدوات المشغل" : "إظهار أدوات المشغل")
             .accessibilityIdentifier("ios.player.controls.toggle")
             subtitleLayer
-            if controlsVisible { controls.transition(.opacity) }
+            if pausedInformation && !controlsVisible {
+                VStack(alignment: .leading) {
+                    Text(selection.series?.title ?? fetchedSeries?.title ?? current.title)
+                        .font(.title3.bold()).lineLimit(2)
+                    Spacer()
+                    if pauseFactsVisible {
+                        MoviePauseFacts(media: current, info: overlayInfo, showOverview: !compactPlayer && controller.cue == nil)
+                            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pauseFactsHeight = $0 }
+                    }
+                }
+                .padding(.horizontal, 24).padding(.top, 36).padding(.bottom, 34)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
+            }
+            // Keep geometry ready for a quick second touch while revealing the HUD.
+            // Hidden controls leave both hit testing and the accessibility tree.
+            controls
+                .opacity(controlsVisible ? 1 : 0)
+                .allowsHitTesting(controlsVisible)
+                .accessibilityElement(children: controlsVisible ? .contain : .ignore)
+                .accessibilityHidden(!controlsVisible)
+                .animation(controlsVisible || reduceMotion ? nil : .easeInOut(duration: 0.3), value: controlsVisible)
             // Skip the opening: shown during it whether or not the controls are, above the timeline.
             if inIntro, let end = skips.introEnd, resolutionError == nil, controller.error == nil {
                 VStack {
@@ -123,10 +162,10 @@ struct PlaybackView: View {
                         if resolutionError == nil {
                             Menu("محرك التشغيل") { ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in Button(mode.title) { controller.chooseEngine(mode) } } }.menuStyle(.button).secondaryAction()
                         }
-                        if streams.count > 1 && resolutionError == nil {
+                        if !streams.isEmpty && resolutionError == nil {
                             Menu("جودة أخرى") { qualityItems }.menuStyle(.button).secondaryAction()
                         }
-                        Button("إغلاق") { dismiss() }.primaryAction()
+                        Button("إغلاق", action: exitPlayer).primaryAction()
                     }
                 }
                 .padding(24)
@@ -139,31 +178,66 @@ struct PlaybackView: View {
                         Button { active = next } label: { Label("الحلقة \(next.episode)", systemImage: "play.fill").font(.headline) }
                             .primaryAction()
                     }
-                    Button("إغلاق") { dismiss() }.secondaryAction()
+                    Button("إغلاق", action: exitPlayer).secondaryAction()
                 }
                 .padding(24)
                 .glass(in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             }
+            }
+        }
+#if DEBUG
+        .overlay(alignment: .topLeading) {
+            if UITestSupport.playerFixtureEnabled && !exiting {
+                let actual = controller.player.currentTime().seconds
+                Text(verbatim: "\(actual.isFinite ? Int(actual) : -1)|\(controller.playing)")
+                    .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
+                    .accessibilityIdentifier("ios.player.testClock").allowsHitTesting(false)
+            }
+        }
+#endif
+        .simultaneousGesture(DragGesture(minimumDistance: 32).onEnded { value in
+            if !exiting, optionsPage == nil, queue.count > 1,
+               value.translation.height < -55, abs(value.translation.height) > abs(value.translation.width) * 1.2 {
+                episodesVisible = true; controlsVisible = true
+            }
+        })
+        .sheet(isPresented: $episodesVisible, onDismiss: { controlsVisible = true }) {
+            ResponsiveContainer { MovieEpisodesSheet(episodes: queue, currentID: current.id,
+                               fraction: { library.fraction($0) }, select: { episode in
+                episodesVisible = false
+                if !exiting, episode.id != current.id { active = episode }
+            }) }
+            .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            .environment(\.layoutDirection, .rightToLeft)
         }
         .statusBarHidden(!controlsVisible)
         .persistentSystemOverlays(.hidden)
         // Controls fade after four seconds of playback; any change of state starts the wait again.
-        .task(id: "\(controlsVisible)-\(controller.playing)-\(scrubbing == nil)-\(optionsPage == nil)") {
+        .task(id: "\(controlsVisible)-\(controller.playing)-\(scrubbing == nil)-\(optionsPage == nil)-\(episodesVisible)") {
             #if DEBUG
             // The layout tour keeps its HUD visible; the controls regression uses the production timeout.
             guard !UITestSupport.playerFixtureEnabled ||
                 ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-player-controls") else { return }
             #endif
             // The controls must not fade while the options are open: that removed the panel under the finger.
-            guard controlsVisible, controller.playing, scrubbing == nil, optionsPage == nil else { return }
+            guard !exiting, controlsVisible, controller.playing, scrubbing == nil, optionsPage == nil, !episodesVisible else { return }
             try? await Task.sleep(for: .seconds(4))
             if !Task.isCancelled { withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false } }
         }
         .task(id: current.id) { await start(current) }
+        .task(id: "queue-\(current.id)") { await loadQueue(current) }
+        .task(id: "pause-info-\(current.id)-\(fetchedSeries?.id ?? "")") {
+            overlayInfo = nil
+            let identity = current.id
+            let found = await OMDb.shared?.info(for: selection.series ?? fetchedSeries ?? current)
+            guard !exiting, !Task.isCancelled, current.id == identity else { return }
+            overlayInfo = found
+        }
         .task(id: "skips-\(current.id)") {
             skips = SkipSegments()
+            let identity = current.id
             let found = await SkipTimings.load(current, series: selection.series ?? fetchedSeries, omdb: OMDb.shared)
-            guard !Task.isCancelled else { return }
+            guard !exiting, !Task.isCancelled, current.id == identity else { return }
             skips = found.segments
             if fetchedSeries == nil { fetchedSeries = found.series }
         }
@@ -172,7 +246,14 @@ struct PlaybackView: View {
             if value != .active { controller.persist(); controller.pause(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
             else { UIApplication.shared.isIdleTimerDisabled = true }
         }
-        .onDisappear { controller.close(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
+        .onDisappear { exiting = true; controller.close(); UIApplication.shared.isIdleTimerDisabled = previousIdleSetting }
+    }
+
+    private func exitPlayer() {
+        guard !exiting else { return }
+        exiting = true; optionsPage = nil; episodesVisible = false
+        controller.close()
+        dismiss()
     }
 
     // MARK: Layers
@@ -183,7 +264,7 @@ struct PlaybackView: View {
             if let cue = controller.cue {
                 SubtitleText(text: cue, size: subtitleSize, background: subtitleBackground)
                     .padding(.horizontal, 24)
-                    .padding(.bottom, controlsVisible ? 120 : 34)
+                    .padding(.bottom, pauseFactsVisible ? pauseFactsHeight + (controlsVisible ? 110 : 60) : (controlsVisible ? 120 : 34))
             }
         }
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
@@ -192,6 +273,7 @@ struct PlaybackView: View {
 
     private var controls: some View {
         ZStack {
+            if !pausedInformation {
             LinearGradient(colors: [.black.opacity(0.55), .clear, .clear, .black.opacity(0.6)], startPoint: .top, endPoint: .bottom)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
@@ -200,6 +282,7 @@ struct PlaybackView: View {
                         if optionsPage != nil { optionsPage = nil } else { controlsVisible = false }
                     }
                 }
+            }
             VStack(spacing: 14) {
                 topBar
                 Spacer()
@@ -221,6 +304,16 @@ struct PlaybackView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .overlay(alignment: .bottomLeading) {
+                if pauseFactsVisible {
+                    // Pause metadata must not move the existing transport buttons under a finger.
+                    MoviePauseFacts(media: current, info: overlayInfo, showOverview: !compactPlayer && controller.cue == nil)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pauseFactsHeight = $0 }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, (offerNext ? 116 : 54) + (controller.notice == nil ? 0 : 44))
+                        .allowsHitTesting(false)
+                }
+            }
             if let page = optionsPage {
                 VStack {
                     HStack {
@@ -238,7 +331,7 @@ struct PlaybackView: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            Button { dismiss() } label: {
+            Button(action: exitPlayer) {
                 Image(systemName: "xmark").font(.headline).frame(width: 24, height: 24)
             }
             .secondaryAction()
@@ -249,6 +342,7 @@ struct PlaybackView: View {
                 Text(current.title).font(.subheadline.bold())
                 if current.episode > 0 {
                     Text("الموسم \(current.season) • الحلقة \(current.episode)").font(.caption).foregroundStyle(.white.opacity(0.75))
+                        .accessibilityIdentifier("ios.player.episode.info")
                 }
             }
             .lineLimit(1)
@@ -284,17 +378,12 @@ struct PlaybackView: View {
     }
 
     @ViewBuilder private func optionsPanel(_ page: OptionsPage) -> some View {
-        Group {
-            if layout.isTablet {
-                ScrollView {
-                    optionContents(page)
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { optionsHeight = $0 }
-                }
-                .frame(height: min(optionsHeight > 0 ? optionsHeight : 180, layout.panelHeight))
-            } else {
-                optionContents(page)
+        ScrollView {
+            optionContents(page)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { optionsHeight = $0 }
             }
-        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(height: min(optionsHeight > 0 ? optionsHeight : 180, layout.panelHeight))
         .padding(8)
         .frame(width: layout.panelWidth)
         .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
@@ -306,8 +395,8 @@ struct PlaybackView: View {
         VStack(alignment: .leading, spacing: 2) {
             switch page {
             case .root:
-                if streams.count > 1 {
-                    optionRow("الجودة", icon: "slider.horizontal.3", value: streams.first { $0.id == qualityBinding.wrappedValue }?.quality) { optionsPage = .quality }
+                if !streams.isEmpty {
+                    optionRow("الجودة", icon: "slider.horizontal.3", value: automaticQuality ? VideoQuality.automatic.title : (qualityMode.height == nil ? streams.first { $0.id == quality }?.quality : qualityMode.title)) { optionsPage = .quality }
                 }
                 optionRow("الترجمة", icon: "captions.bubble", value: subtitleTitle) { optionsPage = .subtitles }
                 if controller.audioOptions.count > 1 {
@@ -315,6 +404,10 @@ struct PlaybackView: View {
                 }
                 optionRow("السرعة", icon: "gauge.with.dots.needle.67percent", value: rateLabel(controller.rate)) { optionsPage = .speed }
                 optionRow("محرك التشغيل", icon: "play.rectangle", value: controller.mode.title) { optionsPage = .engine }
+                if queue.count > 1 {
+                    optionRow("الحلقات", icon: "rectangle.stack", value: nil) { optionsPage = nil; episodesVisible = true }
+                        .accessibilityIdentifier("ios.player.episodes")
+                }
             case .engine:
                 panelHeader("محرك التشغيل")
                 ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { value in
@@ -324,8 +417,16 @@ struct PlaybackView: View {
                 Link("مصدر المكتبة والترخيص", destination: URL(string: "https://code.videolan.org/videolan/VLCKit")!).font(.caption).padding(14)
             case .quality:
                 panelHeader("الجودة")
-                ForEach(streams) { stream in
-                    choiceRow(stream.quality, selected: stream.id == qualityBinding.wrappedValue) { qualityBinding.wrappedValue = stream.id; optionsPage = nil }
+                choiceRow("تلقائي", selected: automaticQuality) { chooseQuality(.automatic); optionsPage = nil }
+                    .accessibilityIdentifier("ios.player.quality.auto")
+                if streams.contains(where: VideoQuality.looksLikeHLS) {
+                    ForEach(VideoQuality.allCases.filter { $0 != .automatic }, id: \.rawValue) { mode in
+                        choiceRow(mode.title, selected: !automaticQuality && qualityMode == mode) { chooseQuality(mode); optionsPage = nil }
+                    }
+                } else {
+                    ForEach(streams) { stream in
+                        choiceRow(stream.quality, selected: !automaticQuality && stream.id == quality) { choose(stream); optionsPage = nil }
+                    }
                 }
             case .audio:
                 panelHeader("الصوت")
@@ -339,11 +440,7 @@ struct PlaybackView: View {
                 }
             case .subtitles:
                 panelHeader("الترجمة")
-                if layout.isTablet {
-                    subtitleChoices
-                } else {
-                    ScrollView { subtitleChoices }.frame(maxHeight: 230)
-                }
+                subtitleChoices
             }
         }
     }
@@ -425,9 +522,8 @@ struct PlaybackView: View {
     }
 
     @ViewBuilder private var qualityItems: some View {
-        Picker("الجودة", selection: qualityBinding) {
-            ForEach(streams) { stream in Text(stream.quality).tag(stream.id) }
-        }
+        Button("تلقائي") { chooseQuality(.automatic) }
+        ForEach(streams) { stream in Button(stream.quality) { choose(stream) } }
     }
 
     private var transport: some View {
@@ -473,13 +569,22 @@ struct PlaybackView: View {
 
     // MARK: Bindings and helpers
 
-    private var qualityBinding: Binding<String> {
-        Binding(get: { quality ?? streams.first?.id ?? "" }, set: { id in
-            guard id != quality, let stream = streams.first(where: { $0.id == id }) else { return }
-            quality = id
-            controller.error = nil
-            open(current, stream: stream, resume: controller.position)
-        })
+    private func chooseQuality(_ mode: VideoQuality) {
+        guard let stream = mode.select(from: streams) else { return }
+        qualityMode = mode; automaticQuality = mode == .automatic
+        select(stream)
+    }
+    private func choose(_ stream: StreamChoice) {
+        automaticQuality = false
+        qualityMode = VideoQuality.allCases.first { $0.height == VideoQuality.resolution(stream.quality) } ?? .automatic
+        select(stream)
+    }
+    private func select(_ stream: StreamChoice) {
+        guard !exiting else { return }
+        let sameStream = quality == stream.id && controller.error == nil && controller.hasItem
+        quality = stream.id
+        if sameStream { controller.setQuality(maximumHeight: qualityMode.height) }
+        else { open(current, stream: stream, resume: controller.position, playing: controller.playbackRequested) }
     }
     private var subtitleBinding: Binding<String?> {
         Binding(get: { controller.subtitleID }, set: { controller.selectSubtitle($0, external: externalTracks) })
@@ -500,7 +605,8 @@ struct PlaybackView: View {
         return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 
-    private func open(_ media: Media, stream: StreamChoice, resume: Double) {
+    private func open(_ media: Media, stream: StreamChoice, resume: Double, playing shouldPlay: Bool = true) {
+        guard !exiting else { return }
         #if DEBUG
         guard let playbackURL = UITestSupport.playbackURL(or: stream.url) else {
             controller.error = "UI test player fixture is missing."
@@ -509,35 +615,48 @@ struct PlaybackView: View {
         #else
         let playbackURL = stream.url
         #endif
-        controller.open(media, url: playbackURL, resume: resume) { seconds, duration, completed in
+        controller.open(media, url: playbackURL, resume: resume, initiallyPlaying: shouldPlay && phase == .active) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
-        if phase != .active { controller.pause() }
+        controller.setQuality(maximumHeight: qualityMode.height)
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-pending-pause") {
+            controller.pause(); controller.seek(to: 30)
+        }
+#endif
+    }
+
+    private func loadQueue(_ media: Media) async {
+        guard !exiting, selection.queue.isEmpty, media.episode > 0,
+              !fetchedQueue.contains(where: { $0.id == media.id }) else { return }
+        guard let found = try? await SourceClient().detail(media),
+              !exiting, !Task.isCancelled, current.id == media.id else { return }
+        fetchedQueue = found.1.flatMap(\.episodes)
+        if found.0.isSeries && fetchedSeries == nil { fetchedSeries = found.0 }
     }
 
     private func start(_ media: Media) async {
+        guard !exiting else { return }
         controller.close(); controller.resetSubtitles(preferred: subtitleLanguage == "off" ? nil : subtitleLanguage)
         streams = []; externalTracks = []; quality = nil; loading = true; resolutionError = nil; controlsVisible = true
         async let tracks = SourceClient().subtitles(media)
-        // An episode opened from continue watching comes without its season: load it so the next episode is known.
-        if selection.queue.isEmpty, media.episode > 0, !fetchedQueue.contains(where: { $0.id == media.id }) {
-            Task {
-                if let found = try? await SourceClient().detail(media) { fetchedQueue = found.1.flatMap(\.episodes) }
-            }
-        }
         do {
             let result = try await SourceClient().streams(media)
             try Task.checkCancellation()
+            guard !exiting, current.id == media.id else { return }
             streams = result
-            quality = result[0].id
+            qualityMode = VideoQuality(rawValue: preferredQuality) ?? .automatic
+            automaticQuality = qualityMode == .automatic
+            guard let first = qualityMode.select(from: result) else { throw CinemaError.noStreams }
+            quality = first.id
             let prior = library.progress[media.id]
-            open(media, stream: result[0], resume: prior?.completed == false ? prior?.seconds ?? 0 : 0)
+            open(media, stream: first, resume: prior?.completed == false ? prior?.seconds ?? 0 : 0)
         } catch {
-            if !Task.isCancelled { resolutionError = error.localizedDescription }
+            if !exiting, !Task.isCancelled, current.id == media.id { resolutionError = error.localizedDescription }
         }
-        if !Task.isCancelled { loading = false }
+        if !exiting, !Task.isCancelled, current.id == media.id { loading = false }
         let found = await tracks
-        guard !Task.isCancelled else { return }
+        guard !exiting, !Task.isCancelled, current.id == media.id else { return }
         externalTracks = found
         // The preferred language from Settings, from the source's files, unless the viewer already chose.
         if controller.subtitleID == nil, let preferred = controller.preferredLanguage,

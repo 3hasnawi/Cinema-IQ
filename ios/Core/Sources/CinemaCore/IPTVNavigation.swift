@@ -7,6 +7,12 @@ public enum IPTVNavigation {
         return values.filter { $0.sourceID == sourceID && (group == nil || $0.group == group) &&
             (text.isEmpty || $0.name.localizedStandardContains(text) || $0.group.localizedStandardContains(text)) }
     }
+    /// Reuse a session's Recent order without retaining stale URLs, deleted membership or another source.
+    public static func preservingOrder(_ values: [IPTVChannel], sourceID: String, ids: [String]) -> [IPTVChannel] {
+        let current = Dictionary(values.filter { $0.sourceID == sourceID }.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen = Set<String>()
+        return ids.filter { seen.insert($0).inserted }.compactMap { current[$0] }
+    }
     /// Display numbers belong to the source catalog, not the current search/category result.
     public static func numbers(_ values: [IPTVChannel], sourceID: String) -> [String: Int] {
         var result: [String: Int] = [:]
