@@ -296,15 +296,21 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func openIPTV() {
         if tablet {
-            // Exercise iPad's native IPTV tab/sidebar instead of a Browse stack restored across rotation.
-            let tab = app.descendants(matching: .any).matching(NSPredicate(
-                format: "label == %@ AND (elementType == %d OR elementType == %d)", "التلفزيون",
-                XCUIElement.ElementType.button.rawValue, XCUIElement.ElementType.cell.rawValue)).firstMatch
-            if !tab.exists || !tab.isHittable {
-                let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
-                if sidebar.exists && sidebar.isHittable { sidebar.tap() }
+            // Collapsed top tabs can expose a clipped AX frame that still hits Home.
+            // Open the actual native sidebar and select its exact television cell.
+            func sidebarRow() -> XCUIElement? {
+                app.cells.matching(NSPredicate(format: "label == %@", "التلفزيون"))
+                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
             }
-            XCTAssertTrue(tab.waitForExistence(timeout: 25)); tab.tap()
+            if sidebarRow() == nil {
+                let toggle = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'"))
+                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+                XCTAssertNotNil(toggle, "The iPad sidebar must be reachable"); toggle?.tap()
+            }
+            waitFor { sidebarRow() != nil }; sidebarRow()?.tap()
+            let hide = app.buttons.matching(NSPredicate(format: "label == 'Hide Sidebar' OR (label CONTAINS 'إخفاء' AND label CONTAINS 'الشريط الجانبي')"))
+                .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+            hide?.tap()
             // iPad may move Add into its native toolbar overflow beside the tab capsule.
             XCTAssertTrue(element("ios.iptv.groups").waitForExistence(timeout: 20))
             screenshot("ipad-entry")
