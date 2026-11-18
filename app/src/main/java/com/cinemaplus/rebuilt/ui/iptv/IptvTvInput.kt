@@ -125,7 +125,9 @@ import com.cinemaplus.rebuilt.ui.*
                     if (code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER) {
                         if (event.action == KeyEvent.ACTION_UP) finish()
                         true
-                    } else if (code == KeyEvent.KEYCODE_DPAD_DOWN && !imeVisible) {
+                    } else if (code == KeyEvent.KEYCODE_DPAD_DOWN &&
+                        androidx.core.view.ViewCompat.getRootWindowInsets(this)
+                            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) != true) {
                         if (event.action == KeyEvent.ACTION_UP) { clearFocus(); done.requestFocus() }
                         true
                     } else false

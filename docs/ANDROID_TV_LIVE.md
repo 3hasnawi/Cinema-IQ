@@ -1,6 +1,6 @@
 # Android TV television update
 
-This task implements the approved translucent channel/category navigation design for Android TV only.
+This task implements the approved translucent channel/category navigation design for Android TV.
 
 - Open the most recent available channel from the selected source without flashing a channel grid.
 - Keep a fullscreen player underneath the OK channel overlay; physical Right opens categories and Left returns to channels.

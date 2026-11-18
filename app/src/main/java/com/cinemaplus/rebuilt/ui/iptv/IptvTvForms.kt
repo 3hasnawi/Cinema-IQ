@@ -32,16 +32,23 @@ import androidx.tv.material3.ButtonDefaults as TvButtonDefaults
 import com.cinemaplus.rebuilt.data.iptv.*
 import com.cinemaplus.rebuilt.ui.*
 
+internal val LocalIptvCompactControls = staticCompositionLocalOf { false }
+
 @Composable internal fun IptvButton(text: String, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit) {
+    val compact = LocalIptvCompactControls.current
     TvButton(onClick, modifier.heightIn(min = 46.dp), enabled = enabled,
-        colors = TvButtonDefaults.colors(containerColor = Glass, contentColor = Brand.TextPrimary,
-            focusedContainerColor = androidx.compose.ui.graphics.Color.White, focusedContentColor = Ink),
-        shape = TvButtonDefaults.shape(RoundedCornerShape(50)), contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)) {
+        colors = TvButtonDefaults.colors(containerColor = if (compact) androidx.compose.ui.graphics.Color.White.copy(alpha = .04f) else Glass,
+            contentColor = Brand.TextPrimary, focusedContainerColor = if (compact) IptvTvGlass.Focus else androidx.compose.ui.graphics.Color.White,
+            focusedContentColor = if (compact) Brand.TextPrimary else Ink),
+        scale = if (compact) TvButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f) else TvButtonDefaults.scale(),
+        shape = TvButtonDefaults.shape(if (compact) RoundedCornerShape(10.dp) else RoundedCornerShape(50)),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)) {
         androidx.tv.material3.Text(text, fontFamily = Cairo, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
     }
 }
 
-@Composable internal fun IptvDialog(title: String, onDismiss: () -> Unit, first: FocusRequester? = null, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun IptvDialog(title: String, onDismiss: () -> Unit, first: FocusRequester? = null,
+    compact: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val window = LocalWindowInfo.current
         val keyboard = LocalSoftwareKeyboardController.current
@@ -56,11 +63,16 @@ import com.cinemaplus.rebuilt.ui.*
         }
         DisposableEffect(Unit) { onDispose { runCatching { keyboard?.hide(); focus.clearFocus(force = true) } } }
         BoxWithConstraints(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), contentAlignment = Alignment.Center) {
-            Surface(Modifier.fillMaxWidth(if (com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(androidx.compose.ui.platform.LocalContext.current)) .67f else .96f).heightIn(max = maxHeight * .88f), color = Panel.copy(alpha = .98f),
-                shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, Brand.BorderStrong)) {
-                Column(Modifier.padding(28.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+            val width = if (compact) Modifier.widthIn(max = 420.dp).fillMaxWidth(.94f) else Modifier.fillMaxWidth(
+                if (com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(androidx.compose.ui.platform.LocalContext.current)) .67f else .96f)
+            Surface(width.heightIn(max = maxHeight * .88f), color = if (compact) androidx.compose.ui.graphics.Color.Transparent else Panel.copy(alpha = .98f),
+                shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, if (compact) IptvTvGlass.Hairline else Brand.BorderStrong)) {
+                CompositionLocalProvider(LocalIptvCompactControls provides compact) {
+                Column(Modifier.then(if (compact) Modifier.background(IptvTvGlass.PanelBrush) else Modifier)
+                    .padding(28.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(15.dp)) {
                     Label(title, 22, bold = true)
                     content()
+                }
                 }
             }
         }
@@ -129,7 +141,8 @@ import com.cinemaplus.rebuilt.ui.*
                     if (next in listOf(IptvSourceControl.Address, IptvSourceControl.User, IptvSourceControl.Password)) ImeAction.Next else ImeAction.Done,
                     commit = { updated ->
                         when (edited) { IptvSourceControl.Name -> name = updated; IptvSourceControl.Address -> address = updated; IptvSourceControl.User -> user = updated; else -> password = updated }
-                        pending = next; editing = null
+                        val updatedCanConnect = if (edited == IptvSourceControl.Address) updated.isNotBlank() else canConnect
+                        pending = IptvSourceFocus.move(edited, 1, kind, updatedCanConnect); editing = null
                     }, cancel = { pending = edited; editing = null })
             }
             return@IptvDialog

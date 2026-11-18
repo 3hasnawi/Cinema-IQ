@@ -1,10 +1,15 @@
 package com.cinemaplus.rebuilt.data.iptv
 
-enum class IptvFailure { Temporary, Access, RateLimited, Unsupported, HttpConsent }
+enum class IptvFailure { Temporary, Access, Authentication, RateLimited, Unsupported, HttpConsent }
 data class IptvRetry(val delayMillis: Long, val refreshLink: Boolean)
 
 /** Retry transient live-stream failures without a modal dialog or a tight request loop. */
 object IptvReconnectPolicy {
+    /** TV may renew its own expired link once; rejected credentials must not loop forever. */
+    fun televisionRetry(failure: IptvFailure, attempts: Int, retryAfterMillis: Long = 0, linkRenewed: Boolean = false): IptvRetry? {
+        if (failure == IptvFailure.Authentication) return if (linkRenewed) null else IptvRetry(1_000, true)
+        return retry(failure, attempts, retryAfterMillis)
+    }
     fun retry(failure: IptvFailure, attempts: Int, retryAfterMillis: Long = 0): IptvRetry? {
         if (failure == IptvFailure.Unsupported || failure == IptvFailure.HttpConsent) return null
         val delays = longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000, 30_000)

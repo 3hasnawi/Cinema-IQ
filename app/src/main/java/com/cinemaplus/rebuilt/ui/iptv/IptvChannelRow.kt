@@ -1,6 +1,7 @@
 package com.cinemaplus.rebuilt.ui.iptv
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -34,6 +36,10 @@ import com.cinemaplus.rebuilt.ui.*
 
 @Composable internal fun IptvChannelRow(channel: IptvChannel, number: Int, playing: Boolean, logos: ImageLoader,
     modifier: Modifier = Modifier, translucent: Boolean = false, click: () -> Unit) {
+    if (translucent) {
+        IptvGlassChannelRow(channel, number, playing, logos, modifier, click)
+        return
+    }
     var focused by remember { mutableStateOf(false) }
     Surface(modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(14.dp))
         .clickable(onClick = click).semantics { contentDescription = channel.name },
@@ -50,6 +56,33 @@ import com.cinemaplus.rebuilt.ui.*
                 Label(channel.name, 14, bold = true, lines = 2); Label(channel.group, 11, Brand.TextTertiary, lines = 1)
             }
             if (playing) Label("▶", 13, Accent)
+        }
+    }
+}
+
+
+/** The TV overlay uses quiet glass rows; phone/library rows retain their existing appearance. */
+@Composable private fun IptvGlassChannelRow(channel: IptvChannel, number: Int, playing: Boolean,
+    logos: ImageLoader, modifier: Modifier, click: () -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(12.dp)
+    Row(modifier.fillMaxWidth().heightIn(min = 56.dp).onFocusChanged { focused = it.isFocused }
+        .clip(shape).background(if (focused) IptvTvGlass.FocusedBrush else IptvTvGlass.QuietRowBrush)
+        .border(.75.dp, if (focused) Color.White.copy(alpha = .3f) else Color.Transparent, shape)
+        .clickable(onClick = click).semantics { contentDescription = channel.name }.padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = null, imageLoader = logos,
+                contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+            else IptvTelevisionIcon(Modifier.size(30.dp), Brand.TextSecondary)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Label(channel.name, 14, bold = true, lines = 1)
+            Label(channel.group, 11, Brand.TextSecondary, lines = 1)
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Label(number.toString(), 11, Brand.TextSecondary, lines = 1)
+            if (playing) Label("▶", 10, Color(0xFFFFC36A), lines = 1)
         }
     }
 }
