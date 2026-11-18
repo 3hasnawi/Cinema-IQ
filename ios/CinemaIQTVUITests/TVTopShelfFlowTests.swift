@@ -30,20 +30,22 @@ final class TVTopShelfFlowTests: XCTestCase {
         let title = app.staticTexts.matching(NSPredicate(format: "identifier == %@ AND label == %@", "tv.detail.title", "Sintel")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 45))
         XCTAssertEqual(title.label, "Sintel")
-        XCTAssertTrue(app.buttons["tv.detail.play"].exists)
+        XCTAssertTrue(app.buttons["tv.detail.play"].isHittable)
         remote.press(.menu)
-        XCTAssertTrue(app.buttons["tv.home.showcase"].waitForExistence(timeout: 15))
+        let home = app.buttons["tv.home.showcase"]
+        XCTAssertTrue(home.waitForExistence(timeout: 15) && home.isHittable)
     }
     func testSystemPlayURLStartsTheExistingPlayer() {
         launchForLink()
         openLink(item: "big-buck-bunny", action: "play")
         let paused = pauseSystemLinkedMovie()
         XCTAssertEqual(paused.label, "Big Buck Bunny")
-        for _ in 0..<3 {
+        let play = app.buttons["tv.detail.play"]
+        for _ in 0..<4 {
             remote.press(.menu)
-            if app.buttons["tv.detail.play"].waitForExistence(timeout: 2) { break }
+            if play.waitForExistence(timeout: 2) && play.isHittable { break }
         }
-        XCTAssertTrue(app.buttons["tv.detail.play"].exists)
+        XCTAssertTrue(play.waitForExistence(timeout: 10) && play.isHittable)
     }
     private func launchForLink() {
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-top-shelf-link-testing"]
