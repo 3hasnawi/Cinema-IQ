@@ -66,10 +66,17 @@ import com.cinemaplus.rebuilt.ui.*
     logos: ImageLoader, modifier: Modifier, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
-    Row(modifier.fillMaxWidth().heightIn(min = 56.dp).onFocusChanged { focused = it.isFocused }
+    androidx.tv.material3.Button(onClick = click,
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).onFocusChanged { focused = it.isFocused }
         .clip(shape).background(if (focused) IptvTvGlass.FocusedBrush else IptvTvGlass.QuietRowBrush)
         .border(.75.dp, if (focused) Color.White.copy(alpha = .3f) else Color.Transparent, shape)
-        .clickable(onClick = click).semantics { contentDescription = channel.name }.padding(horizontal = 10.dp, vertical = 6.dp),
+        .semantics { contentDescription = channel.name },
+        shape = androidx.tv.material3.ButtonDefaults.shape(shape),
+        scale = androidx.tv.material3.ButtonDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
+        colors = androidx.tv.material3.ButtonDefaults.colors(containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent, contentColor = Brand.TextPrimary, focusedContentColor = Brand.TextPrimary),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+    Row(Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
             if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = null, imageLoader = logos,
@@ -84,5 +91,6 @@ import com.cinemaplus.rebuilt.ui.*
             Label(number.toString(), 11, Brand.TextSecondary, lines = 1)
             if (playing) Label("▶", 10, Color(0xFFFFC36A), lines = 1)
         }
+    }
     }
 }

@@ -1,5 +1,6 @@
 package com.cinemaplus.rebuilt.ui.iptv
 
+import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -52,6 +53,13 @@ import kotlinx.coroutines.withContext
 
 private enum class OverlayDestination { Channels, Categories, Search, SearchDone, Empty }
 private data class OverlayCategory(val key: String, val section: IptvChannelSection, val label: String, val locked: Boolean = false)
+private data class OverlayObservedFocus(val destination: OverlayDestination, val key: String)
+private const val OverlayFocusTag = "IptvOverlayFocus"
+
+/** Explicit QA opt-in: adb shell setprop log.tag.IptvOverlayFocus DEBUG. Never log catalogue values. */
+private inline fun overlayFocusLog(message: () -> String) {
+    if (Log.isLoggable(OverlayFocusTag, Log.DEBUG)) Log.d(OverlayFocusTag, message())
+}
 
 /** A single decoder stays visible under both the HUD and these same-window remote panels. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -82,6 +90,7 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
     var filtering by remember { mutableStateOf(true) }
     var focusedChannelId by remember { mutableStateOf(current.id) }
     var focusedCategoryKey by remember { mutableStateOf("") }
+    var actualFocus by remember { mutableStateOf<OverlayObservedFocus?>(null) }
     var pending by remember { mutableStateOf<OverlayDestination?>(OverlayDestination.Channels) }
     var lastDestination by remember { mutableStateOf(OverlayDestination.Channels) }
     var windowLost by remember { mutableStateOf(false) }
@@ -102,6 +111,22 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
     }
     val categoryTarget = categories.firstOrNull { it.key == focusedCategoryKey }
         ?: categories.firstOrNull { it.section == browsingSection } ?: categories.first()
+    fun observeFocus(destination: OverlayDestination, key: String, index: Int, focused: Boolean) {
+        val observed = OverlayObservedFocus(destination, key)
+        if (focused) actualFocus = observed else if (actualFocus == observed) actualFocus = null
+        overlayFocusLog { "observed destination=$destination index=$index focused=$focused" }
+    }
+    fun focusStatus(): String {
+        val observed = actualFocus
+        val observedIndex = when (observed?.destination) {
+            OverlayDestination.Channels -> visible.indexOfFirst { it.id == observed.key }
+            OverlayDestination.Categories -> categories.indexOfFirst { it.key == observed.key }
+            else -> -1
+        }
+        return "items=${visible.size} visible=${channelScroll.layoutInfo.visibleItemsInfo.joinToString(",") { it.index.toString() }} " +
+            "window=${window.isWindowFocused} ime=$imeVisible input=${inputMode.inputMode} " +
+            "actual=${observed?.destination ?: "none"} actualIndex=$observedIndex"
+    }
     fun hideKeyboard() { editor.hideKeyboard(); keyboard?.hide(); manager.clearFocus(force = true) }
     fun returnToChannels() {
         hideKeyboard(); searchMode = false; categoriesOpen = false
@@ -177,26 +202,53 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
         filtering = false
     }
     LaunchedEffect(pending, filtering, visible, categoriesOpen, searchMode, imeVisible, window.isWindowFocused) {
-        val destination = pending ?: return@LaunchedEffect
-        if (!window.isWindowFocused || imeVisible || filtering) return@LaunchedEffect
-        if (searchMode && destination != OverlayDestination.SearchDone) return@LaunchedEffect
-        val requester = when (destination) {
+        val destination = pending ?: run {
+            overlayFocusLog { "gate=no-pending ${focusStatus()}" }
+            return@LaunchedEffect
+        }
+        if (!window.isWindowFocused || imeVisible || filtering) {
+            overlayFocusLog { "gate=window-ime-filter destination=$destination filtering=$filtering ${focusStatus()}" }
+            return@LaunchedEffect
+        }
+        if (searchMode && destination != OverlayDestination.SearchDone) {
+            overlayFocusLog { "gate=editing destination=$destination ${focusStatus()}" }
+            return@LaunchedEffect
+        }
+        val (requester, expected, requestedIndex) = when (destination) {
             OverlayDestination.Channels -> {
                 val index = visible.indexOfFirst { it.id == target }
-                if (index >= 0) { channelScroll.scrollToItem(index); channelFocus } else emptyFocus
+                if (index >= 0) {
+                    channelScroll.scrollToItem(index)
+                    Triple(channelFocus, OverlayObservedFocus(OverlayDestination.Channels, visible[index].id), index)
+                } else Triple(emptyFocus, OverlayObservedFocus(OverlayDestination.Empty, "empty"), -1)
             }
             OverlayDestination.Categories -> {
-                categoryScroll.scrollToItem(categories.indexOfFirst { it.key == categoryTarget.key }.coerceAtLeast(0)); categoryFocus
+                val index = categories.indexOfFirst { it.key == categoryTarget.key }.coerceAtLeast(0)
+                categoryScroll.scrollToItem(index)
+                Triple(categoryFocus, OverlayObservedFocus(OverlayDestination.Categories, categoryTarget.key), index)
             }
-            OverlayDestination.Search -> searchFocus
-            OverlayDestination.SearchDone -> doneFocus
-            OverlayDestination.Empty -> emptyFocus
+            OverlayDestination.Search -> Triple(searchFocus, OverlayObservedFocus(OverlayDestination.Search, "search"), -1)
+            OverlayDestination.SearchDone -> Triple(doneFocus, OverlayObservedFocus(OverlayDestination.SearchDone, "done"), -1)
+            OverlayDestination.Empty -> Triple(emptyFocus, OverlayObservedFocus(OverlayDestination.Empty, "empty"), -1)
         }
-        repeat(16) {
-            inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
+        overlayFocusLog { "restore-start destination=$destination index=$requestedIndex ${focusStatus()}" }
+        repeat(24) { attempt ->
+            val modeRequested = inputMode.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard)
             withFrameNanos { }
-            if (runCatching { requester.requestFocus() }.getOrDefault(false)) { pending = null; return@LaunchedEffect }
+            val result = runCatching { requester.requestFocus() }
+            // A successful request can be followed by another node losing focus in the same frame.
+            withFrameNanos { }
+            overlayFocusLog {
+                "restore-attempt destination=$destination index=$requestedIndex attempt=$attempt modeRequested=$modeRequested " +
+                    "requested=${result.getOrDefault(false)} exception=${result.exceptionOrNull()?.javaClass?.simpleName ?: "none"} ${focusStatus()}"
+            }
+            if (actualFocus == expected) {
+                overlayFocusLog { "restore-ack destination=$destination index=$requestedIndex ${focusStatus()}" }
+                pending = null
+                return@LaunchedEffect
+            }
         }
+        overlayFocusLog { "restore-exhausted destination=$destination index=$requestedIndex ${focusStatus()}" }
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
@@ -221,7 +273,10 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
                                     Label(if (query.isBlank()) "${visible.size} قناة" else "نتائج البحث · ${visible.size}", 11, Brand.TextSecondary)
                                 }
                                 OverlayButton("البحث", Modifier.testTag("iptv.tv.search").focusRequester(searchFocus)
-                                    .onFocusChanged { if (it.isFocused) lastDestination = OverlayDestination.Search }, Icons.Rounded.Search, iconOnly = true) {
+                                    .onFocusChanged {
+                                        observeFocus(OverlayDestination.Search, "search", -1, it.isFocused)
+                                        if (it.isFocused) lastDestination = OverlayDestination.Search
+                                    }, Icons.Rounded.Search, iconOnly = true) {
                                     beginSearch()
                                 }
                                 if (manageCategory != null) OverlayButton("إدارة التصنيفات", icon = Icons.Rounded.MoreVert, iconOnly = true,
@@ -238,7 +293,8 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
                                     change = { if (it != query) { query = it; filtering = true } },
                                     submit = ::finishSearch, back = ::back, modifier = Modifier.testTag("iptv.tv.search.editor"))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OverlayButton("بحث / تم", Modifier.focusRequester(doneFocus).testTag("iptv.tv.search.done")) { finishSearch() }
+                                    OverlayButton("بحث / تم", Modifier.focusRequester(doneFocus).testTag("iptv.tv.search.done")
+                                        .onFocusChanged { observeFocus(OverlayDestination.SearchDone, "done", -1, it.isFocused) }) { finishSearch() }
                                     OverlayButton("إلغاء", Modifier.testTag("iptv.tv.search.cancel")) { cancelSearch() }
                                 }
                             }
@@ -249,7 +305,10 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
                                         Modifier.testTag("iptv.tv.channel.${item.id}")
                                             .then(if (item.id == target) Modifier.focusRequester(channelFocus) else Modifier)
                                             .focusProperties { if (index == 0) up = searchFocus }
-                                            .onFocusChanged { if (it.isFocused) { focusedChannelId = item.id; lastDestination = OverlayDestination.Channels } },
+                                            .onFocusChanged {
+                                                observeFocus(OverlayDestination.Channels, item.id, index, it.isFocused)
+                                                if (it.isFocused) { focusedChannelId = item.id; lastDestination = OverlayDestination.Channels }
+                                            },
                                         translucent = true) {
                                         hideKeyboard(); tune(item, browsingSection)
                                     }
@@ -257,7 +316,8 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
                                 if (visible.isEmpty() && !filtering) item {
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Label("لا توجد قنوات مطابقة.", 13, Brand.TextSecondary)
-                                        OverlayButton(if (query.isBlank()) "التصنيفات" else "مسح البحث", Modifier.focusRequester(emptyFocus)) {
+                                        OverlayButton(if (query.isBlank()) "التصنيفات" else "مسح البحث", Modifier.focusRequester(emptyFocus)
+                                            .onFocusChanged { observeFocus(OverlayDestination.Empty, "empty", -1, it.isFocused) }) {
                                             if (query.isBlank()) openCategories() else { query = ""; focusedChannelId = ""; pending = OverlayDestination.Channels }
                                         }
                                     }
@@ -290,10 +350,13 @@ private data class OverlayCategory(val key: String, val section: IptvChannelSect
                                 }
                                 LazyColumn(state = categoryScroll, modifier = Modifier.fillMaxWidth().weight(1f),
                                     verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(3.dp)) {
-                                    itemsIndexed(categories, key = { _, item -> item.key }) { _, entry ->
+                                    itemsIndexed(categories, key = { _, item -> item.key }) { index, entry ->
                                         OverlayButton(entry.label, Modifier.fillMaxWidth()
                                             .then(if (entry.key == categoryTarget.key) Modifier.focusRequester(categoryFocus) else Modifier)
-                                            .onFocusChanged { if (it.isFocused) { focusedCategoryKey = entry.key; lastDestination = OverlayDestination.Categories } }
+                                            .onFocusChanged {
+                                                observeFocus(OverlayDestination.Categories, entry.key, index, it.isFocused)
+                                                if (it.isFocused) { focusedCategoryKey = entry.key; lastDestination = OverlayDestination.Categories }
+                                            }
                                             .onPreviewKeyEvent { event ->
                                                 val key = event.nativeKeyEvent
                                                 if (key.keyCode == KeyEvent.KEYCODE_MENU && manageCategory != null) {
