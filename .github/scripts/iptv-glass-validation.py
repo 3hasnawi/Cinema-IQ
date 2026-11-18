@@ -1,10 +1,12 @@
 """Real remote/IME, category protection and Media3 recovery on an approved existing APK."""
 from collections import Counter
 from datetime import datetime, timedelta, timezone
+import argparse
 import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import re
 import runpy
 import shutil
 import subprocess
@@ -13,9 +15,56 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+# Keep diagnostics available even if the imported native source-form baseline fails.
+diagnostic_parser = argparse.ArgumentParser(add_help=False)
+diagnostic_parser.add_argument('--output', required=True)
+diagnostic_arguments, _ = diagnostic_parser.parse_known_args()
+diagnostic_output = Path(diagnostic_arguments.output)
+diagnostic_output.mkdir(parents=True, exist_ok=True)
+
+
+def diagnostic_adb(*arguments):
+    try:
+        return subprocess.run(['adb', *arguments], capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError) as exception:
+        return subprocess.CompletedProcess(arguments, 1, b'', str(exception).encode())
+
+
+def collect_diagnostics(name):
+    pid_result = diagnostic_adb('shell', 'pidof', 'com.cinemaplus.rebuilt')
+    pids = [value for value in pid_result.stdout.decode(errors='replace').split() if value.isdecimal()]
+    app_logs = []
+    for pid in pids:
+        result = diagnostic_adb('logcat', '-d', '-v', 'threadtime', '--pid='+pid)
+        if result.returncode:
+            # Older logcat versions may not implement --pid; retain only this app's PID.
+            fallback = diagnostic_adb('logcat', '-d', '-v', 'threadtime')
+            lines = fallback.stdout.decode(errors='replace').splitlines()
+            result = subprocess.CompletedProcess([], fallback.returncode, '\n'.join(line for line in lines
+                if re.match(r'^\d\d-\d\d\s+\d\d:\d\d:\d\d\.\d+\s+'+pid+r'\s', line)).encode(), fallback.stderr)
+        app_logs.append(b'App PID '+pid.encode()+b'\n'+result.stdout+b'\n'+result.stderr)
+    if not pids:
+        app_logs.append(b'No running app PID; inspect the separate crash buffer.\n'+pid_result.stderr)
+    (diagnostic_output/(name+'-app-logcat.txt')).write_bytes(b'\n'.join(app_logs))
+    for suffix, arguments in [
+        ('overlay-focus-logcat', ('logcat', '-d', '-v', 'threadtime', '-s', 'IptvOverlayFocus:D', '*:S')),
+        ('crash-logcat', ('logcat', '-d', '-b', 'crash', '-v', 'threadtime')),
+        ('windows', ('shell', 'dumpsys', 'window')),
+        ('input', ('shell', 'dumpsys', 'input')),
+    ]:
+        result = diagnostic_adb(*arguments)
+        (diagnostic_output/(name+'-'+suffix+'.txt')).write_bytes(result.stdout+b'\n'+result.stderr)
+
+
 # Run the existing real native Next/Done/Back source-form baseline first, on this same APK.
 # Only fake .invalid credentials are entered; the source is never submitted to a provider.
-baseline = runpy.run_path(str(Path(__file__).with_name('iptv-input-validation.py')))
+try:
+    # The approved APK stays unchanged; the disposable emulator opts in to bounded focus diagnostics.
+    subprocess.run(['adb', 'shell', 'setprop', 'log.tag.IptvOverlayFocus', 'DEBUG'], check=True, timeout=15)
+    baseline = runpy.run_path(str(Path(__file__).with_name('iptv-input-validation.py')))
+except BaseException:
+    collect_diagnostics('glass-baseline-failure')
+    raise
 adb, key, nodes, label, focus, ime, record = [baseline[n] for n in ('adb', 'key', 'nodes', 'label', 'focus', 'ime', 'record')]
 out, checks = baseline['out'], baseline['checks']
 fixture = Path(tempfile.mkdtemp(prefix='cinema-tv-glass-fixture-'))
@@ -27,6 +76,8 @@ names = ['Cinema Fixture 1', 'Cinema Fixture 2', 'الأخبار', 'Cinema Prote
 
 
 def snapshot(name, values=None):
+    if name in ('glass-failure', 'glass-timeout'):
+        collect_diagnostics(name)
     values = nodes() if values is None else values
     (out/(name+'.png')).write_bytes(adb('exec-out', 'screencap', '-p').stdout)
     (out/(name+'.json')).write_text(json.dumps([n.attrib for n in values], ensure_ascii=False, indent=2))
@@ -328,6 +379,7 @@ except Exception as exception:
     try: snapshot('glass-failure')
     except Exception: pass
 finally:
+    collect_diagnostics('glass-final')
     if server: server.shutdown()
     shutil.rmtree(fixture,ignore_errors=True)
     result={'passed':error is None and all(check['passed'] for check in checks),'checks':checks,'error':error,
