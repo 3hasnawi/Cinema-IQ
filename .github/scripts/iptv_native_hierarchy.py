@@ -23,19 +23,23 @@ class NativeHierarchyReader:
         for attempt in range(1,4):
             if self._app_pids() != expected_pids: raise RuntimeError('App restarted before the native hierarchy dump')
             self.adb('shell', 'rm', '-f', path)  # A failed dump cannot leave usable stale XML.
+            before_crash = self.adb('logcat', '-d', '-b', 'crash', '-v', 'threadtime', check=False)
             result = self.adb('shell', 'uiautomator', 'dump', path, timeout=20, check=False)
             after_pids = self._app_pids()
             if result.returncode:
                 crash = self.adb('logcat', '-d', '-b', 'crash', '-v', 'threadtime', check=False)
                 prefix = f'native-dump-failure-{len(self.failures)+1:03d}'
-                for suffix, contents in [('stdout',result.stdout),('stderr',result.stderr),('crash',crash.stdout+crash.stderr)]:
+                same_buffer = before_crash.returncode == 0 and crash.returncode == 0 and crash.stdout.startswith(before_crash.stdout)
+                fresh_crash = crash.stdout[len(before_crash.stdout):] if same_buffer else b''
+                for suffix, contents in [('stdout',result.stdout),('stderr',result.stderr),('crash',crash.stdout+crash.stderr),
+                                         ('crash-before',before_crash.stdout+before_crash.stderr),('crash-fresh',fresh_crash)]:
                     (self.output/(prefix+'-'+suffix+'.txt')).write_bytes(contents)
-                combined = result.stdout+result.stderr+crash.stdout+crash.stderr
+                combined = result.stdout+result.stderr+fresh_crash
                 native_null_child = b'java.lang.NullPointerException' in combined and b'com.android.uiautomator.core.AccessibilityNodeInfoDumper.childNafCheck' in combined
                 same_app = after_pids == expected_pids
                 failure = {'attempt':attempt,'exitCode':result.returncode,'appPidsBefore':list(expected_pids),
                     'appPidsAfter':list(after_pids),'nativeNullChildCrash':native_null_child,'sameAppProcess':same_app,
-                    'evidencePrefix':prefix}
+                    'freshCrashBytes':len(fresh_crash),'crashBufferPrefixPreserved':same_buffer,'evidencePrefix':prefix}
                 self.failures.append(failure)
                 (self.output/(prefix+'-state.json')).write_text(json.dumps(failure,indent=2))
                 memory = self.adb('shell', 'dumpsys', 'meminfo', 'com.cinemaplus.rebuilt', check=False)
@@ -51,4 +55,5 @@ class NativeHierarchyReader:
             values = root.findall('.//node')
             if root.tag != 'hierarchy' or not values:
                 raise RuntimeError('Native hierarchy dump did not produce a fresh populated hierarchy')
+            if self._app_pids() != expected_pids: raise RuntimeError('App died or restarted while reading the native hierarchy XML')
             return values

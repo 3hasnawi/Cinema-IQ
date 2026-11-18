@@ -535,6 +535,7 @@ try:
     expect('The revealed TV HUD has no Previous control',hud_visible(values) and not visible('السابقة',values))
     first_back_started = time.monotonic()
     first_back_failures = len(native_dump_failures)
+    key(22)  # Reset the HUD's five-second idle timer; do not age it with another hierarchy read.
     key(4)
     # Inspect the first native state, not a long poll that could pass only after idle auto-hide.
     values = nodes()
