@@ -23,7 +23,7 @@ enum TVShelfRenderer {
             let items = values.map { value in
                 let item = TVTopShelfSectionedItem(identifier: value.mediaID)
                 item.title = value.subtitle.isEmpty ? value.title : value.title + " · " + value.subtitle
-                item.imageShape = value.landscape ? .HDTV : .poster
+                item.imageShape = value.landscape ? .hdtv : .poster
                 item.playbackProgress = value.progress
                 item.setImageURL(value.imageURL, for: .screenScale1x)
                 item.setImageURL(value.imageURL, for: .screenScale2x)

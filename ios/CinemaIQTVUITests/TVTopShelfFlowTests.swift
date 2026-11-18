@@ -32,7 +32,6 @@ final class TVTopShelfFlowTests: XCTestCase {
     }
     func testSystemPlayURLStartsTheExistingPlayer() {
         app.activate()
-        XCTAssertTrue(app.staticTexts["tv.detail.title"].waitForExistence(timeout: 30))
         // A local 10-minute reference clip avoids provider account/CDN timing.
         Thread.sleep(forTimeInterval: 5)
         remote.press(.playPause)

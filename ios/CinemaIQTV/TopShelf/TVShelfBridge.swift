@@ -85,6 +85,14 @@ import CinemaCore
                 try Task.checkCancellation()
                 guard request == token else { return }
                 router.popup = nil
+                // A Home-screen link can arrive while a suspended movie cover is still presented.
+                // Finish its dismissal before presenting another selection or displaying new details.
+                if player.selection != nil {
+                    player.selection = nil
+                    try await Task.sleep(for: .milliseconds(600))
+                    try Task.checkCancellation()
+                    guard request == token else { return }
+                }
                 router.tab = .home
                 router.paths[.home] = [detail]
                 guard route.action == .play else { return }

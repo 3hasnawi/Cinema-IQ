@@ -11,7 +11,7 @@ enum TVShelfContentLoader {
         if let snapshot = TVShelfStorage.read(cache), Date().timeIntervalSince(snapshot.updatedAt) < 900 {
             return TVShelfRenderer.content(snapshot)
         }
-        let result = await withTaskGroup(of: (Bool, TopShelfSnapshot?).self) { tasks in
+        let result = await withTaskGroup(of: (Bool, TopShelfSnapshot?).self, returning: TopShelfSnapshot?.self) { tasks in
             for source in ContentSource.builtIn {
                 tasks.addTask {
                     guard let shelves = try? await SourceClient().home(source, prioritizeFeaturedMovies: true) else { return (false, nil) }
