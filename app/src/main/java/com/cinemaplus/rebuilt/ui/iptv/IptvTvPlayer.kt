@@ -288,7 +288,12 @@ import kotlinx.coroutines.*
     LaunchedEffect(retryNeeded, retryFailure, retryAfter, retryNotBefore, channel.id, foreground, pausedByUser, terminalFailure) {
         if (!retryNeeded || terminalFailure || !eligible(channel) || !IptvReconnectPolicy.allowed(foreground, pausedByUser)) return@LaunchedEffect
         val requested = channel; val token = requestGeneration; val failure = retryFailure
-        val plan = retryPlan() ?: return@LaunchedEffect
+        val plan = retryPlan()
+        if (plan == null) {
+            terminalFailure = true; retryNeeded = false; loading = false
+            if (error == null) error = "رفض المزوّد تشغيل القناة. تحقق من صلاحية الاشتراك وبيانات المصدر."
+            return@LaunchedEffect
+        }
         val remainingCooldown = if (television) (retryNotBefore - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0) else 0
         delay(maxOf(plan.delayMillis, remainingCooldown))
         if (requestGeneration != token || channel.id != requested.id || !eligible(requested) ||
@@ -298,7 +303,7 @@ import kotlinx.coroutines.*
             ?: if (television) return@LaunchedEffect else requested
         if (television && retryFailure == IptvFailure.Authentication) {
             // Refresh through the configured provider once; never replay rejected credentials in a loop.
-            linkRenewed = true; refreshing = true
+            refreshing = true
             try {
                 val fresh = withTimeoutOrNull(15_000) { currentRefresh(requested) } ?: throw IptvException(IptvException.Reason.Network)
                 ensureActive()
@@ -306,6 +311,8 @@ import kotlinx.coroutines.*
                     if (!eligible(fresh) || fresh.id != requested.id || fresh.sourceId != requested.sourceId)
                         throw IptvException(IptvException.Reason.NoChannels)
                     IptvUrls.validate(fresh.url, allowHttp)
+                    // Only a completed, validated renewal consumes the one-renewal budget.
+                    linkRenewed = true
                     retryCount++; channel = fresh; retryNeeded = false; error = null; loading = true; attempt++
                 }
             } catch (e: CancellationException) { throw e }
