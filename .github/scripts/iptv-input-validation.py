@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 import time
-import xml.etree.ElementTree as ET
+from iptv_native_hierarchy import NativeHierarchyReader
 
 p = argparse.ArgumentParser()
 p.add_argument('--apk', required=True)
@@ -26,11 +26,11 @@ def key(code):
     adb('shell', 'input', source, 'keyevent', str(code)); time.sleep(.4)
 
 
+hierarchy_reader = NativeHierarchyReader(adb, out)
+
+
 def nodes():
-    r = adb('shell', 'uiautomator', 'dump', '/sdcard/iptv-input.xml', timeout=20)
-    if r.returncode: raise RuntimeError('Native UI hierarchy dump failed')
-    raw = adb('exec-out', 'cat', '/sdcard/iptv-input.xml').stdout
-    return ET.fromstring(raw).findall('.//node')
+    return hierarchy_reader.nodes()
 
 
 def label(n):
@@ -227,7 +227,8 @@ except Exception as e:
     except Exception: pass
 finally:
     result = {'passed':error is None and all(c['passed'] for c in checks),'checks':checks,'error':error,
-        'apkReusedWithoutBuild':'approved-release' in str(a.apk) or 'approved-input' in str(a.apk),'typedRealCredentials':False}
+        'apkReusedWithoutBuild':'approved-release' in str(a.apk) or 'approved-input' in str(a.apk),'typedRealCredentials':False,
+        'nativeHierarchyDumpFailures':hierarchy_reader.failures}
     (out/'results.json').write_text(json.dumps(result,ensure_ascii=False,indent=2))
     print(json.dumps(result,ensure_ascii=False,indent=2))
     if not result['passed']: raise SystemExit(1)

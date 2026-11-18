@@ -73,6 +73,8 @@ fault = {'media': False, 'catalogue': False}
 server, error = None, None
 reentry_seconds = []
 startup_observations = []
+native_dump_failures = baseline['hierarchy_reader'].failures
+first_back_observation = None
 names = ['Cinema Fixture 1', 'Cinema Fixture 2', 'الأخبار', 'Cinema Protected 1']
 
 
@@ -531,9 +533,16 @@ try:
     # Visible transport: Back hides controls and restores video focus before a second Back exits.
     values = wait_live(names[1])
     expect('The revealed TV HUD has no Previous control',hud_visible(values) and not visible('السابقة',values))
+    first_back_started = time.monotonic()
+    first_back_failures = len(native_dump_failures)
     key(4)
     # Inspect the first native state, not a long poll that could pass only after idle auto-hide.
     values = nodes()
+    first_back_observation = {'elapsedSeconds':round(time.monotonic()-first_back_started,3),
+        'nativeDumpFailures':len(native_dump_failures)-first_back_failures}
+    (out/'first-back-observation.json').write_text(json.dumps(first_back_observation,indent=2))
+    if first_back_observation['nativeDumpFailures'] or first_back_observation['elapsedSeconds'] >= 4.5:
+        raise RuntimeError('First Back observation was delayed; immediate hiding before the five-second idle timer was not established')
     expect('First Back immediately hides the HUD and restores focused video',
            not hud_visible(values) and focused_on('قائمة القنوات',values))
     expect('First Back keeps the native player mounted with focused video and no keyboard',
@@ -575,6 +584,9 @@ finally:
         'apkReusedWithoutBuild':True,'typedRealCredentials':False,'usesGeneratedLocalHls':True,
         'fixtureRequests':dict(requests),'injectedFailures':dict(failures),'reentrySeconds':reentry_seconds,
         'savedSourceStartupObservations':startup_observations,
+        'nativeHierarchyDumpFailures':native_dump_failures,
+        'nativeHierarchyDumpRetryPolicy':'At most three fresh dumps for native UIAutomator null-child crash/exit137 with the same app PID; no action, PIN or assertion retries and no stale XML fallback',
+        'firstBackObservation':first_back_observation,
         'startupFlashCoverage':'Sampled native UI hierarchies and screenshots from the saved-source entry tap to player/PIN; sub-frame flashes are not measured',
         'realProviderTested':False,'arabicUnicodeImeInputTested':False,
         'arabicNormalizationCoverage':'Four source unit tests; native runtime uses Latin group names and channel numbers',
