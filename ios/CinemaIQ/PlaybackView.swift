@@ -132,6 +132,7 @@ struct PlaybackView: View {
             controls
                 .opacity(controlsVisible ? 1 : 0)
                 .allowsHitTesting(controlsVisible)
+                .accessibilityElement(children: controlsVisible ? .contain : .ignore)
                 .accessibilityHidden(!controlsVisible)
                 .animation(controlsVisible || reduceMotion ? nil : .easeInOut(duration: 0.3), value: controlsVisible)
             // Skip the opening: shown during it whether or not the controls are, above the timeline.

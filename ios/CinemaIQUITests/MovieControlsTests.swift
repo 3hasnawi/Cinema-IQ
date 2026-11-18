@@ -43,7 +43,7 @@ final class MovieControlsTests: XCTestCase {
         element("ios.player.playPause").tap()
         waitFor { (self.nativeClock()?.seconds ?? 0) >= pausedAt + 2 && self.nativeClock()?.playing == true }
         shot("native-resume-advances-from-seek")
-        waitFor { !self.element("ios.player.close").exists }
+        waitForHUDHidden()
         // One synthesized gesture reveals and then hits Close; no slow AX lookup consumes the HUD interval.
         doubleTap(at: closePoint)
         XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
@@ -102,10 +102,10 @@ final class MovieControlsTests: XCTestCase {
         let video = element("ios.player.video")
         XCTAssertTrue(video.waitForExistence(timeout: 20))
         waitFor { self.seconds(video) >= 1 }
-        waitFor { !self.element("ios.player.close").exists }
+        waitForHUDHidden()
         shot("automatic-hide")
         centerTap()
-        XCTAssertTrue(element("ios.player.close").waitForExistence(timeout: 10), "A real centre tap must restore controls after their production timeout")
+        waitForHUDVisible()
         pauseForInspection()
         let pause = element("ios.player.playPause")
         shot("controls-restored-paused")
@@ -116,9 +116,9 @@ final class MovieControlsTests: XCTestCase {
         pause.tap(); waitFor { pause.label == "إيقاف مؤقت" }
         XCUIDevice.shared.orientation = .landscapeLeft
         waitFor { self.app.frame.width > self.app.frame.height }
-        waitFor { !self.element("ios.player.close").exists }
+        waitForHUDHidden()
         centerTap()
-        XCTAssertTrue(element("ios.player.close").waitForExistence(timeout: 10))
+        waitForHUDVisible()
         pauseForInspection()
         shot("landscape-controls-restored")
         element("ios.player.close").tap()
@@ -183,7 +183,7 @@ final class MovieControlsTests: XCTestCase {
         // The first visible snapshot can finish after auto-hide. In that case the picture centre
         // targets the central transport button; the actual decoder/paused-label checks remain required.
         let point = cachedPoint ?? snapshotPoint("ios.player.playPause") ?? CGPoint(x: app.frame.midX, y: app.frame.midY)
-        waitFor { !self.element("ios.player.close").exists }
+        waitForHUDHidden()
         // With the HUD hidden, the first tap reveals it and the second immediately hits Pause.
         // The native decoder state and persistent paused label must both confirm that it worked.
         doubleTap(at: point)
@@ -194,6 +194,23 @@ final class MovieControlsTests: XCTestCase {
     }
     private func doubleTap(at point: CGPoint) {
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).doubleTap()
+    }
+    private func waitForHUDHidden() {
+        waitFor {
+            let toggle = self.element("ios.player.controls.toggle"), close = self.element("ios.player.close")
+            guard toggle.exists && toggle.label == "إظهار أدوات المشغل" else { return false }
+            // Mounted SwiftUI controls can retain an AX node at zero opacity on older systems.
+            // Hidden state must also make the real Close target unavailable to a finger.
+            return !close.exists || !close.isHittable
+        }
+    }
+    private func waitForHUDVisible() {
+        let predicate = NSPredicate { _, _ in
+            let toggle = self.element("ios.player.controls.toggle"), close = self.element("ios.player.close")
+            return toggle.exists && toggle.label == "إخفاء أدوات المشغل" && close.exists && close.isHittable
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: nil)], timeout: 10), .completed,
+                       "A single real picture tap must restore a visible, hittable Close button")
     }
     private func centerTap() { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
     private func seconds(_ element: XCUIElement) -> Int {
