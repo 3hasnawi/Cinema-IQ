@@ -135,9 +135,15 @@ final class TVPlayerMenuTests: XCTestCase {
         let play = app.buttons["tv.detail.play"]
         for _ in 0..<4 {
             remote.press(.menu)
-            if play.exists && play.isHittable { break }
+            // Wait for dismissal/focus restoration before another Menu. Rapid retries can
+            // navigate past details and send the app to PineBoard; covered AX nodes persist.
+            let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                self.app.state == .runningForeground && play.exists && play.isHittable && play.hasFocus
+            }, object: nil)
+            if XCTWaiter.wait(for: [returned], timeout: 3) == .completed { break }
+            if app.state != .runningForeground { break }
         }
-        XCTAssertTrue(play.waitForExistence(timeout: 10) && play.isHittable)
+        XCTAssertTrue(play.waitForExistence(timeout: 10) && play.isHittable && play.hasFocus)
         XCTAssertEqual(app.state, .runningForeground)
     }
 

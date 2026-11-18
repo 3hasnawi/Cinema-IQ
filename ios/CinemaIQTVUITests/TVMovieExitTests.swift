@@ -59,7 +59,11 @@ final class TVMovieExitTests: XCTestCase {
         waitFor(10) { !play.hasFocus && self.app.descendants(matching: .any).matching(NSPredicate(format: "hasFocus == true")).firstMatch.exists }
         remote.press(.right); expectFocus(play)
         remote.press(.select)
-        waitFor(30) { self.time(clock) >= before - 1 && clock.label.hasPrefix("true|") }
+        // A seek can expose the saved time before the first frame renders. Require the
+        // real clock to advance beyond it, rather than mistaking buffering for resume.
+        waitFor(30) { self.time(clock) >= before + 2 && clock.label.hasPrefix("true|") }
+        remote.press(.playPause)
+        waitFor(15) { clock.label.hasPrefix("false|") }
         shot("movie-reopened-at-saved-progress")
         returnToDetails(play)
         XCTAssertEqual(app.state, .runningForeground)
@@ -69,7 +73,11 @@ final class TVMovieExitTests: XCTestCase {
         // One Menu may first dismiss AVKit's transport. Existence alone also matches covered details.
         for _ in 0..<4 {
             remote.press(.menu)
-            if play.exists && play.isHittable { break }
+            let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                self.app.state == .runningForeground && play.exists && play.isHittable && play.hasFocus
+            }, object: nil)
+            if XCTWaiter.wait(for: [returned], timeout: 3) == .completed { break }
+            if app.state != .runningForeground { break }
         }
         waitFor(15) { play.exists && play.isHittable }; expectFocus(play)
     }

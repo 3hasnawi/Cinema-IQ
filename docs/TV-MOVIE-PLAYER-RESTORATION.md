@@ -30,4 +30,5 @@ New tests: Core ownership, duplicate release, activation failure and deliberatel
 blocked shutdown while MainActor remains responsive. Simulator exit cases play
 real H.264/AAC for 125 seconds and MPEG-2/MP2 for 65 seconds, press Menu, verify
 hittable/focused details, move left/right, reopen at saved progress and exit again.
-The test-only clock is excluded from Release. CI/actual results pending.
+The test-only clock is excluded from Release. Current run results and provider
+reachability limitations are recorded in PR #146.
