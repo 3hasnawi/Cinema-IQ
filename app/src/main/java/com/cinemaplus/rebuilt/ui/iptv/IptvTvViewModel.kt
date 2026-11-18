@@ -15,9 +15,12 @@ internal data class IptvState(
     val epgUrl: String? = null, val query: String = "", val group: String? = null, val busy: Boolean = false,
     val filtering: Boolean = false, val refreshing: Boolean = false, val storageReady: Boolean = false, val storageLoading: Boolean = true,
     val message: String? = null, val focusEpoch: Int = 0, val collection: IptvChannelCollection = IptvChannelCollection(),
-    val categoryPolicy: IptvCategoryPolicy = IptvCategoryPolicy(), val unlockedCategories: Set<String> = emptySet(),
+    val categoryPolicy: IptvCategoryPolicy = IptvCategoryPolicy(), val categoryAccess: IptvCategoryAccess = IptvCategoryAccess(),
     val pinConfigured: Boolean = false, val securityBusy: Boolean = false
-) { val selected: IptvSource? get() = sources.firstOrNull { it.id == selectedId } }
+) {
+    val selected: IptvSource? get() = sources.firstOrNull { it.id == selectedId }
+    val unlockedCategories: Set<String> get() = categoryAccess.unlockedCategories
+}
 
 internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
     private val vault = IptvSourceStore(app)
@@ -62,7 +65,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
         if (mutable.value.busy) return
         clearUnlocks()
         prefs.edit().putString("selected", source.id).apply()
-        mutable.value = mutable.value.copy(selectedId = source.id, group = null, query = "", rawChannels = emptyList(), channels = emptyList(), visible = emptyList(), epgUrl = null, refreshing = false, unlockedCategories = emptySet())
+        mutable.value = mutable.value.copy(selectedId = source.id, group = null, query = "", rawChannels = emptyList(), channels = emptyList(), visible = emptyList(), epgUrl = null, refreshing = false, categoryAccess = IptvCategoryAccess())
         reload()
     }
     fun returnFromPlayer(group: String?) {
@@ -106,7 +109,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
                     authorizationEpoch++
                     prefs.edit().putString("selected", valid.id).apply(); catalogs.remember(valid, catalog)
                     mutable.value = mutable.value.copy(sources = next, selectedId = valid.id, rawChannels = catalog.channels, epgUrl = catalog.epgUrl,
-                        query = "", group = null, busy = false, refreshing = false, unlockedCategories = emptySet())
+                        query = "", group = null, busy = false, refreshing = false, categoryAccess = IptvCategoryAccess())
                     applyFilter(true)
                 }
                 done()
@@ -134,7 +137,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
                     mutable.value = mutable.value.copy(sources = next, selectedId = selected, busy = false, refreshing = false,
                         rawChannels = if (source.id == mutable.value.selectedId) emptyList() else mutable.value.rawChannels,
                         channels = if (source.id == mutable.value.selectedId) emptyList() else mutable.value.channels,
-                        group = null, query = "", unlockedCategories = emptySet())
+                        group = null, query = "", categoryAccess = IptvCategoryAccess())
                 }
                 done(); reload()
             } catch (e: CancellationException) { throw e }
@@ -173,19 +176,44 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
         val snapshot = mutable.value
         if (!snapshot.storageReady || snapshot.selectedId != channel.sourceId) return false
         val canonical = snapshot.rawChannels.firstOrNull { it.id == channel.id && it.sourceId == channel.sourceId } ?: return false
-        return snapshot.categoryPolicy.gate(canonical, snapshot.unlockedCategories) == IptvCategoryGate.Allowed
+        return snapshot.categoryAccess.canContinue(canonical, snapshot.categoryPolicy)
+    }
+
+    fun canStart(channel: IptvChannel): Boolean {
+        val snapshot = mutable.value
+        if (!snapshot.storageReady || snapshot.selectedId != channel.sourceId) return false
+        val canonical = snapshot.rawChannels.firstOrNull { it.id == channel.id && it.sourceId == channel.sourceId } ?: return false
+        return snapshot.categoryAccess.canStart(canonical, snapshot.categoryPolicy)
+    }
+
+    /** Called before opening a new decoder item, never from a watched/history callback. */
+    fun notePlaying(channel: IptvChannel): Boolean {
+        val snapshot = mutable.value
+        if (!snapshot.storageReady || snapshot.selectedId != channel.sourceId) return false
+        val canonical = snapshot.rawChannels.firstOrNull { it.id == channel.id && it.sourceId == channel.sourceId } ?: return false
+        if (!snapshot.categoryAccess.canStart(canonical, snapshot.categoryPolicy)) return false
+        mutable.value = snapshot.copy(categoryAccess = snapshot.categoryAccess.start(canonical, snapshot.categoryPolicy))
+        return true
     }
 
     fun clearUnlocks() {
         authorizationEpoch++
-        if (mutable.value.unlockedCategories.isEmpty()) return
-        mutable.value = mutable.value.copy(unlockedCategories = emptySet())
+        if (mutable.value.categoryAccess == IptvCategoryAccess()) return
+        mutable.value = mutable.value.copy(categoryAccess = IptvCategoryAccess())
+        applyFilter(false)
+    }
+
+    /** Leaving a browse visit must not cancel refresh/reconnect for the already-started station. */
+    fun leaveCategory() {
+        val snapshot = mutable.value
+        if (snapshot.categoryAccess.visitKey == null) return
+        mutable.value = snapshot.copy(categoryAccess = snapshot.categoryAccess.leaveVisit())
         applyFilter(false)
     }
 
     fun unlockCategory(group: String) {
         val source = mutable.value.selectedId ?: return
-        mutable.value = mutable.value.copy(unlockedCategories = mutable.value.unlockedCategories + IptvCategoryPolicy.key(source, group))
+        mutable.value = mutable.value.copy(categoryAccess = mutable.value.categoryAccess.authorizeVisit(IptvCategoryPolicy.key(source, group)))
         applyFilter(false)
     }
 
@@ -207,7 +235,7 @@ internal class IptvTvViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 withContext(Dispatchers.IO) { categoryStore.write(next) }
                 mutable.value = mutable.value.copy(categoryPolicy = next,
-                    unlockedCategories = mutable.value.unlockedCategories - key)
+                    categoryAccess = mutable.value.categoryAccess.revoke(key))
                 applyFilter(false)
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { mutable.value = mutable.value.copy(message = "تعذّر حفظ حماية التصنيف. لم تتغير إعداداتك."); return@launch }
