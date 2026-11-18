@@ -24,6 +24,8 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.cinemaplus.rebuilt.ui.Brand
 
 @Stable internal class IptvTvSearchEditorState {
@@ -54,7 +56,6 @@ private class SearchEditText(context: Context) : EditText(context) {
 }
 
 /** This editor is mounted only by an explicit search action; filtering never changes its native focus. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun IptvTvSearchEditor(
     value: String, state: IptvTvSearchEditorState, done: FocusRequester,
     change: (String) -> Unit, submit: () -> Unit, back: () -> Unit, modifier: Modifier = Modifier
@@ -62,12 +63,9 @@ private class SearchEditText(context: Context) : EditText(context) {
     val latestChange by rememberUpdatedState(change)
     val latestSubmit by rememberUpdatedState(submit)
     val latestBack by rememberUpdatedState(back)
-    val imeVisible = WindowInsets.isImeVisible
-    val liveImeVisible by rememberUpdatedState(imeVisible)
     val window = LocalWindowInfo.current
     val fontPixels = with(LocalDensity.current) { 16.sp.toPx() }
     var requested by remember { mutableStateOf(false) }
-    var hadIme by remember { mutableStateOf(false) }
     var finished by remember { mutableStateOf(false) }
     fun finish() { if (!finished) { finished = true; state.hideKeyboard(); latestSubmit() } }
     val shape = RoundedCornerShape(10.dp)
@@ -93,7 +91,12 @@ private class SearchEditText(context: Context) : EditText(context) {
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { latestChange(s?.toString().orEmpty()) }
                 override fun afterTextChanged(s: Editable?) = Unit
             })
-            setOnFocusChangeListener { _, focused -> state.focused = focused }
+            setOnFocusChangeListener { view, focused ->
+                if (state.editor === view) {
+                    state.focused = focused
+                    state.editing = focused
+                }
+            }
             setOnEditorActionListener { _, action, _ ->
                 if (action == EditorInfo.IME_ACTION_SEARCH || action == EditorInfo.IME_ACTION_DONE) { finish(); true } else false
             }
@@ -103,8 +106,15 @@ private class SearchEditText(context: Context) : EditText(context) {
                         if (event.action == KeyEvent.ACTION_UP) finish()
                         true
                     }
-                    code == KeyEvent.KEYCODE_DPAD_DOWN && !liveImeVisible -> {
-                        if (event.action == KeyEvent.ACTION_UP) { clearFocus(); runCatching { done.requestFocus() } }
+                    code == KeyEvent.KEYCODE_DPAD_DOWN &&
+                        !(ViewCompat.getRootWindowInsets(this)?.isVisible(WindowInsetsCompat.Type.ime()) ?: state.editing) -> {
+                        if (event.action == KeyEvent.ACTION_UP) {
+                            state.hideKeyboard()
+                            // Transfer after native focus has been released, never while the IME owns Down.
+                            postOnAnimation {
+                                if (state.editor === this && !state.editing && !finished) runCatching { done.requestFocus() }
+                            }
+                        }
                         true
                     }
                     else -> false
@@ -117,10 +127,10 @@ private class SearchEditText(context: Context) : EditText(context) {
         editor.back = { latestBack() }
         if (editor.text.toString() != value) { editor.setText(value); editor.setSelection(editor.text.length) }
     }, onRelease = { editor ->
-        val imm = editor.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(editor.windowToken, 0)
+        // A retired view shares a window token with a replacement; it must not hide the new editor's IME.
+        if (state.editor === editor) { state.hideKeyboard(); state.editor = null }
+        (editor as? SearchEditText)?.back = null
         editor.clearFocus()
-        if (state.editor === editor) { state.editor = null; state.focused = false }
     }, modifier = modifier.fillMaxWidth().height(48.dp).background(IptvTvGlass.QuietRowBrush, shape)
         .border(1.dp, IptvTvGlass.Hairline, shape).padding(horizontal = 12.dp))
     LaunchedEffect(state.editor, window.isWindowFocused) {
@@ -128,20 +138,13 @@ private class SearchEditText(context: Context) : EditText(context) {
         if (window.isWindowFocused && editor != null && !requested && !finished) repeat(24) {
             withFrameNanos { }
             if (editor.requestFocus()) {
-                requested = true
+                requested = true; state.focused = true; state.editing = true
                 withFrameNanos { }
+                if (state.editor !== editor || !state.editing || finished) return@LaunchedEffect
                 val imm = editor.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                 imm.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
                 return@LaunchedEffect
             }
-        }
-    }
-    LaunchedEffect(imeVisible) {
-        if (imeVisible) hadIme = true
-        else if (hadIme && !finished) {
-            withFrameNanos { }
-            state.editor?.clearFocus()
-            runCatching { done.requestFocus() }
         }
     }
 }
