@@ -4,7 +4,11 @@ public protocol IPTVTransport: Sendable { func data(from url: URL) async throws 
 
 public struct IPTVClient: Sendable {
     private let transport: any IPTVTransport
-    public init(transport: any IPTVTransport = IPTVURLSessionTransport()) { self.transport = transport }
+    private let guide: IPTVGuideClient
+    public init(transport: any IPTVTransport = IPTVURLSessionTransport()) { self.transport = transport; self.guide = IPTVGuideClient(transport: transport) }
+    public func programmes(source: IPTVSource, channel: IPTVChannel, epgURL: URL?) async throws -> IPTVNowNext {
+        try await guide.load(source: source, channel: channel, epgURL: epgURL)
+    }
     public func load(_ source: IPTVSource) async throws -> IPTVCatalog {
         _ = try IPTVSource(id: source.id, name: source.name, kind: source.kind, address: source.address,
             username: source.username, password: source.password, output: source.output, allowHTTP: source.allowHTTP)
