@@ -71,6 +71,13 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
     }
     val current = state.rawChannels.firstOrNull { it.sourceId == state.selectedId && it.id == playingId }
     val playing = current?.takeIf(vm::canPlay)
+    val entryState = IptvTvEntryState.resolve(
+        storageReady = state.storageReady, storageLoading = state.storageLoading,
+        hasSources = state.sources.isNotEmpty(), busy = state.busy,
+        autoStartPending = state.sources.isNotEmpty() && enteredSource != state.selectedId,
+        waitingForPin = pin != null || state.securityBusy,
+        hasFailure = state.message != null && pin == null
+    )
 
     fun cancelPin() {
         val abandoned = pin
@@ -163,8 +170,8 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
             resumeLatest()
         }
     }
-    LaunchedEffect(playing == null, panel, pin, window.isWindowFocused, state.storageReady, state.busy) {
-        if (playing == null && panel == null && pin == null && window.isWindowFocused && !state.busy && !state.storageLoading) repeat(16) {
+    LaunchedEffect(playing == null, panel, pin, window.isWindowFocused, entryState) {
+        if (playing == null && panel == null && pin == null && window.isWindowFocused && entryState != IptvTvEntryState.Loading) repeat(16) {
             withFrameNanos { }
             if (runCatching { landingFocus.requestFocus() }.getOrDefault(false)) return@LaunchedEffect
         }
@@ -211,26 +218,33 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
         } else Column(Modifier.fillMaxSize().padding(48.dp).testTag("iptv.tv.landing"),
             verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             IptvTelevisionIcon(Modifier.size(64.dp), Brand.TextSecondary)
-            Spacer(Modifier.height(20.dp)); Label("التلفزيون", 30, bold = true)
-            if (state.storageLoading || state.busy) {
-                Spacer(Modifier.height(20.dp)); CircularProgressIndicator(color = Accent)
-                Spacer(Modifier.height(14.dp)); Label("جارٍ استعادة آخر قناة…", 16, Brand.TextSecondary)
-            } else {
-                Spacer(Modifier.height(18.dp))
-                state.message?.let { Label(it, 15, Brand.Danger) }
-                val resumable = state.rawChannels.any { it.group !in hidden }
-                if (state.storageReady) {
-                    when {
-                        resumable -> IptvButton("متابعة آخر قناة", Modifier.focusRequester(landingFocus)) { resumeLatest() }
-                        state.sources.isEmpty() -> IptvButton("إضافة مصدر", Modifier.focusRequester(landingFocus)) { openSources(IptvPanel.Form) }
-                        categoryCounts.isNotEmpty() -> IptvButton("إدارة التصنيفات", Modifier.focusRequester(landingFocus)) { panel = IptvPanel.Categories }
-                        else -> IptvButton("إدارة المصادر", Modifier.focusRequester(landingFocus)) { openSources() }
-                    }
-                    Spacer(Modifier.height(14.dp))
-                    if (state.sources.isNotEmpty() && (resumable || categoryCounts.isNotEmpty())) IptvButton("إدارة المصادر") { openSources() }
-                    if (categoryCounts.isNotEmpty() && resumable) IptvButton("إدارة التصنيفات") { panel = IptvPanel.Categories }
+            when (entryState) {
+                IptvTvEntryState.Loading -> {
+                    Spacer(Modifier.height(20.dp))
+                    CircularProgressIndicator(Modifier.size(24.dp).testTag("iptv.tv.entry.loading"), color = Accent, strokeWidth = 2.dp)
                 }
-                IptvButton("العودة", if (!state.storageReady) Modifier.focusRequester(landingFocus) else Modifier) { vm.clearUnlocks(); onExit() }
+                IptvTvEntryState.AddSource -> {
+                    Spacer(Modifier.height(20.dp)); Label("التلفزيون", 30, bold = true)
+                    Spacer(Modifier.height(18.dp))
+                    IptvButton("إضافة مصدر", Modifier.focusRequester(landingFocus)) { openSources(IptvPanel.Form) }
+                    IptvButton("العودة") { vm.clearUnlocks(); onExit() }
+                }
+                IptvTvEntryState.Recovery -> {
+                    Spacer(Modifier.height(20.dp)); Label("التلفزيون", 30, bold = true)
+                    Spacer(Modifier.height(18.dp))
+                    state.message?.let { Label(it, 15, Brand.Danger) }
+                    val resumable = state.rawChannels.any { it.group !in hidden }
+                    if (state.storageReady) {
+                        when {
+                            resumable -> IptvButton("متابعة آخر قناة", Modifier.focusRequester(landingFocus)) { resumeLatest() }
+                            categoryCounts.isNotEmpty() -> IptvButton("إدارة التصنيفات", Modifier.focusRequester(landingFocus)) { panel = IptvPanel.Categories }
+                            else -> IptvButton("إعادة المحاولة", Modifier.focusRequester(landingFocus)) { enteredSource = null; vm.reload(true) }
+                        }
+                        // Source management is explicit recovery after a real failure, never startup content.
+                        if (state.message != null) IptvButton("تعديل الاتصال") { openSources() }
+                    }
+                    IptvButton("العودة", if (!state.storageReady) Modifier.focusRequester(landingFocus) else Modifier) { vm.clearUnlocks(); onExit() }
+                }
             }
         }
         key(panel, managingGroup, dialogEpoch) {

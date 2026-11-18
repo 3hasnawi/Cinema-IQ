@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import com.cinemaplus.rebuilt.data.iptv.IptvChannel
+import com.cinemaplus.rebuilt.data.iptv.IptvChannelDisplayName
 import com.cinemaplus.rebuilt.ui.*
 
 @Composable internal fun rememberIptvLogos(): ImageLoader {
@@ -65,12 +66,13 @@ import com.cinemaplus.rebuilt.ui.*
 @Composable private fun IptvGlassChannelRow(channel: IptvChannel, number: Int, playing: Boolean,
     logos: ImageLoader, modifier: Modifier, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
+    val displayName = remember(channel.name, channel.group) { IptvChannelDisplayName.of(channel) }
     val shape = RoundedCornerShape(12.dp)
     androidx.tv.material3.Button(onClick = click,
         modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).onFocusChanged { focused = it.isFocused }
         .clip(shape).background(if (focused) IptvTvGlass.FocusedBrush else IptvTvGlass.QuietRowBrush)
         .border(.75.dp, if (focused) Color.White.copy(alpha = .3f) else Color.Transparent, shape)
-        .semantics { contentDescription = channel.name },
+        .semantics { contentDescription = displayName },
         shape = androidx.tv.material3.ButtonDefaults.shape(shape),
         scale = androidx.tv.material3.ButtonDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         colors = androidx.tv.material3.ButtonDefaults.colors(containerColor = Color.Transparent,
@@ -84,7 +86,7 @@ import com.cinemaplus.rebuilt.ui.*
             else IptvTelevisionIcon(Modifier.size(30.dp), Brand.TextSecondary)
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Label(channel.name, 14, bold = true, lines = 1)
+            Label(displayName, 14, bold = true, lines = 1)
             Label(channel.group, 11, Brand.TextSecondary, lines = 1)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {

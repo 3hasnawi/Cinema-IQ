@@ -72,6 +72,7 @@ requests, failures, successes = Counter(), Counter(), Counter()
 fault = {'media': False, 'catalogue': False}
 server, error = None, None
 reentry_seconds = []
+startup_observations = []
 names = ['Cinema Fixture 1', 'Cinema Fixture 2', 'الأخبار', 'Cinema Protected 1']
 
 
@@ -102,6 +103,20 @@ def channel_row_visible(name, values=None):
                for n in (nodes() if values is None else values))
 
 
+def hud_visible(values=None):
+    return any(n.get('content-desc', '').startswith(('الجودة:', 'الصوت:'))
+               for n in (nodes() if values is None else values))
+
+
+def player_surface_visible(values=None):
+    return any(n.get('content-desc') == 'قائمة القنوات'
+               for n in (nodes() if values is None else values))
+
+
+def startup_source_controls(values):
+    return any(text in label(n) for text in ('إضافة مصدر', 'إدارة المصادر', 'تعديل الاتصال') for n in values)
+
+
 def expect(name, condition):
     record(name, condition)
     if not condition:
@@ -127,11 +142,43 @@ def seek(text, direction=20, limit=12):
     raise AssertionError('D-pad cannot focus '+text)
 
 
-def start_tv():
+def start_tv(sample_saved_source=None):
     started = time.monotonic()
     adb('shell', 'am', 'start', '-W', '-n', 'com.cinemaplus.rebuilt/.MainActivity')
     # Public rail entry may be touched; every tested in-section interaction uses physical D-pad/IME events.
-    baseline['tap'](baseline['find']('التلفزيون', timeout=35))
+    rail = baseline['find']('التلفزيون', timeout=35)
+    if sample_saved_source is None:
+        baseline['tap'](rail)
+    else:
+        bounds = [int(value) for value in re.findall(r'\d+', rail.get('bounds', ''))]
+        assert len(bounds) == 4
+        # Start sampling without the baseline tap helper's deliberate post-tap sleep.
+        adb('shell', 'input', 'tap', str((bounds[0]+bounds[2])//2), str((bounds[1]+bounds[3])//2))
+        entry_started = time.monotonic()
+        samples = []
+        try:
+            deadline = entry_started+60
+            while time.monotonic() < deadline:
+                values = nodes()
+                forbidden = startup_source_controls(values)
+                pin_present = visible('أدخل رمز الحماية',values) or visible('اختر رمزًا',values)
+                player_present = player_surface_visible(values)
+                samples.append({'elapsedSeconds':round(time.monotonic()-entry_started,3),
+                    'sourceControlsPresent':forbidden,'playerPresent':player_present,'pinPresent':pin_present})
+                if len(samples) == 1: snapshot(sample_saved_source+'-startup-first-sample',values)
+                if forbidden:
+                    expect('Sampled saved-source startup never exposes import or management controls',False)
+                if player_present or pin_present: break
+                time.sleep(.1)
+            else:
+                snapshot('glass-timeout')
+                raise AssertionError('Saved-source startup did not reach the player or required PIN')
+            expect('Sampled saved-source startup keeps source controls out of loading',
+                   bool(samples) and all(not sample['sourceControlsPresent'] for sample in samples))
+        finally:
+            observation = {'stage':sample_saved_source,'samples':samples}
+            startup_observations.append(observation)
+            (out/(sample_saved_source+'-startup-samples.json')).write_text(json.dumps(observation,indent=2))
     return started
 
 
@@ -426,7 +473,7 @@ try:
     admit_protected_group(); key(4); wait_live(names[3])
 
     protected_reads = requests['/live4.m3u8']
-    adb('shell','am','force-stop','com.cinemaplus.rebuilt'); start_tv(); wait_pin()
+    adb('shell','am','force-stop','com.cinemaplus.rebuilt'); start_tv('25-protected-cold-entry'); wait_pin()
     expect('Locked last channel requires PIN before any new decoder request after process restart', requests['/live4.m3u8']==protected_reads)
     snapshot('25-locked-last-channel-gate')
     key(4); seek('متابعة آخر قناة',20,3); key(23); wait_pin(); pin_digits(); wait_live(names[3])
@@ -466,13 +513,41 @@ try:
     wait_live(names[1],90)
     expect('Same station reconnects after provider recovery without a channel change', sum(count for path,count in successes.items() if path.endswith(('.m3u8','.ts')))>successful_media)
     advancing_frames('29-video-after-reconnect',frozen)
-    reads = requests['/list.m3u']; key(4); started=start_tv(); wait_live(names[1]); reentry_seconds.append(round(time.monotonic()-started,2))
+    # Visible transport: Back hides controls and restores video focus before a second Back exits.
+    values = wait_live(names[1])
+    expect('The revealed TV HUD has no Previous control',hud_visible(values) and not visible('السابقة',values))
+    key(4)
+    # Inspect the first native state, not a long poll that could pass only after idle auto-hide.
+    values = nodes()
+    expect('First Back immediately hides the HUD and restores focused video',
+           not hud_visible(values) and focused_on('قائمة القنوات',values))
+    expect('First Back keeps the native player mounted with focused video and no keyboard',
+           player_surface_visible(values) and not ime())
+    snapshot('29b-first-back-hides-hud',values)
+    advancing_frames('29c-video-continues-after-first-back')
+    expect('Video focus restoration does not reveal the HUD again',not hud_visible())
+    reads = requests['/list.m3u']
+    key(4)
+    values = wait_for(lambda v: not player_surface_visible(v) and visible('التلفزيون',v),
+                      'Second Back must exit television after the HUD was dismissed')
+    expect('Second Back exits television instead of reopening the HUD',not hud_visible(values))
+    snapshot('29d-second-back-exits-television',values)
+    started=start_tv(); wait_live(names[1]); reentry_seconds.append(round(time.monotonic()-started,2))
     expect('Warm section reentry restores the successful last channel without a catalogue request', requests['/list.m3u']==reads)
     fault['catalogue']=True
-    adb('shell','am','force-stop','com.cinemaplus.rebuilt'); started=start_tv(); wait_live(names[1]); reentry_seconds.append(round(time.monotonic()-started,2))
+    adb('shell','am','force-stop','com.cinemaplus.rebuilt'); started=start_tv('30-cached-cold-entry'); wait_live(names[1]); reentry_seconds.append(round(time.monotonic()-started,2))
     expect('Process restart uses the encrypted cached catalogue when catalogue network access is unavailable', requests['/list.m3u']==reads)
     advancing_frames('30-cached-last-channel-video')
     snapshot('31-final-cached-last-channel')
+    values = wait_live(names[1]); time.sleep(6)
+    values = wait_for(lambda v: not hud_visible(v) and focused_on('قائمة القنوات',v),
+                      'Idle TV HUD must hide automatically and return video focus')
+    snapshot('32-auto-hidden-hud-before-back',values)
+    key(4)
+    values = wait_for(lambda v: not player_surface_visible(v) and visible('التلفزيون',v),
+                      'One Back must exit television when the HUD was already hidden')
+    expect('Back on an auto-hidden HUD exits without first revealing controls',not hud_visible(values))
+    snapshot('33-back-exits-after-auto-hide',values)
 except Exception as exception:
     error = type(exception).__name__+': '+str(exception)
     try: snapshot('glass-failure')
@@ -484,6 +559,8 @@ finally:
     result={'passed':error is None and all(check['passed'] for check in checks),'checks':checks,'error':error,
         'apkReusedWithoutBuild':True,'typedRealCredentials':False,'usesGeneratedLocalHls':True,
         'fixtureRequests':dict(requests),'injectedFailures':dict(failures),'reentrySeconds':reentry_seconds,
+        'savedSourceStartupObservations':startup_observations,
+        'startupFlashCoverage':'Sampled native UI hierarchies and screenshots from the saved-source entry tap to player/PIN; sub-frame flashes are not measured',
         'realProviderTested':False,'arabicUnicodeImeInputTested':False,
         'arabicNormalizationCoverage':'Four source unit tests; native runtime uses Latin group names and channel numbers',
         'readyStateFrozenClockTested':False,'recoveryCoverage':'Real HTTP outage and buffering with advancing screenshot timecode'}
