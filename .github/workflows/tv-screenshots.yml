@@ -9,6 +9,11 @@ on:
         type: string
         required: false
         default: ''
+      television_glass:
+        description: Validate the live TV glass navigation and PIN on the reused signed APK
+        type: boolean
+        required: false
+        default: false
       source_input:
         description: Build an approved test APK and exercise source-field/keyboard traversal
         type: boolean
@@ -34,6 +39,7 @@ jobs:
     timeout-minutes: 45
     env:
       REUSE_RELEASE_RUN_ID: ${{ inputs.reuse_release_run_id }}
+      TELEVISION_GLASS: ${{ inputs.television_glass }}
       SOURCE_INPUT: ${{ inputs.source_input }}
       REUSE_INPUT_RUN_ID: ${{ inputs.reuse_input_run_id }}
     steps:
