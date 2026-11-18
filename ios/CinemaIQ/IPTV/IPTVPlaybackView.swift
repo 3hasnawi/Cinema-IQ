@@ -350,7 +350,7 @@ private struct IPTVLiveGuide: View {
                         }
                         if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.") }
                     }
-                }.listStyle(.plain)
+                }.listStyle(.plain).accessibilityIdentifier("ios.iptv.guide")
             }
           }
             .scrollDismissesKeyboard(.interactively)
@@ -367,7 +367,6 @@ private struct IPTVLiveGuide: View {
                 if query.isEmpty, let id = IPTVNavigation.entry(currentID: session.channel.id, in: result) { proxy.scrollTo(id, anchor: .center) }
             }
         }
-        .accessibilityIdentifier("ios.iptv.guide")
         .task(id: session.catalogRevision) {
             let values = session.channels, source = session.sourceID
             let result = await Task.detached { IPTVNavigation.categories(values, sourceID: source) }.value

@@ -24,7 +24,9 @@ final class PhoneParityTests: XCTestCase {
 
     override func tearDown() {
         shot("last-state")
-        let hierarchy = XCTAttachment(string: app.debugDescription)
+        let tree = app.debugDescription
+        SimulatorEvidence.hierarchy(tree, test: name)
+        let hierarchy = XCTAttachment(string: tree)
         hierarchy.name = deviceName + "-phone-parity-hierarchy"
         hierarchy.lifetime = .keepAlways
         add(hierarchy)
@@ -268,7 +270,9 @@ final class PhoneParityTests: XCTestCase {
     }
 
     private func shot(_ label: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let capture = XCUIScreen.main.screenshot()
+        SimulatorEvidence.screenshot(capture, test: name, name: deviceName + "-" + label)
+        let attachment = XCTAttachment(screenshot: capture)
         attachment.name = deviceName + "-" + label
         attachment.lifetime = .keepAlways
         add(attachment)

@@ -16,7 +16,9 @@ final class ArtworkParityTests: XCTestCase {
 
     override func tearDown() {
         shot("last-state")
-        let hierarchy = XCTAttachment(string: app.debugDescription)
+        let text = app.debugDescription
+        SimulatorEvidence.hierarchy(text, test: name)
+        let hierarchy = XCTAttachment(string: text)
         hierarchy.name = "artwork-parity-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
         app.terminate()
         XCUIDevice.shared.orientation = .portrait
@@ -160,7 +162,10 @@ final class ArtworkParityTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)], timeout: 20), .completed)
     }
     private func shot(_ name: String) {
-        let capture = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        capture.name = (tablet ? "ipad-" : "iphone-") + name; capture.lifetime = .keepAlways; add(capture)
+        let image = XCUIScreen.main.screenshot()
+        let label = (tablet ? "ipad-" : "iphone-") + name
+        SimulatorEvidence.screenshot(image, test: self.name, name: label)
+        let capture = XCTAttachment(screenshot: image)
+        capture.name = label; capture.lifetime = .keepAlways; add(capture)
     }
 }

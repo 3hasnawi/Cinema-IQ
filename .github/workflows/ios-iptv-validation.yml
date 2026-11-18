@@ -139,6 +139,7 @@ jobs:
       - name: Export simulator evidence
         if: always()
         run: |
+          python3 ios/scripts/collect-ui-fallback.py
           python3 - <<'PY'
           import os, pathlib, shutil, subprocess
           try:
@@ -151,8 +152,8 @@ jobs:
               print('Decoder diagnostics unavailable; continuing to export actual test results')
           PY
           if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
-            find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence" || true
+            if [ -d "$RUNNER_TEMP/ios-evidence" ]; then find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete; fi
           fi
           grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
       - uses: actions/upload-artifact@v4
@@ -164,6 +165,7 @@ jobs:
             ${{ runner.temp }}/ios-build.log
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
+            ${{ runner.temp }}/ios-fallback-evidence
             ${{ runner.temp }}/simulator-ready.png
           retention-days: 1
           if-no-files-found: warn

@@ -87,6 +87,7 @@ struct PlaybackView: View {
             controller.position > 0 && resolutionError == nil && controller.error == nil
     }
     private var compactPlayer: Bool { layout.size.width > layout.size.height && layout.size.height < 500 }
+    private var pauseFactsVisible: Bool { pausedInformation && (!compactPlayer || (!offerNext && controller.notice == nil)) }
 
     var body: some View {
         ZStack {
@@ -117,8 +118,10 @@ struct PlaybackView: View {
                     Text(selection.series?.title ?? fetchedSeries?.title ?? current.title)
                         .font(.title3.bold()).lineLimit(2)
                     Spacer()
-                    MoviePauseFacts(media: current, info: overlayInfo, showOverview: !compactPlayer && controller.cue == nil)
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pauseFactsHeight = $0 }
+                    if pauseFactsVisible {
+                        MoviePauseFacts(media: current, info: overlayInfo, showOverview: !compactPlayer && controller.cue == nil)
+                            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pauseFactsHeight = $0 }
+                    }
                 }
                 .padding(.horizontal, 24).padding(.top, 36).padding(.bottom, 34)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -254,7 +257,7 @@ struct PlaybackView: View {
             if let cue = controller.cue {
                 SubtitleText(text: cue, size: subtitleSize, background: subtitleBackground)
                     .padding(.horizontal, 24)
-                    .padding(.bottom, pausedInformation ? pauseFactsHeight + (controlsVisible ? 110 : 60) : (controlsVisible ? 120 : 34))
+                    .padding(.bottom, pauseFactsVisible ? pauseFactsHeight + (controlsVisible ? 110 : 60) : (controlsVisible ? 120 : 34))
             }
         }
         .animation(.easeInOut(duration: 0.2), value: controlsVisible)
@@ -281,11 +284,6 @@ struct PlaybackView: View {
                 if let notice = controller.notice {
                     Text(notice).font(.footnote).padding(.horizontal, 12).padding(.vertical, 6).glass(in: Capsule())
                 }
-                if pausedInformation {
-                    MoviePauseFacts(media: current, info: overlayInfo, showOverview: !compactPlayer && controller.cue == nil)
-                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pauseFactsHeight = $0 }
-                        .allowsHitTesting(false)
-                }
                 if offerNext, let next {
                     HStack {
                         Spacer()
@@ -299,6 +297,16 @@ struct PlaybackView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .overlay(alignment: .bottomLeading) {
+                if pauseFactsVisible {
+                    // Pause metadata must not move the existing transport buttons under a finger.
+                    MoviePauseFacts(media: current, info: overlayInfo, showOverview: !compactPlayer && controller.cue == nil)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pauseFactsHeight = $0 }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, (offerNext ? 116 : 54) + (controller.notice == nil ? 0 : 44))
+                        .allowsHitTesting(false)
+                }
+            }
             if let page = optionsPage {
                 VStack {
                     HStack {

@@ -18,7 +18,7 @@ concurrency:
 jobs:
   simulator:
     runs-on: macos-15-intel
-    timeout-minutes: 55
+    timeout-minutes: ${{ inputs.scenario == 'parity' && 65 || 55 }}
     strategy:
       fail-fast: false
       matrix:
@@ -113,7 +113,8 @@ jobs:
           xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Test touch navigation and playback rotation
-        timeout-minutes: 25
+        # Parity contains ten independent phone cases; retain their individual limits.
+        timeout-minutes: ${{ inputs.scenario == 'parity' && 35 || 25 }}
         env:
           UI_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
         run: |
@@ -137,9 +138,10 @@ jobs:
       - name: Export simulator evidence
         if: always()
         run: |
+          python3 ios/scripts/collect-ui-fallback.py
           if [ -d "$RUNNER_TEMP/ios-layout.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence"
-            find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/ios-layout.xcresult" --output-path "$RUNNER_TEMP/ios-evidence" || true
+            if [ -d "$RUNNER_TEMP/ios-evidence" ]; then find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete; fi
           fi
           grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
       - uses: actions/upload-artifact@v4
@@ -150,6 +152,7 @@ jobs:
             ${{ runner.temp }}/ios-build.log
             ${{ runner.temp }}/ios-layout.log
             ${{ runner.temp }}/ios-evidence
+            ${{ runner.temp }}/ios-fallback-evidence
             ${{ runner.temp }}/simulator-ready.png
           retention-days: 1
           if-no-files-found: warn

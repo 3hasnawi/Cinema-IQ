@@ -17,7 +17,9 @@ final class IPTVFlowTests: XCTestCase {
     }
     override func tearDown() {
         screenshot("last-state")
-        let hierarchy = XCTAttachment(string: app.debugDescription)
+        let tree = app.debugDescription
+        SimulatorEvidence.hierarchy(tree, test: name)
+        let hierarchy = XCTAttachment(string: tree)
         hierarchy.name = "iptv-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
         app.terminate()
     }
@@ -390,7 +392,10 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func inside(_ element: XCUIElement) { XCTAssertTrue(element.exists && app.frame.insetBy(dx: -2, dy: -2).contains(element.frame)) }
     private func screenshot(_ title: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = (tablet ? "ipad-" : "iphone-") + title; attachment.lifetime = .keepAlways; add(attachment)
+        let capture = XCUIScreen.main.screenshot()
+        let label = (tablet ? "ipad-" : "iphone-") + title
+        SimulatorEvidence.screenshot(capture, test: name, name: label)
+        let attachment = XCTAttachment(screenshot: capture)
+        attachment.name = label; attachment.lifetime = .keepAlways; add(attachment)
     }
 }

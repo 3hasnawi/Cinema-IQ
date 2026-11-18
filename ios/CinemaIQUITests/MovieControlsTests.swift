@@ -19,7 +19,9 @@ final class MovieControlsTests: XCTestCase {
     }
     override func tearDown() {
         shot("last-state")
-        let hierarchy = XCTAttachment(string: app.debugDescription)
+        let text = app.debugDescription
+        SimulatorEvidence.hierarchy(text, test: name)
+        let hierarchy = XCTAttachment(string: text)
         hierarchy.name = "movie-controls-hierarchy"; hierarchy.lifetime = .keepAlways; add(hierarchy)
         app.terminate()
     }
@@ -37,12 +39,13 @@ final class MovieControlsTests: XCTestCase {
         waitFor { !self.element("ios.player.options.panel").exists }
         try assertNativeClockStaysPaused(at: pausedAt)
         shot("automatic-quality-preserves-native-pause")
+        let closePoint = try XCTUnwrap(snapshotPoint("ios.player.close"), "Cache Close while the paused HUD is stable")
         element("ios.player.playPause").tap()
         waitFor { (self.nativeClock()?.seconds ?? 0) >= pausedAt + 2 && self.nativeClock()?.playing == true }
         shot("native-resume-advances-from-seek")
-        if !element("ios.player.close").exists { centerTap() }
-        XCTAssertTrue(element("ios.player.close").waitForExistence(timeout: 10))
-        element("ios.player.close").tap()
+        waitFor { !self.element("ios.player.close").exists }
+        // One synthesized gesture reveals and then hits Close; no slow AX lookup consumes the HUD interval.
+        doubleTap(at: closePoint)
         XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
     }
     func testPendingPauseEpisodeSheetKeepsCurrentAndSelectsNext() throws {
@@ -58,11 +61,12 @@ final class MovieControlsTests: XCTestCase {
         }
         XCTAssertTrue(first.isHittable); first.tap()
         let initial = try nativePausedPosition()
+        let pausePoint = try XCTUnwrap(snapshotPoint("ios.player.playPause"), "Cache Pause before resuming the episode")
         // Move beyond the launch hook's 30-second seek: reopening the current episode
         // would reset to 30, so this assertion detects a restart rather than merely its title.
         element("ios.player.playPause").tap()
         waitFor { (self.nativeClock()?.seconds ?? 0) >= initial + 4 && self.nativeClock()?.playing == true }
-        pauseForInspection()
+        pauseForInspection(at: pausePoint)
         let beforeSheet = try nativePausedPosition()
         openEpisodes()
         let current = episodeButton(prefix: "ios.player.episode.", number: 1)
@@ -159,27 +163,32 @@ final class MovieControlsTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.2)
         } while Date() < deadline
     }
-    private func pauseForInspection() {
-        // Cache one snapshot before restarting the real HUD timer. Slow live AX queries must not
-        // consume its four seconds between locating Pause and actually touching the screen.
-        var point: CGPoint?
-        for _ in 0..<4 {
-            if let root = try? app.snapshot() {
-                var nodes = [root]
-                while let node = nodes.popLast() {
-                    if node.identifier == "ios.player.playPause", !node.frame.isEmpty {
-                        point = CGPoint(x: node.frame.midX, y: node.frame.midY); break
-                    }
-                    nodes.append(contentsOf: node.children)
-                }
+    private func snapshotPoint(_ identifier: String) -> CGPoint? {
+        guard let root = try? app.snapshot() else { return nil }
+        var nodes = [root]
+        while let node = nodes.popLast() {
+            if node.identifier == identifier, !node.frame.isEmpty {
+                return CGPoint(x: node.frame.midX, y: node.frame.midY)
             }
-            if point != nil { break }; centerTap()
+            nodes.append(contentsOf: node.children)
         }
-        guard let point else { XCTFail("Pause must be present in the restored HUD"); return }
+        return nil
+    }
+    private func pauseForInspection(at cachedPoint: CGPoint? = nil) {
+        // The first visible snapshot can finish after auto-hide. In that case the picture centre
+        // targets the central transport button; the actual decoder/paused-label checks remain required.
+        let point = cachedPoint ?? snapshotPoint("ios.player.playPause") ?? CGPoint(x: app.frame.midX, y: app.frame.midY)
         waitFor { !self.element("ios.player.close").exists }
-        centerTap()
-        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
-        waitFor { self.element("ios.player.playPause").label == "تشغيل" }
+        // With the HUD hidden, the first tap reveals it and the second immediately hits Pause.
+        // The native decoder state and persistent paused label must both confirm that it worked.
+        doubleTap(at: point)
+        waitFor {
+            self.nativeClock()?.playing == false && self.element("ios.player.playPause").exists &&
+            self.element("ios.player.playPause").label == "تشغيل"
+        }
+    }
+    private func doubleTap(at point: CGPoint) {
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).doubleTap()
     }
     private func centerTap() { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
     private func seconds(_ element: XCUIElement) -> Int {
@@ -190,8 +199,11 @@ final class MovieControlsTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in condition() }, object: nil)], timeout: 20), .completed)
     }
     private func shot(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        attachment.name = (self.name.contains("Compatibility") ? "compatibility-" : "apple-") + name
+        let capture = XCUIScreen.main.screenshot()
+        let label = (self.name.contains("Compatibility") ? "compatibility-" : "apple-") + name
+        SimulatorEvidence.screenshot(capture, test: self.name, name: label)
+        let attachment = XCTAttachment(screenshot: capture)
+        attachment.name = label
         attachment.lifetime = .keepAlways; add(attachment)
     }
 }

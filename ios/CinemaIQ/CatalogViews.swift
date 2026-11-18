@@ -237,6 +237,8 @@ enum SubtitlePreference {
     static let backgrounds: [(String, Double)] = [("بدون", 0), ("خفيفة", 0.25), ("متوسطة", 0.5), ("داكنة", 0.75)]
 }
 
+private enum AccountInput: Hashable { case email, password, profile }
+
 struct SettingsView: View {
     @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
@@ -246,6 +248,7 @@ struct SettingsView: View {
     @AppStorage(SubtitlePreference.languageKey) private var subtitleLanguage = "ar"
     @AppStorage(SubtitlePreference.backgroundKey) private var subtitleBackground = 0.5
     @AppStorage(PhonePlaybackPreference.qualityKey) private var preferredQuality = VideoQuality.automatic.rawValue
+    @FocusState private var accountInput: AccountInput?
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "" }
     var body: some View {
         Form {
@@ -267,7 +270,7 @@ struct SettingsView: View {
                 .listRowBackground(Color.clear)
             }
             Section {
-                AccountRows()
+                AccountRows(focusedInput: $accountInput)
             } header: {
                 Text("حساب Cinema iQ والمزامنة")
             } footer: {
@@ -337,6 +340,18 @@ struct SettingsView: View {
         .accessibilityIdentifier("ios.settings")
         .navigationTitle("الإعدادات")
         .navigationBarTitleDisplayMode(.inline)
+        // One form owns the keyboard toolbar and lifecycle; a Group of rows would
+        // propagate those modifiers into individual virtualized Form cells.
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                if accountInput != nil {
+                    Spacer()
+                    Button("تم") { accountInput = nil }
+                        .accessibilityIdentifier("ios.account.keyboard.done")
+                }
+            }
+        }
+        .onDisappear { accountInput = nil }
     }
 }
 
@@ -374,8 +389,7 @@ private struct AccountRows: View {
     @State private var password = ""
     @State private var profileName = ""
     @State private var confirmImport = false
-    private enum Input: Hashable { case email, password, profile }
-    @FocusState private var focusedInput: Input?
+    @FocusState.Binding var focusedInput: AccountInput?
     private var profileBinding: Binding<String> {
         Binding(get: { cloud.profileID ?? "" }, set: { id in
             guard !id.isEmpty else { return }
@@ -459,16 +473,6 @@ private struct AccountRows: View {
             Text(message).font(.footnote).foregroundStyle(Theme.accent)
         }
         }
-        .toolbar {
-            ToolbarItemGroup(placement: .keyboard) {
-                if focusedInput != nil {
-                    Spacer()
-                    Button("تم") { focusedInput = nil }
-                        .accessibilityIdentifier("ios.account.keyboard.done")
-                }
-            }
-        }
-        .onDisappear { focusedInput = nil }
     }
 
     private func submit(signUp: Bool) {

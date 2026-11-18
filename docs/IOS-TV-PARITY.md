@@ -11,7 +11,8 @@ Apple TV implementations and ports applicable improvements to the touch UI.
 - Details keep a static synopsis, balanced round favorite action, separate season
   buttons and horizontal episode cards with existing ratings, dates and progress.
 - Movie playback has a separate engine preference, automatic/preferred quality,
-  text-only pause facts, and an in-player episode sheet. Selecting the current
+  text-only pause facts without moving the transport buttons, and an in-player
+  episode sheet. Selecting the current
   episode leaves playback intact. Changing quality preserves pause/play intent.
   Closing latches immediately and cancels/ignores late queue and metadata work.
 - Television opts into the shared encrypted catalog cache, last-channel restore,
@@ -21,7 +22,8 @@ Apple TV implementations and ports applicable improvements to the touch UI.
   Surfing Recent preserves its entry order while displaying updated Recent ranks;
   fresh catalog objects replace stale URLs and removed members are excluded.
 - Account and IPTV forms explicitly handle Next/Done and dismissal. Search
-  submit/return dismisses the keyboard. Paged catalog requests are owned and reject
+  submit/return dismisses the keyboard. The settings Form owns account focus and
+  its keyboard toolbar once, outside virtualized rows. Paged requests are owned and reject
   results from a stale tab/generation.
 - Plain pages use the approved slate gradient. The section is named «التلفزيون»
   and uses an available television SF Symbol.
@@ -57,3 +59,8 @@ Exact macOS compile/Core/simulator outcomes and evidence links are maintained in
 establish physical iPhone/Apple TV behavior, live Cinemana reachability, metadata
 service matching or subscription-server availability. No version bump, IPA/APK
 export, merge or publication is included in this request.
+
+UI screenshots and accessibility trees also persist directly in the test runner's
+cache, so an incomplete XCTest result bundle does not discard already captured
+evidence. The expanded parity suite has its own overall allowance; individual
+assertions and the production HUD timeout stay active.
