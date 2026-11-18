@@ -94,6 +94,14 @@ def focused_on(text, values=None):
                for n in (nodes() if values is None else values))
 
 
+def channel_row_visible(name, values=None):
+    # The continuing channel's HUD title is not authorization to expose its clickable guide row.
+    return any(n.get('content-desc') == name or
+               (n.get('clickable') == 'true' and n.get('focusable') == 'true' and
+                name in ' '.join(label(c) for c in n.iter()))
+               for n in (nodes() if values is None else values))
+
+
 def expect(name, condition):
     record(name, condition)
     if not condition:
@@ -205,6 +213,36 @@ def pin_dpad(value, current='1'):
 
 def pin_digits(value='2468'):
     for digit in value: key(7+int(digit))
+
+
+def admit_protected_group():
+    choose_group('Protected')
+    values = wait_pin()
+    expect('Every explicit protected-category entry requires fresh PIN before its rows',
+           not channel_row_visible(names[3], values))
+    pin_digits()
+    wait_for(lambda v: not ime() and focused_on(names[3], v),
+             'Fresh correct PIN must focus the admitted protected channel')
+
+
+def open_protected_channels():
+    time.sleep(6)
+    key(23)  # A locked-group remount requires fresh authorization on this single opening event.
+    values = wait_pin()
+    expect('One OK reopens a locked group at PIN without exposing a protected row',
+           not channel_row_visible(names[3], values))
+    pin_digits()
+    wait_for(lambda v: not ime() and focused_on(names[3], v),
+             'Fresh remount PIN must restore the protected channel focus')
+
+
+def open_safe_channels_while_protected_plays():
+    time.sleep(6)
+    key(23)  # Startup authorization grants only the exact decoder, not a category visit.
+    values = wait_for(lambda v: visible('البحث', v) and focused_on(names[0], v),
+                      'One OK after protected startup must focus the first safe All Channels row')
+    expect('Protected startup does not admit its channel through the All Channels overlay',
+           not ime() and not channel_row_visible(names[3], values))
 
 
 def frame_digest(name):
@@ -325,15 +363,76 @@ try:
     key(22); seek('كل القنوات',19,8); key(23)
     expect('All Channels does not expose the locked station', not visible(names[3]))
     snapshot('24-locked-search-and-favorites')
-    choose_group('Protected'); wait_pin(); pin_digits()
-    wait_for(lambda v: focused_on(names[3],v), 'Successful PIN must focus the unlocked station'); key(23); wait_live(names[3])
+    admit_protected_group(); key(23); wait_live(names[3])
+
+    # Reopening a watched locked group is a new admission, even while its exact decoder continues.
+    open_protected_channels()
+    public_reads = sum(requests[f'/live{number}.m3u8'] for number in (1,2,3))
+    choose_group('Fixture')  # Browse away without selecting or tuning another channel.
+    wait_for(lambda v: focused_on(names[0],v), 'Leaving the protected category must focus its safe destination')
+    expect('Leaving a category does not tune another channel or retain protected guide rows',
+           sum(requests[f'/live{number}.m3u8'] for number in (1,2,3)) == public_reads and
+           not channel_row_visible(names[3]))
+    advancing_frames('24b-protected-stream-continues-after-leaving')
+    choose_group('كل القنوات')
+    expect('All Channels cannot reuse a departed protected visit', not channel_row_visible(names[3]))
+    search('Protected'); key(66)
+    wait_for(lambda v: not ime() and visible('لا توجد قنوات مطابقة',v),
+             'Global search must not reuse the departed category grant')
+    expect('Global search cannot expose the continuing protected channel row', not channel_row_visible(names[3]))
+    key(4); choose_group('المفضلة')
+    expect('Favorites cannot reuse a departed category grant for the continuing station',
+           visible('لا توجد قنوات مطابقة') and not channel_row_visible(names[3]))
+    choose_group('Fixture')
+    snapshot('24c-departed-protected-visit-safe-list')
+    choose_group('Protected'); values = wait_pin()
+    expect('Returning to a departed protected category always asks for a fresh PIN',
+           not channel_row_visible(names[3],values))
+    pin_digits('9876')
+    wait_for(lambda v: visible('رمز غير صحيح',v), 'Wrong PIN on category reentry must be rejected')
+    expect('Wrong reentry PIN never reveals protected rows', not channel_row_visible(names[3]))
+    key(4)
+    wait_for(lambda v: focused_on('Protected',v), 'Cancelled reentry must restore its category button')
+    expect('Cancelled reentry keeps the protected category closed without opening an IME',
+           not ime() and not channel_row_visible(names[3]))
+    snapshot('24d-protected-reentry-pin-cancel-focus')
+    advancing_frames('24e-protected-stream-after-wrong-pin-cancel')
+    admit_protected_group()
+    expect('Fresh successful reentry admits the channel after the old visit was revoked', focused_on(names[3]))
+
+    # Global search leaves a visit; cancelling it cannot silently restore protected origin rows.
+    search('News'); key(4)
+    wait_for(lambda v: not ime() and focused_on('بحث / تم',v),
+             'First Back in protected-origin search must dismiss the actual keyboard')
+    key(4); values = wait_pin()
+    expect('Returning from global search to a protected origin requires fresh PIN',
+           not channel_row_visible(names[3],values))
+    key(4)
+    wait_for(lambda v: focused_on('Protected',v), 'Cancelling protected search-origin admission restores its category focus')
+    expect('Search cancellation cannot restore a stale protected row or reopen the keyboard',
+           not ime() and not channel_row_visible(names[3]))
+    snapshot('24f-protected-search-origin-cancel-focus')
+    admit_protected_group()
+    key(4); wait_live(names[3])
+    # Closing a still-active group retains same-group surfing but reopening demands fresh admission.
+    key(20); wait_live(names[3])
+    time.sleep(6); key(23); values = wait_pin()
+    expect('Single OK still requires PIN after same-group playback and surfing',
+           not channel_row_visible(names[3],values))
+    key(4)
+    wait_for(lambda v: focused_on('Protected',v), 'Cancelled locked remount must restore its category with safe rows')
+    expect('Cancelled locked remount does not reveal the playing channel row', not channel_row_visible(names[3]))
+    snapshot('24g-protected-remount-cancel-focus')
+    admit_protected_group(); key(4); wait_live(names[3])
+
     protected_reads = requests['/live4.m3u8']
     adb('shell','am','force-stop','com.cinemaplus.rebuilt'); start_tv(); wait_pin()
     expect('Locked last channel requires PIN before any new decoder request after process restart', requests['/live4.m3u8']==protected_reads)
     snapshot('25-locked-last-channel-gate')
     key(4); seek('متابعة آخر قناة',20,3); key(23); wait_pin(); pin_digits(); wait_live(names[3])
 
-    open_channels(names[3]); open_manager(); key(19); key(23)
+    open_safe_channels_while_protected_plays()
+    admit_protected_group(); open_manager(); key(19); key(23)
     expect('A fresh category deletion confirmation defaults to Cancel', focused_on('إلغاء'))
     key(20); key(23); wait_pin(); key(4)
     expect('Cancelling locked deletion PIN restores the exact Delete action', focused_on('حذف التصنيف'))

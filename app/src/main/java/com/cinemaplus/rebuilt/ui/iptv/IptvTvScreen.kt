@@ -24,7 +24,8 @@ import com.cinemaplus.rebuilt.data.iptv.*
 import com.cinemaplus.rebuilt.ui.*
 
 private enum class IptvPanel { Sources, Form, DeleteSource, Categories, Category, DeleteCategory, Hidden }
-private data class IptvPinRequest(val token: Int, val title: String, val setup: Boolean, val success: () -> Unit)
+private data class IptvPinRequest(val token: Int, val title: String, val setup: Boolean,
+    val success: () -> Unit, val cancelled: () -> Unit)
 
 /** The television section resumes a station directly; management is an explicit overlay action. */
 @Composable internal fun IptvTvScreen(onExit: () -> Unit, vm: IptvTvViewModel = viewModel()) {
@@ -55,6 +56,9 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
     val categoryCounts = remember(state.rawChannels, state.selectedId) {
         IptvNavigation.categories(state.rawChannels, state.selectedId.orEmpty())
     }
+    val channelNumbers = remember(state.rawChannels, state.selectedId) {
+        IptvNavigation.numbers(state.rawChannels, state.selectedId.orEmpty())
+    }
     val hidden = remember(categoryCounts, state.categoryPolicy, state.selectedId) {
         categoryCounts.keys.filterTo(linkedSetOf()) {
             IptvCategoryPolicy.key(state.selectedId.orEmpty(), it) in state.categoryPolicy.hidden
@@ -69,12 +73,14 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
     val playing = current?.takeIf(vm::canPlay)
 
     fun cancelPin() {
+        val abandoned = pin
         restoreWhenReady = latest.securityBusy
         pinToken++; pin = null; pinError = null; dialogEpoch++
+        abandoned?.cancelled?.invoke()
     }
-    fun requirePin(title: String, setup: Boolean = false, success: () -> Unit) {
+    fun requirePin(title: String, setup: Boolean = false, cancelled: () -> Unit = {}, success: () -> Unit) {
         pinToken++; pinError = null; pinAttempt++
-        pin = IptvPinRequest(pinToken, title, setup, success)
+        pin = IptvPinRequest(pinToken, title, setup, success, cancelled)
     }
     fun dismiss() {
         if (panel == IptvPanel.Form) vm.cancelConnection()
@@ -91,12 +97,18 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
     fun play(channel: IptvChannel) {
         val snapshot = latest
         if (channel.sourceId != snapshot.selectedId) return
+        val start = {
+            if (vm.notePlaying(channel)) {
+                vm.leaveCategory()
+                sessionEpoch++; playingId = channel.id; dismiss()
+            }
+        }
         when (snapshot.categoryPolicy.gate(channel, snapshot.unlockedCategories)) {
             IptvCategoryGate.Hidden -> Unit
-            IptvCategoryGate.Allowed -> { sessionEpoch++; playingId = channel.id; dismiss() }
+            IptvCategoryGate.Allowed -> start()
             IptvCategoryGate.PinRequired -> requirePin(channel.group) {
                 if (latest.selectedId == channel.sourceId) {
-                    vm.unlockCategory(channel.group); sessionEpoch++; playingId = channel.id; dismiss()
+                    vm.unlockCategory(channel.group); start()
                 }
             }
         }
@@ -169,20 +181,33 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
                 collection = state.collection, favorite = vm::toggleFavorite, watched = { channel ->
                     if (vm.canPlay(channel)) { playingId = channel.id; vm.noteWatched(channel) }
                 }, loadProgrammes = vm::programmes, categoryCounts = categoryCounts, lockedGroups = locked, hiddenGroups = hidden,
-                requestGroupAccess = { group, done ->
+                requestGroupAccess = { group, done, cancelled ->
                     val snapshot = latest
-                    val key = IptvCategoryPolicy.key(snapshot.selectedId.orEmpty(), group)
-                    if (key in snapshot.categoryPolicy.locked && key !in snapshot.unlockedCategories) {
-                        val source = snapshot.selectedId
-                        requirePin(group) { if (latest.selectedId == source) { vm.unlockCategory(group); done() } }
-                    } else done()
+                    val source = snapshot.selectedId
+                    val key = if (source != null && group != null) IptvCategoryPolicy.key(source, group) else null
+                    when {
+                        source == null || key in snapshot.categoryPolicy.hidden -> cancelled()
+                        group != null && key in snapshot.categoryPolicy.locked -> {
+                            // A playback continuation never replaces admission to a new category visit.
+                            requirePin(group, cancelled = {
+                                if (latest.selectedId == source) cancelled()
+                            }) {
+                                if (foreground && latest.selectedId == source && key !in latest.categoryPolicy.hidden) {
+                                    vm.unlockCategory(group); done()
+                                } else if (latest.selectedId == source) cancelled()
+                            }
+                        }
+                        else -> { vm.leaveCategory(); done() }
+                    }
                 }, manageCategory = { group ->
                     categoryReturnFocus = false
                     managingGroup = group.orEmpty()
                     panel = if (group == null) IptvPanel.Categories else IptvPanel.Category
                 }, manageSources = { openSources() }, channelChanged = { channel ->
-                    if (vm.canPlay(channel)) playingId = channel.id
-                }) { _, _ -> vm.clearUnlocks(); onExit() }
+                    if (vm.notePlaying(channel)) playingId = channel.id
+                }, canContinuePlayback = vm::canPlay, categoryVisitEnded = vm::leaveCategory,
+                canonicalNumbers = channelNumbers
+            ) { _, _ -> vm.clearUnlocks(); onExit() }
         } else Column(Modifier.fillMaxSize().padding(48.dp).testTag("iptv.tv.landing"),
             verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             IptvTelevisionIcon(Modifier.size(64.dp), Brand.TextSecondary)

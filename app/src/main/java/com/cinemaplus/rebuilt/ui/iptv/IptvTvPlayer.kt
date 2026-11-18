@@ -52,8 +52,10 @@ import kotlinx.coroutines.*
     watched: (IptvChannel) -> Unit = {}, onFullscreen: (Boolean) -> Unit = {},
     loadProgrammes: suspend (IptvChannel) -> IptvNowNext = { IptvNowNext() },
     categoryCounts: Map<String, Int>? = null, lockedGroups: Set<String> = emptySet(), hiddenGroups: Set<String> = emptySet(),
-    requestGroupAccess: ((String, () -> Unit) -> Unit)? = null, manageCategory: ((String?) -> Unit)? = null,
-    manageSources: (() -> Unit)? = null, channelChanged: (IptvChannel) -> Unit = {}, onExit: (IptvChannel, String?) -> Unit) {
+    requestGroupAccess: ((String?, () -> Unit, () -> Unit) -> Unit)? = null, manageCategory: ((String?) -> Unit)? = null,
+    manageSources: (() -> Unit)? = null, channelChanged: (IptvChannel) -> Unit = {},
+    canContinuePlayback: ((IptvChannel) -> Boolean)? = null, categoryVisitEnded: (() -> Unit)? = null,
+    canonicalNumbers: Map<String, Int>? = null, onExit: (IptvChannel, String?) -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val view = LocalView.current; val lifecycle = LocalLifecycleOwner.current.lifecycle
     var fullscreen by remember { mutableStateOf(!startInBrowser) }
@@ -62,6 +64,7 @@ import kotlinx.coroutines.*
     var searching by remember { mutableStateOf(false) }
     val currentWatched by rememberUpdatedState(watched)
     val currentChannelChanged by rememberUpdatedState(channelChanged)
+    val currentContinuation by rememberUpdatedState(canContinuePlayback)
     // Keep one state holder for the decoder session: listener closures outlive recompositions.
     var channel by remember { mutableStateOf(initial) }
     val latestChannels by rememberUpdatedState(channels)
@@ -90,7 +93,7 @@ import kotlinx.coroutines.*
         if (television) collection.channels(channels, initial.sourceId, televisionSection)
         else IptvNavigation.channels(channels, initial.sourceId, group)
     }
-    val channelNumbers = remember(channels, initial.sourceId) { IptvNavigation.numbers(channels, initial.sourceId) }
+    val channelNumbers = canonicalNumbers ?: remember(channels, initial.sourceId) { IptvNavigation.numbers(channels, initial.sourceId) }
     val tvLogos = if (television) rememberIptvLogos() else null
     val liveLoadControl = remember(television, allowHttp) { if (television) IptvTvLiveLoadControl() else null }
     val player = remember(allowHttp, television) {
@@ -132,9 +135,9 @@ import kotlinx.coroutines.*
     var refreshing by remember { mutableStateOf(false) }
     var refreshTask by remember { mutableStateOf<Job?>(null) }
     var requestGeneration by remember { mutableIntStateOf(0) }
-    fun eligible(candidate: IptvChannel): Boolean = !television || latestChannels.any {
-        it.id == candidate.id && it.sourceId == candidate.sourceId && it.sourceId == initial.sourceId
-    }
+    fun eligible(candidate: IptvChannel): Boolean = !television ||
+        (candidate.id == channel.id && candidate.sourceId == initial.sourceId && currentContinuation?.invoke(candidate) == true) ||
+        latestChannels.any { it.id == candidate.id && it.sourceId == candidate.sourceId && it.sourceId == initial.sourceId }
     fun retryPlan(): IptvRetry? = if (television)
         IptvReconnectPolicy.televisionRetry(retryFailure, retryCount, retryAfter, linkRenewed)
         else IptvReconnectPolicy.retry(retryFailure, retryCount, retryAfter)
@@ -146,6 +149,13 @@ import kotlinx.coroutines.*
     fun restorePlayerFocus(target: FocusRequester = surface) {
         controls = true; interaction++
         pendingRestore = target
+    }
+    fun closeGuide() {
+        guide = false
+        val activeGroup = (televisionSection as? IptvChannelSection.Group)?.name
+        // Watching/surfing inside the same group is still one visit; aggregate routes are not.
+        if (activeGroup == null || activeGroup != channel.group || activeGroup !in lockedGroups) categoryVisitEnded?.invoke()
+        restorePlayerFocus()
     }
 
     fun tune(next: IptvChannel) {
@@ -300,7 +310,8 @@ import kotlinx.coroutines.*
             retryFailure != failure || (television && android.os.SystemClock.elapsedRealtime() < retryNotBefore) ||
             !IptvReconnectPolicy.allowed(foreground, pausedByUser)) return@LaunchedEffect
         val next = latestChannels.firstOrNull { it.id == requested.id && it.sourceId == requested.sourceId }
-            ?: if (television) return@LaunchedEffect else requested
+            ?: requested.takeIf { !television || (it.id == channel.id && it.sourceId == initial.sourceId &&
+                currentContinuation?.invoke(it) == true) } ?: return@LaunchedEffect
         if (television && retryFailure == IptvFailure.Authentication) {
             // Refresh through the configured provider once; never replay rejected credentials in a loop.
             refreshing = true
@@ -485,7 +496,8 @@ import kotlinx.coroutines.*
                         programmes = programmeInfo, status = error ?: if (retryNeeded || (loading && retryCount > 0)) "جارٍ إعادة الاتصال…" else if (loading) "جارٍ التحميل…" else if (isPlaying) "بث مباشر · ${channel.group}" else "متوقف مؤقتًا · ${channel.group}",
                         videoHeight = videoHeight, audioLanguage = audioLanguage,
                         isFavorite = channel.id in collection.favorites,
-                        previousAvailable = previousId?.let { it in channelNumbers } == true, logos = checkNotNull(tvLogos),
+                        previousAvailable = previousId?.let { id -> latestChannels.any { it.id == id && it.sourceId == initial.sourceId } } == true,
+                        logos = checkNotNull(tvLogos),
                         entryFocus = toolbar, focusChanged = { toolbarFocus = it }, channels = { guide = true },
                         interactive = !guide,
                         favorite = { favorite(channel); interaction++ },
@@ -543,10 +555,11 @@ import kotlinx.coroutines.*
         if (guide) {
             if (television) IptvTvChannelOverlay(channels, channel, televisionSection, collection, { next, selectedSection ->
                 televisionSection = selectedSection; group = (selectedSection as? IptvChannelSection.Group)?.name
-                tune(next); guide = false; restorePlayerFocus()
-            }, { guide = false; restorePlayerFocus() }, categoryCounts = categoryCounts, lockedGroups = lockedGroups,
+                tune(next); closeGuide()
+            }, ::closeGuide, categoryCounts = categoryCounts, lockedGroups = lockedGroups,
                 hiddenGroups = hiddenGroups, requestGroupAccess = requestGroupAccess, manageCategory = manageCategory,
-                manageSources = manageSources)
+                manageSources = manageSources, canonicalNumbers = channelNumbers,
+                sectionChanged = { selected -> televisionSection = selected; group = (selected as? IptvChannelSection.Group)?.name })
             else IptvChannelGuide(channels, channel, group, false, { group = it }, {
                 tune(it); guide = false; restorePlayerFocus()
             }, { guide = false; restorePlayerFocus() })
