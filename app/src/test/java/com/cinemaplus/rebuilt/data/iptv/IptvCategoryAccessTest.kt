@@ -18,6 +18,18 @@ class IptvCategoryAccessTest {
     private fun playingFirst(): IptvCategoryAccess =
         IptvCategoryAccess().authorizeVisit(firstKey).start(first, policy)
 
+    @Test fun browseAuthorizationAloneCannotPretendADecoderAlreadyStarted() {
+        val visit = IptvCategoryAccess().authorizeVisit(firstKey)
+        assertTrue(visit.canStart(first, policy))
+        assertTrue(visit.canStart(sibling, policy))
+        assertFalse(visit.canContinue(first, policy))
+        assertFalse(visit.canContinue(sibling, policy))
+
+        val playing = visit.start(first, policy)
+        assertTrue(playing.canContinue(first, policy))
+        assertFalse(playing.canContinue(sibling, policy))
+    }
+
     @Test fun leavingCategoryExpiresNewStartsButKeepsOnlyTheCurrentDecoder() {
         val access = playingFirst().leaveVisit()
 
@@ -64,6 +76,7 @@ class IptvCategoryAccessTest {
         assertFalse(access.canStart(sibling, policy))
         assertTrue(access.canStart(other, policy))
         assertTrue(access.canContinue(first, policy))
+        assertFalse(access.canContinue(other, policy))
         assertEquals(playingFirst().continuation, access.continuation)
     }
 

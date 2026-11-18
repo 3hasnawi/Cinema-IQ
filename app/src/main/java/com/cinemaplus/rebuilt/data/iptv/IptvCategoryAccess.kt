@@ -15,8 +15,8 @@ internal data class IptvCategoryAccess(
     fun canStart(channel: IptvChannel, policy: IptvCategoryPolicy): Boolean =
         policy.gate(channel, unlockedCategories) == IptvCategoryGate.Allowed
 
-    /** A continuation can renew the same stream; it never grants permission to start another one. */
-    fun canContinue(channel: IptvChannel, policy: IptvCategoryPolicy): Boolean = when (policy.gate(channel, unlockedCategories)) {
+    /** A browse grant is not a decoder lease: locked continuation always requires the exact started item. */
+    fun canContinue(channel: IptvChannel, policy: IptvCategoryPolicy): Boolean = when (policy.gate(channel)) {
         IptvCategoryGate.Hidden -> false
         IptvCategoryGate.Allowed -> true
         IptvCategoryGate.PinRequired -> continuation?.matches(channel) == true
