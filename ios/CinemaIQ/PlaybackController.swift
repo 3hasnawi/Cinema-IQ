@@ -30,6 +30,7 @@ struct MediaOption: Identifiable, Hashable {
     let player = AVPlayer()
     let compatibility = CompatibilityPlayback()
     @Published private(set) var usesCompatibility = false
+    @Published private(set) var hasNativeItem = false
     @Published private(set) var mode: IPTVPlaybackMode
     @Published private(set) var lastFailure: PlaybackFailure?
     private var currentURL: URL?
@@ -74,6 +75,10 @@ struct MediaOption: Identifiable, Hashable {
     private var statusObservation: NSKeyValueObservation?
     private var controlObservation: NSKeyValueObservation?
     private var save: ((Double, Double, Bool) -> Void)?
+    private var audioLease: UUID?
+    private var openingTask: Task<Void, Never>?
+    private var selectionTask: Task<Void, Never>?
+    private var subtitleTask: Task<Void, Never>?
     private var ticks = 0
     private static let arabicWindows = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
         CFStringEncoding(CFStringEncodings.windowsArabic.rawValue)))
@@ -92,18 +97,29 @@ struct MediaOption: Identifiable, Hashable {
     func open(_ media: Media, url: URL, resume: Double, save: @escaping (Double, Double, Bool) -> Void) {
         close(); self.save = save; error = nil; lastFailure = nil; ended = false; position = max(0, resume); duration = 0; ticks = 0
         currentURL = url; fallbackAttempted = false; wantsPlay = true
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch { self.error = error.localizedDescription; return }
-        if mode.startsWithCompatibility(url) { startCompatibility(resume: resume, playing: true); return }
-        openNative(url: url, resume: resume)
+        let lease = UUID(); audioLease = lease; buffering = true
+        openingTask = Task { [weak self] in
+            // A new native movie must not race the previous compatibility decoder's shutdown either.
+            await CompatibilityPlayback.waitForShutdown()
+            do {
+                try await PlaybackAudioSession.shared.acquire(lease)
+                guard !Task.isCancelled, let self, audioLease == lease else {
+                    await PlaybackAudioSession.shared.release(lease); return
+                }
+                if mode.startsWithCompatibility(url) { startCompatibility(resume: resume, playing: true) }
+                else { openNative(url: url, resume: resume) }
+            } catch {
+                guard !Task.isCancelled, let self, audioLease == lease else { return }
+                self.error = error.localizedDescription; buffering = false
+            }
+        }
     }
 
     private func openNative(url: URL, resume: Double, playing shouldPlay: Bool = true) {
         usesCompatibility = false; ended = false; wantsPlay = shouldPlay; restartOnResume = false; pendingMode = nil
         let item = AVPlayerItem(url: url)
         player.replaceCurrentItem(with: item)
+        hasNativeItem = true
         statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             if item.status == .failed {
                 Task { @MainActor in
@@ -136,7 +152,7 @@ struct MediaOption: Identifiable, Hashable {
         timer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main) { [weak self] _ in
             Task { @MainActor in self?.tick() }
         }
-        Task { await loadSelectionGroups(item) }
+        selectionTask = Task { [weak self] in await self?.loadSelectionGroups(item) }
         if resume.isFinite && resume > 0 { player.seek(to: CMTime(seconds: resume, preferredTimescale: 600)) }
         player.defaultRate = rate
         applyNativeQuality()
@@ -242,14 +258,10 @@ struct MediaOption: Identifiable, Hashable {
 
     func persist(completed: Bool = false) {
         guard !externalPlayback else { return }
-        if usesCompatibility {
-            if position.isFinite, duration.isFinite, duration > 0 { save?(position, duration, completed || ended) }
-            return
-        }
-        guard let item = player.currentItem else { return }
-        let now = player.currentTime().seconds, length = item.duration.seconds
-        guard now.isFinite, length.isFinite, length > 0 else { return }
-        save?(now, length, completed || ended)
+        // The periodic clock/seek already maintains this snapshot. Do not synchronously query
+        // a remote asset again during dismissal if its connection has stalled.
+        guard position.isFinite, duration.isFinite, duration > 0 else { return }
+        save?(position, duration, completed || ended)
     }
 
     func togglePlay() {
@@ -288,24 +300,28 @@ struct MediaOption: Identifiable, Hashable {
 
     /// A new title starts with no subtitle chosen; the preferred language is picked automatically when offered.
     func resetSubtitles(preferred: String?) {
+        subtitleTask?.cancel(); subtitleTask = nil
         subtitleID = nil; cues = []; cue = nil; preferredLanguage = preferred
     }
 
     func selectSubtitle(_ id: String?, external: [SubtitleTrack]) {
+        subtitleTask?.cancel(); subtitleTask = nil
         subtitleID = id; cues = []; cue = nil; notice = nil
         if id == nil { preferredLanguage = nil }
         applyEmbeddedSelection()
         guard let id, id.hasPrefix("ext:"), let track = external.first(where: { "ext:" + $0.id == id }) else { return }
-        Task {
+        let lease = audioLease
+        subtitleTask = Task { [weak self] in
             do {
                 let data = try await SubtitleCatalog.download(track)
                 let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: Self.arabicWindows) ?? ""
                 let parsed = SubtitleCatalog.cues(text)
-                guard subtitleID == id else { return }
+                guard !Task.isCancelled, let self, audioLease == lease, subtitleID == id else { return }
                 if parsed.isEmpty { notice = "ملف الترجمة غير صالح للعرض." }
                 cues = parsed
             } catch {
-                if subtitleID == id { notice = "تعذّر تحميل الترجمة." }
+                guard !Task.isCancelled, let self, audioLease == lease, subtitleID == id else { return }
+                notice = "تعذّر تحميل الترجمة."
             }
         }
     }
@@ -330,8 +346,9 @@ struct MediaOption: Identifiable, Hashable {
 
     private func loadSelectionGroups(_ item: AVPlayerItem) async {
         let legible = (try? await item.asset.loadMediaSelectionGroup(for: .legible)) ?? nil
+        guard !Task.isCancelled, player.currentItem === item else { return }
         let audible = (try? await item.asset.loadMediaSelectionGroup(for: .audible)) ?? nil
-        guard player.currentItem === item else { return }
+        guard !Task.isCancelled, player.currentItem === item else { return }
         legibleGroup = legible; audibleGroup = audible
         embeddedSubtitles = (legible?.options ?? []).enumerated().map { MediaOption(id: "emb:\($0.offset)", title: $0.element.displayName) }
         audioOptions = (audible?.options ?? []).enumerated().map { MediaOption(id: "aud:\($0.offset)", title: $0.element.displayName) }
@@ -345,12 +362,27 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     func close() {
-        persist(); compatibility.close(); releaseNative(); usesCompatibility = false
+        persist()
+        openingTask?.cancel(); openingTask = nil
+        subtitleTask?.cancel(); subtitleTask = nil
+        let lease = audioLease; audioLease = nil
+        let retirement = compatibility.close()
+        releaseNative(); usesCompatibility = false
         currentURL = nil; save = nil; playing = false; buffering = false; restartOnResume = false; pendingMode = nil; pendingMovieSeek = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if let lease {
+            // Returning to details must not wait for a slow decoder/network/audio shutdown.
+            // The lease guard also protects a movie opened immediately after pressing Back.
+            Task {
+                await retirement?.value
+                await PlaybackAudioSession.shared.release(lease)
+            }
+        }
     }
 
     private func releaseNative() {
+        selectionTask?.cancel(); selectionTask = nil
+        player.currentItem?.cancelPendingSeeks()
+        player.currentItem?.asset.cancelLoading()
         player.pause()
         if let timer { player.removeTimeObserver(timer) }; timer = nil
         if let endToken { NotificationCenter.default.removeObserver(endToken) }; endToken = nil
@@ -358,5 +390,6 @@ struct MediaOption: Identifiable, Hashable {
         statusObservation = nil; controlObservation = nil
         legibleGroup = nil; audibleGroup = nil; embeddedSubtitles = []; audioOptions = []; audioID = nil
         player.replaceCurrentItem(with: nil)
+        hasNativeItem = false
     }
 }

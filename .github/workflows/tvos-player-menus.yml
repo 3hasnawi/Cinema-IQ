@@ -7,8 +7,12 @@ on:
       - 'ios/CinemaIQTV/TVPauseInformation.swift'
       - 'ios/CinemaIQTV/TVCompatibilityTransport.swift'
       - 'ios/CinemaIQ/PlaybackController.swift'
+      - 'ios/SharedIPTV/PlaybackAudioSession.swift'
+      - 'ios/SharedIPTV/CompatibilityPlayback.swift'
+      - 'ios/Core/Sources/CinemaCore/PlaybackSessionCoordinator.swift'
       - 'ios/CinemaIQTVUITests/TVPlayerMenuTests.swift'
       - 'ios/CinemaIQTVUITests/TVMovieCompatibilityTests.swift'
+      - 'ios/CinemaIQTVUITests/TVMovieExitTests.swift'
       - '.github/workflows/tvos-player-menus.yml'
   workflow_dispatch:
 permissions:
@@ -29,7 +33,7 @@ jobs:
           sudo xcode-select -s "$newest/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
-          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/movie-audio-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
           cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQTV/UICompatibilityFixture.mkv
           cd ios
           xcodegen generate --spec project.yml
@@ -72,6 +76,7 @@ jobs:
             -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
             -only-testing:CinemaIQTVUITests/TVPlayerMenuTests \
             -only-testing:CinemaIQTVUITests/TVMovieCompatibilityTests \
+            -only-testing:CinemaIQTVUITests/TVMovieExitTests \
             -resultBundlePath "$RUNNER_TEMP/player-menus.xcresult" \
             -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 \
             CODE_SIGNING_ALLOWED=NO TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \

@@ -61,7 +61,7 @@ struct TVPlayerView: View {
                         if inIntro, let end = skips.introEnd { controller.seek(to: end) }
                         else if offerNext, let next { active = next }
                     }) { focus in compatibilityOptions(focus) }
-            } else if controller.hasItem {
+            } else if controller.hasNativeItem {
             SystemPlayer(player: controller.player, title: current.episode > 0 ? "الموسم \(current.season) · الحلقة \(current.episode)" : current.title,
                          subtitle: current.episode > 0 ? current.title : "",
                          menuKey: menuKey, menus: { menus }, actionKey: inIntro ? "intro" : (offerNext ? (next?.id ?? "") : ""), actions: { actions },
@@ -117,6 +117,16 @@ struct TVPlayerView: View {
                 .onExitCommand { dismiss() }
             }
         }
+#if DEBUG
+        .overlay(alignment: .topLeading) {
+            if UITestSupport.playerFixtureEnabled {
+                // Observe the real decoder clock without exposing an extra remote focus target.
+                Text("\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))")
+                    .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
+                    .accessibilityIdentifier("tv.player.testClock").allowsHitTesting(false)
+            }
+        }
+#endif
         .task(id: current.id) { await start(current) }
         .task(id: "skips-\(current.id)") { await loadSkips(current) }
         .task(id: "queue-\(current.id)") { await loadQueue(current) }
@@ -442,6 +452,14 @@ struct SystemPlayer: UIViewControllerRepresentable {
             metadata.append(subtitleItem)
         }
         item.externalMetadata = metadata
+    }
+
+    static func dismantleUIViewController(_ controller: AVPlayerViewController, coordinator: Coordinator) {
+        // Discard retained action/view-controller closures and detach AVKit's focus context on exit.
+        controller.transportBarCustomMenuItems = []
+        controller.contextualActions = []
+        controller.customInfoViewControllers = []
+        controller.player = nil
     }
 }
 
