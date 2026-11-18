@@ -9,6 +9,11 @@ on:
         type: choice
         options: [all, parity, movie_controls, movie_controls_apple, movie_and_episodes]
         default: all
+      runner:
+        description: Hosted macOS runner for simulator validation
+        type: choice
+        options: [macos-15-intel, macos-15]
+        default: macos-15-intel
 
 permissions:
   contents: read
@@ -17,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   simulator:
-    runs-on: macos-15-intel
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
     timeout-minutes: ${{ inputs.scenario == 'parity' && 65 || 55 }}
     strategy:
       fail-fast: false

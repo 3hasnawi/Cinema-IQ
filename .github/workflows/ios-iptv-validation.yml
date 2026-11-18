@@ -28,7 +28,9 @@ concurrency:
 jobs:
   simulator:
     runs-on: ${{ inputs.runner || 'macos-15-intel' }}
-    timeout-minutes: 35
+    # First-boot migration, five real input/playback cases and evidence cleanup
+    # need their own allowance; do not cancel a valid test midway through export.
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
