@@ -82,17 +82,18 @@ private struct IPTVGroupPicker: View {
     @FocusState private var searchFocused: Bool
     var body: some View {
         NavigationStack {
+          VStack(spacing: 0) {
+            IPTVSearchInput(text: $search, prompt: "ابحث عن تصنيف", focused: $searchFocused, identifier: "ios.iptv.groupPicker.search")
+                .padding(.horizontal, 16).padding(.vertical, 8)
             List {
                 Button { searchFocused = false; selection = nil; dismiss() } label: { row("كل القنوات", selected: selection == nil) }.accessibilityIdentifier("ios.iptv.groupPicker.all")
                 ForEach(groups.filter { search.isEmpty || $0.localizedStandardContains(search) }, id: \.self) { group in
                     Button { searchFocused = false; selection = group; dismiss() } label: { row(group, selected: selection == group) }.accessibilityIdentifier("ios.iptv.groupPicker." + group)
                 }
             }
+          }
             .navigationTitle("تصنيفات القنوات").navigationBarTitleDisplayMode(.inline)
             .scrollContentBackground(.hidden).background(Theme.canvas)
-            .searchable(text: $search, prompt: "ابحث عن تصنيف")
-            .searchFocused($searchFocused)
-            .onSubmit(of: .search) { searchFocused = false }
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("إغلاق") { searchFocused = false; dismiss() } }

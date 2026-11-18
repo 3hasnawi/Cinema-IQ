@@ -31,7 +31,9 @@ Existing library, subtitle and live engine preference keys are retained; the new
 `ios.playback.quality.v1` and `apple.phone.movie.playback.engine.v1` keys default to
 automatic. Shared native seeking now keeps its pending intent until AVPlayer
 confirms completion, including an initially paused opening; this has focused
-Core and actual-player UI coverage.
+Core and actual-player UI coverage. AVKit presentation waits for preparation and
+the initial seek to settle, with a bounded escape for interrupted/stalled seeking
+so system controls and cancellation remain reachable.
 
 Priorities: preserve library and preference keys, distinguish movie and live-TV
 controls, keep Arabic/RTL and adaptive iPad behavior, and validate keyboard

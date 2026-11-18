@@ -26,7 +26,8 @@ struct HeroArtwork: View {
         }
         .allowsHitTesting(false)
 #if DEBUG
-        // Only the deterministic fixture exposes its bounds to the pixel/rotation UI test.
+        // Identify the deterministic fixture. The pixel test measures the carousel's clipped viewport,
+        // since SwiftUI can report an image's pre-clipping bounds to accessibility on iOS 18.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Portrait artwork fixture")
         .accessibilityIdentifier("ios.artwork.fixture.bounds")
@@ -57,7 +58,7 @@ struct HeroArtwork: View {
     }
 
 #if DEBUG
-    private static let fixtureEnabled = ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-hero-artwork")
+    static let fixtureEnabled = ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-hero-artwork")
     /// Tall, colored-edge artwork makes accidental aspect-fill cropping observable in real pixels.
     private static let portraitFixture = UIGraphicsImageRenderer(size: CGSize(width: 600, height: 1200)).image { context in
         UIColor(white: 0.12, alpha: 1).setFill(); context.fill(CGRect(x: 0, y: 0, width: 600, height: 1200))

@@ -1,6 +1,27 @@
 import SwiftUI
 import CinemaCore
 
+/// A real SwiftUI field keeps the keyboard accessory available inside the guide's sheet.
+struct IPTVSearchInput: View {
+    @Binding var text: String
+    let prompt: String
+    let focused: FocusState<Bool>.Binding
+    let identifier: String
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField(prompt, text: $text)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+                .submitLabel(.search).focused(focused).onSubmit { focused.wrappedValue = false }
+                .frame(minHeight: 44).accessibilityIdentifier(identifier)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary).frame(width: 44, height: 44) }
+                    .buttonStyle(.plain).accessibilityLabel("مسح البحث").accessibilityIdentifier(identifier + ".clear")
+            }
+        }.padding(.horizontal, 12).background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 /// Subscription artwork keeps its own shape rather than being placed in an artificial tile.
 struct IPTVChannelLogo: View {
     let channel: IPTVChannel

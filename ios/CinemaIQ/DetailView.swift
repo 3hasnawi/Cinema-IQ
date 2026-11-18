@@ -153,10 +153,10 @@ struct DetailView: View {
             .accessibilityIdentifier("ios.detail.play")
             Button { library.toggle(current) } label: {
                 Image(systemName: library.isFavorite(current) ? "checkmark" : "plus")
-                    .font(.headline).frame(width: 20, height: 20)
+                    .font(.headline).frame(width: 50, height: 50)
+                    .glass(in: Circle(), interactive: true).contentShape(Circle())
             }
-            .secondaryAction()
-            .buttonBorderShape(.circle)
+            .buttonStyle(.plain)
             .accessibilityLabel(library.isFavorite(current) ? "إزالة من قائمتي" : "إضافة إلى قائمتي")
             .accessibilityIdentifier("ios.detail.favorite")
         }
@@ -216,6 +216,9 @@ struct DetailView: View {
             .accessibilityIdentifier("ios.detail.episodes")
             // One OMDb request per season, only once the season is shown.
             .task(id: seasonID) {
+#if DEBUG
+                guard !HeroArtwork.fixtureEnabled else { return }
+#endif
                 let selected = seasonID, work = current
                 guard selected > 0, episodeRatings[selected] == nil, let client = OMDb.shared else { return }
                 let found = await client.seasonDetails(for: work, season: selected)
@@ -319,12 +322,18 @@ struct DetailView: View {
     }
 
     private func loadOMDb(for detail: Media, request: UUID) async {
+#if DEBUG
+        guard !HeroArtwork.fixtureEnabled else { return }
+#endif
         let found = await OMDb.shared?.info(for: detail)
         guard !Task.isCancelled, loadID == request, current.id == detail.id else { return }
         if let found { omdb = found }
     }
 
     private func loadTMDB(for detail: Media, request: UUID) async {
+#if DEBUG
+        guard !HeroArtwork.fixtureEnabled else { return }
+#endif
         let found = await TMDB.shared?.work(for: detail)
         guard !Task.isCancelled, loadID == request, current.id == detail.id else { return }
         if let found { tmdb = found }

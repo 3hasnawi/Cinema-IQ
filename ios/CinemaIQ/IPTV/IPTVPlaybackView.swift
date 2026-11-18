@@ -319,6 +319,9 @@ private struct IPTVLiveGuide: View {
     private var key: FilterKey { .init(revision: session.catalogRevision, section: browsingSection, query: query, collection: store.channelCollection) }
     var body: some View {
         ScrollViewReader { proxy in
+          VStack(spacing: 0) {
+            IPTVSearchInput(text: $query, prompt: "ابحث عن قناة", focused: $searchFocused, identifier: "ios.iptv.guide.search")
+                .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 4)
             HStack(alignment: .top, spacing: 0) {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -349,10 +352,8 @@ private struct IPTVLiveGuide: View {
                     }
                 }.listStyle(.plain)
             }
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "ابحث عن قناة")
+          }
             .scrollDismissesKeyboard(.interactively)
-            .searchFocused($searchFocused)
-            .onSubmit(of: .search) { searchFocused = false }
             .toolbar {
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer(); Button("تم") { searchFocused = false }.accessibilityIdentifier("ios.iptv.guide.search.done")

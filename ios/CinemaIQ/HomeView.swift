@@ -94,7 +94,13 @@ struct HeroCarousel: View {
     @State private var visible = false
     let items: [Media]
     @Binding var index: Int
-    private var canRotate: Bool { visible && phase == .active && !reduceMotion && player.selection == nil && items.count > 1 }
+    private var canRotate: Bool {
+#if DEBUG
+        // A pixel/navigation fixture must stay still while XCTest waits for the app to idle.
+        if HeroArtwork.fixtureEnabled { return false }
+#endif
+        return visible && phase == .active && !reduceMotion && player.selection == nil && items.count > 1
+    }
     private var rotationKey: String { "\(canRotate)|\(index)|" + items.map(\.id).joined(separator: ",") }
     var body: some View {
         TabView(selection: $index) {
@@ -162,18 +168,19 @@ struct HeroPage: View {
                             .primaryAction()
                     }
                     NavigationLink(value: DetailRoute(media: media, key: routeKey)) {
-                        Image(systemName: "info").font(.body.weight(.semibold)).frame(width: 20, height: 20)
+                        Image(systemName: "info").font(.body.weight(.semibold))
+                            .frame(width: 50, height: 50)
+                            .glass(in: Circle(), interactive: true).contentShape(Circle())
                     }
-                    .secondaryAction()
-                    .buttonBorderShape(.circle)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("التفاصيل")
                     .accessibilityIdentifier("ios.home.detail.\(media.id)")
                     Button { library.toggle(media) } label: {
                         Image(systemName: library.isFavorite(media) ? "checkmark" : "plus")
-                            .font(.body.weight(.semibold)).frame(width: 20, height: 20)
+                            .font(.body.weight(.semibold)).frame(width: 50, height: 50)
+                            .glass(in: Circle(), interactive: true).contentShape(Circle())
                     }
-                    .secondaryAction()
-                    .buttonBorderShape(.circle)
+                    .buttonStyle(.plain)
                     .accessibilityLabel(library.isFavorite(media) ? "إزالة من قائمتي" : "إضافة إلى قائمتي")
                 }
                 .controlSize(.regular)
@@ -184,6 +191,9 @@ struct HeroPage: View {
         }
         .zoomSource(routeKey, in: zoom)
         .task(id: media.id) {
+#if DEBUG
+            guard !HeroArtwork.fixtureEnabled else { return }
+#endif
             let requested = media
             let found = await OMDb.shared?.info(for: requested)
             guard !Task.isCancelled, media.id == requested.id else { return }
@@ -191,6 +201,9 @@ struct HeroPage: View {
         }
         // Artwork does not depend on OMDb availability or its request completing first.
         .task(id: media.id) {
+#if DEBUG
+            guard !HeroArtwork.fixtureEnabled else { return }
+#endif
             let requested = media
             let found = await TMDB.shared?.work(for: requested)
             guard !Task.isCancelled, media.id == requested.id else { return }

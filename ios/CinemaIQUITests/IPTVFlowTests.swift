@@ -8,6 +8,7 @@ final class IPTVFlowTests: XCTestCase {
     private let baseArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-iptv", "--cinema-ui-testing-player"]
     override func setUp() {
         continueAfterFailure = false
+        KeyboardTestSupport.installIntroductionMonitor(on: self)
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = baseArguments + ["--cinema-ui-testing-iptv-reset"]
         if name.contains("testCompatibilityDecoderWithTracksAndRotation") { app.launchArguments += ["--cinema-ui-testing-compatibility"] }
@@ -140,7 +141,8 @@ final class IPTVFlowTests: XCTestCase {
         fill("ios.iptv.form.address", "https://xtream.example\n")
         fill("ios.iptv.form.username", "demo\n")
         let password = app.secureTextFields["ios.iptv.form.password"]
-        XCTAssertTrue(password.waitForExistence(timeout: 10)); password.tap(); password.typeText("demo\n")
+        XCTAssertTrue(password.waitForExistence(timeout: 10)); password.tap(); dismissKeyboardIntroductionIfPresent(); password.typeText("demo\n")
+        dismissKeyboardIntroductionIfPresent()
         connect()
         XCTAssertTrue(app.buttons["Xtream News"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["Xtream Sport"].exists)
@@ -148,14 +150,44 @@ final class IPTVFlowTests: XCTestCase {
         element("ios.iptv.browser.search.toggle").tap()
         let search = app.textFields["ios.iptv.browser.search"]
         XCTAssertTrue(search.waitForExistence(timeout: 10))
-        search.tap(); search.typeText("News")
+        search.tap(); dismissKeyboardIntroductionIfPresent(); search.typeText("News")
         waitFor { self.app.buttons["Xtream News"].exists && !self.app.buttons["Xtream Sport"].exists }
-        let done = element("ios.iptv.browser.search.done")
+        dismissKeyboardIntroductionIfPresent()
+        let done = app.buttons["ios.iptv.browser.search.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10)); done.tap()
         waitFor { !self.app.keyboards.firstMatch.exists }
         XCTAssertTrue(search.exists, "Search results must remain available after Done dismisses the keyboard")
         screenshot("xtream-search")
         XCTAssertEqual(app.state, .runningForeground)
+    }
+    func testCategorySearchSubmitAndDoneDismissBeforeSelection() {
+        openAdd()
+        fill("ios.iptv.form.name", "Category Keyboard\n")
+        // Native Next must leave the address as the first responder, then URL Done dismisses.
+        typeIntoFocusedField("https://iptv.example/channels.m3u\n")
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(app.textFields["ios.iptv.form.address"].value as? String, "https://iptv.example/channels.m3u")
+        connect()
+        XCTAssertTrue(app.buttons["قناة الأخبار"].waitForExistence(timeout: 20))
+        app.buttons["ios.iptv.groups"].tap()
+        let search = app.textFields["ios.iptv.groupPicker.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 10)); search.tap(); dismissKeyboardIntroductionIfPresent(); search.typeText("Sport\n")
+        dismissKeyboardIntroductionIfPresent()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(search.value as? String, "Sport")
+        search.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        let clear = element("ios.iptv.groupPicker.search.clear")
+        XCTAssertTrue(clear.waitForExistence(timeout: 10)); clear.tap()
+        dismissKeyboardIntroductionIfPresent()
+        let done = app.buttons["ios.iptv.groupPicker.done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10)); done.tap()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        let sport = element("ios.iptv.groupPicker.رياضة")
+        XCTAssertTrue(sport.waitForExistence(timeout: 10)); sport.tap()
+        waitFor { self.app.buttons["قناة الرياضة"].exists && !self.app.buttons["قناة الأخبار"].exists }
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        screenshot("category-search-submit-done-and-selection")
     }
     func testKeyboardNextDoneMetadataPopoversAndOfflineLastChannelRestore() {
         openAdd()
@@ -163,9 +195,9 @@ final class IPTVFlowTests: XCTestCase {
         fill("ios.iptv.form.name", "Keyboard Cache\n")
         // Send input to the actual first responder to verify native Next traversal,
         // rather than tapping each destination field and masking a focus failure.
-        app.typeText("https://xtream.example\n")
-        app.typeText("demo\n")
-        app.typeText("demo\n")
+        typeIntoFocusedField("https://xtream.example\n")
+        typeIntoFocusedField("demo\n")
+        typeIntoFocusedField("demo\n")
         waitFor { !self.app.keyboards.firstMatch.exists }
         XCTAssertEqual(app.textFields["ios.iptv.form.address"].value as? String, "https://xtream.example")
         XCTAssertEqual(app.textFields["ios.iptv.form.username"].value as? String, "demo")
@@ -187,9 +219,15 @@ final class IPTVFlowTests: XCTestCase {
         waitFor { !popup.exists }
         tapPlayerControl("channels")
         XCTAssertTrue(element("ios.iptv.guide").waitForExistence(timeout: 10))
-        let guideSearch = app.searchFields.firstMatch
-        XCTAssertTrue(guideSearch.waitForExistence(timeout: 10)); guideSearch.tap(); guideSearch.typeText("Sport")
-        let guideDone = element("ios.iptv.guide.search.done")
+        let guideSearch = app.textFields["ios.iptv.guide.search"]
+        XCTAssertTrue(guideSearch.waitForExistence(timeout: 10)); guideSearch.tap(); dismissKeyboardIntroductionIfPresent(); guideSearch.typeText("Sport\n")
+        dismissKeyboardIntroductionIfPresent()
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        XCTAssertEqual(guideSearch.value as? String, "Sport", "Native Search must dismiss the keyboard without clearing the query")
+        guideSearch.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        dismissKeyboardIntroductionIfPresent()
+        let guideDone = app.buttons["ios.iptv.guide.search.done"]
         XCTAssertTrue(guideDone.waitForExistence(timeout: 10)); guideDone.tap()
         waitFor { !self.app.keyboards.firstMatch.exists }
         element("ios.iptv.guide.group.الأخيرة").tap()
@@ -234,7 +272,19 @@ final class IPTVFlowTests: XCTestCase {
             let clip = name == "close" ? root.frame :
                 (nodes.first(where: { $0.identifier == "ios.iptv.player.controls" })?.frame ?? root.frame.insetBy(dx: 16, dy: 0))
             if !frame.isEmpty && point.x.isFinite && point.y.isFinite && root.frame.contains(point) && clip.insetBy(dx: 2, dy: 0).contains(point) {
+                if name == "close", (nodes.first(where: { $0.identifier == "ios.iptv.player.surface" })?.value as? String) == "بث مباشر" {
+                    // Cache geometry before the production timeout, then reveal a fresh HUD.
+                    // No live AX/snapshot queries can consume its five seconds before Close.
+                    waitFor { !self.element("ios.iptv.player.close").exists }
+                    center.tap()
+                    app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+                    XCTAssertTrue(element("ios.iptv.browser.fullscreen").waitForExistence(timeout: 10))
+                    return
+                }
                 app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: point.x, dy: point.y)).tap()
+                if name == "close" {
+                    XCTAssertTrue(element("ios.iptv.browser.fullscreen").waitForExistence(timeout: 10))
+                }
                 return
             }
             let strip = element("ios.iptv.player.controls")
@@ -283,7 +333,16 @@ final class IPTVFlowTests: XCTestCase {
     }
     private func fill(_ id: String, _ value: String) {
         let field = app.textFields[id]
-        XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); field.typeText(value)
+        XCTAssertTrue(field.waitForExistence(timeout: 10)); field.tap(); dismissKeyboardIntroductionIfPresent(); field.typeText(value)
+        dismissKeyboardIntroductionIfPresent()
+    }
+    private func typeIntoFocusedField(_ value: String) {
+        dismissKeyboardIntroductionIfPresent()
+        app.typeText(value)
+        dismissKeyboardIntroductionIfPresent()
+    }
+    private func dismissKeyboardIntroductionIfPresent() {
+        KeyboardTestSupport.dismissIntroductionIfPresent(in: app)
     }
     private func connect() {
         let button = element("ios.iptv.form.connect")

@@ -26,10 +26,10 @@ final class ArtworkParityTests: XCTestCase {
         var pink = 0.0, green = 0.0
         let deadline = Date().addingTimeInterval(12)
         repeat {
-            let candidates = app.descendants(matching: .any).matching(identifier: "ios.artwork.fixture.bounds").allElementsBoundByIndex
-            if let bounds = candidates.map(\.frame).first(where: {
-                $0.width > 100 && $0.height > 100 && $0.intersection(app.frame).width > $0.width * 0.8
-            }) {
+            // iOS 18 reports the blurred image's unclipped bounds, not its GeometryReader viewport.
+            // The actual carousel is the clipping frame and remains correct for phone and tablet.
+            let bounds = element("ios.home.hero").frame
+            if element("ios.artwork.fixture.bounds").exists && bounds.width > 100 && bounds.height > 100 {
                 let capture = XCUIScreen.main.screenshot()
                 let image = try XCTUnwrap(capture.image.cgImage)
                 // The generated fixture is 1:2. Aspect-fill removes its top/bottom bands on these frames.
@@ -77,6 +77,8 @@ final class ArtworkParityTests: XCTestCase {
     }
 
     func testSeriesHasSeasonButtonAndHorizontallyScrollableEpisodeCards() {
+        // The Intel iPad run reached and captured the fourth card at 266s; allow its slower native driver.
+        executionTimeAllowance = 360
         tab("تصفّح")
         let series = app.segmentedControls.buttons["مسلسلات"]
         XCTAssertTrue(series.waitForExistence(timeout: 10))
@@ -113,6 +115,7 @@ final class ArtworkParityTests: XCTestCase {
         let rect = CGRect(x: (fitted.minX + fitted.width * 0.03 - app.frame.minX) * scaleX,
                           y: (fitted.minY + fitted.height * fractionY - app.frame.minY) * scaleY,
                           width: 4 * scaleX, height: 2 * scaleY)
+        guard CGRect(x: 0, y: 0, width: image.width, height: image.height).contains(rect) else { return 0 }
         let crop = try XCTUnwrap(image.cropping(to: rect)), width = crop.width, height = crop.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
         return try pixels.withUnsafeMutableBytes { bytes in

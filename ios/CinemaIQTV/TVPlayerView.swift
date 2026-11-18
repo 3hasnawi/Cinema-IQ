@@ -49,6 +49,7 @@ struct TVPlayerView: View {
         return left <= 20
     }
     private var inIntro: Bool { skips.inIntro(controller.position) }
+    private var preparingPicture: Bool { controller.hasItem && !controller.usesCompatibility && !controller.hasNativeItem }
 
     var body: some View {
         ZStack {
@@ -83,7 +84,7 @@ struct TVPlayerView: View {
                     .onExitCommand(perform: exitPlayer)
             }
             }
-            if !controller.playing && !controller.buffering && !loading && !controller.ended &&
+            if !preparingPicture && !controller.playing && !controller.buffering && !loading && !controller.ended &&
                 controller.position > 0 && failure == nil {
                 TVPauseInformation(media: current, series: selection.series ?? fetchedSeries, info: overlayInfo)
                     .transition(.opacity)
@@ -97,7 +98,7 @@ struct TVPlayerView: View {
                 }
             }
             .allowsHitTesting(false)
-            if (loading || controller.buffering) && resolutionError == nil && controller.error == nil { ProgressView().allowsHitTesting(false) }
+            if (loading || controller.buffering || preparingPicture) && resolutionError == nil && controller.error == nil { ProgressView().allowsHitTesting(false) }
             if let message = failure {
                 VStack(spacing: 28) {
                     Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 60)).foregroundStyle(TVTheme.accent)

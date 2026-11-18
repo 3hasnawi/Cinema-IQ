@@ -4,12 +4,14 @@ import UIKit
 /// Touch/keyboard regressions over the local demo catalog. No account action is submitted.
 final class PhoneParityTests: XCTestCase {
     private let app = XCUIApplication()
-    private var deviceName: String { UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone" }
+    private var tablet: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    private var deviceName: String { tablet ? "ipad" : "iphone" }
 
     override func setUp() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player"]
+        KeyboardTestSupport.installIntroductionMonitor(on: self)
         addUIInterruptionMonitor(withDescription: "System permission") { alert in
             for title in ["Allow", "OK", "السماح", "موافق"] where alert.buttons[title].exists {
                 alert.buttons[title].tap()
@@ -40,11 +42,15 @@ final class PhoneParityTests: XCTestCase {
         XCTAssertFalse(login.isEnabled)
         let address = "keyboard@example.invalid"
         email.tap()
+        dismissKeyboardIntroductionIfPresent()
         email.typeText(address)
+        dismissKeyboardIntroductionIfPresent()
         pressKeyboardButton(["Next", "التالي"])
         // Sending keys through the app cannot implicitly focus the password field.
         // Login becoming enabled and the unchanged email prove that native Next moved focus.
+        dismissKeyboardIntroductionIfPresent()
         app.typeText("preview-only")
+        dismissKeyboardIntroductionIfPresent()
         waitFor("Next must move to the password field") {
             (email.value as? String) == address && login.isEnabled
         }
@@ -56,6 +62,7 @@ final class PhoneParityTests: XCTestCase {
 
         revealSetting(password)
         password.tap()
+        dismissKeyboardIntroductionIfPresent()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
         let done = app.buttons["ios.account.keyboard.done"]
         XCTAssertTrue(done.waitForExistence(timeout: 10))
@@ -77,7 +84,9 @@ final class PhoneParityTests: XCTestCase {
         tab("البحث")
         let search = activateSearch()
         search.tap()
+        dismissKeyboardIntroductionIfPresent()
         search.typeText("Big")
+        dismissKeyboardIntroductionIfPresent()
         pressKeyboardButton(["Search", "بحث", "البحث"])
         waitForKeyboardDismissal()
         let result = firstResult()
@@ -133,6 +142,27 @@ final class PhoneParityTests: XCTestCase {
     }
 
     private func tab(_ title: String) {
+        if tablet {
+            // iPad's collapsed top tabs can expose an overflowed AX frame underneath
+            // its pinned Search tab. Use the real sidebar row instead of that frame.
+            func sidebarRow() -> XCUIElement? {
+                app.cells.matching(NSPredicate(format: "label == %@", title))
+                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+            }
+            if sidebarRow() == nil {
+                let toggle = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'"))
+                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+                XCTAssertNotNil(toggle, "The iPad sidebar must be reachable")
+                toggle?.tap()
+            }
+            waitFor("Sidebar tab must be reachable: \(title)") { sidebarRow() != nil }
+            sidebarRow()?.tap()
+            // Native sidebar selection may leave the overlay open in some size classes.
+            let hide = app.buttons.matching(NSPredicate(format: "label == 'Hide Sidebar' OR (label CONTAINS 'إخفاء' AND label CONTAINS 'الشريط الجانبي')"))
+                .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
+            hide?.tap()
+            return
+        }
         func visibleTab() -> XCUIElement? {
             app.buttons.matching(NSPredicate(format: "label == %@", title))
                 .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
@@ -167,6 +197,7 @@ final class PhoneParityTests: XCTestCase {
     }
 
     private func pressKeyboardButton(_ titles: [String]) {
+        dismissKeyboardIntroductionIfPresent()
         waitFor("Native keyboard action must be reachable: \(titles.joined(separator: "/"))") {
             self.keyboardButton(titles) != nil
         }
@@ -175,6 +206,10 @@ final class PhoneParityTests: XCTestCase {
 
     private func waitForKeyboardDismissal() {
         waitFor("Keyboard must dismiss and stay outside the content") { !self.app.keyboards.firstMatch.exists }
+    }
+
+    private func dismissKeyboardIntroductionIfPresent() {
+        KeyboardTestSupport.dismissIntroductionIfPresent(in: app)
     }
 
     private func activateSearch() -> XCUIElement {
