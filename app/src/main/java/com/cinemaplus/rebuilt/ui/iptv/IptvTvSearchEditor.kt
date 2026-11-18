@@ -29,7 +29,11 @@ import com.cinemaplus.rebuilt.ui.Brand
 @Stable internal class IptvTvSearchEditorState {
     var editor: EditText? by mutableStateOf(null)
     var focused by mutableStateOf(false)
+    var editing by mutableStateOf(false)
     fun hideKeyboard() {
+        // Input ownership ends synchronously; an inset left by another window cannot keep it alive.
+        editing = false
+        focused = false
         editor?.let { view ->
             val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             imm.hideSoftInputFromWindow(view.windowToken, 0)
