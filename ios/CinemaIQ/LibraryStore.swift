@@ -24,6 +24,10 @@ struct WatchProgress: Codable {
     var recordSink: (([String: String]) -> Void)?
     private let defaults: UserDefaults
     private var prefix = "ios.local"
+#if os(tvOS)
+    static let topShelfDidChange = Notification.Name("CinemaIQ.Library.TopShelfDidChange")
+    var topShelfScope: String { prefix }
+#endif
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -37,6 +41,9 @@ struct WatchProgress: Codable {
         guard next != prefix else { return }
         prefix = next
         load()
+#if os(tvOS)
+        NotificationCenter.default.post(name: Self.topShelfDidChange, object: self)
+#endif
     }
 
     var watched: [Media] {
@@ -163,5 +170,8 @@ struct WatchProgress: Codable {
         defaults.set(try? JSONEncoder().encode(favorites), forKey: "\(prefix).favorites.v1")
         defaults.set(try? JSONEncoder().encode(progress), forKey: "\(prefix).progress.v1")
         defaults.set(try? JSONEncoder().encode(recent), forKey: "\(prefix).recent.v1")
+#if os(tvOS)
+        NotificationCenter.default.post(name: Self.topShelfDidChange, object: self)
+#endif
     }
 }
