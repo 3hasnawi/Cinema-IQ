@@ -19,7 +19,7 @@ on:
       scenario:
         description: Full movie regression or focused startup/rapid Back checks
         type: choice
-        options: [all, rapid-exit, queued-quality]
+        options: [all, rapid-exit, queued-quality, startup-intent]
         default: all
 permissions:
   contents: read
@@ -86,6 +86,10 @@ jobs:
           fi
           if [ "${{ inputs.scenario || 'all' }}" = queued-quality ]; then
             tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests/testQualityChosenBeforeAudioActivationReachesNativeItem)
+          fi
+          if [ "${{ inputs.scenario || 'all' }}" = startup-intent ]; then
+            tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests/testQualityChosenBeforeAudioActivationReachesNativeItem
+                   -only-testing:CinemaIQTVUITests/TVMovieExitTests/testPausedOpeningKeepsBackgroundIntentAndQueuedSeekUntilRemoteResume)
           fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
