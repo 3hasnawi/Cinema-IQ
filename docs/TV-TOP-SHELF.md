@@ -31,7 +31,7 @@ The atomic shared file is bounded to 128 KiB, eight entries per section, and sev
 ## Validation
 
 - `CinemaCoreTests/TopShelfTests.swift` verifies route round trips/rejection, safe artwork, progress/completion, episode numbers, bounds/deduplication, expiration and JSON snapshots.
-- The focused native workflow verifies the embedded extension and matching version/build, reads/writes a real simulator App Group using the same loader/TVServices renderer as the extension, then waits for a test-runner readiness marker before delivering display/play URLs with `simctl openurl` and verifies actual app navigation/player/Back behavior.
+- The focused native workflow verifies the embedded extension and matching version/build, reads/writes a real simulator App Group using the same loader/TVServices renderer as the extension, then delivers display/play URLs with public XCTest `XCUIApplication.open(_:)` (tvOS 16.4+) and handles any PineBoard Open prompt using the remote and verifies actual app navigation/player/Back behavior.
 - The simulator audit calls shared loader code inside the host; it is not proof that PineBoard launched the extension process or rendered its shelf. Physical Home-screen rendering, resigner behavior and App Group provisioning remain device checks.
 - Existing iPhone/iPad and Apple TV Release compilation and general navigation checks also run. These checks do not export or publish an IPA and do not change version numbers.
 

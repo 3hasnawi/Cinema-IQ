@@ -8,7 +8,6 @@ on:
       - 'ios/CinemaIQTV/TopShelf/**'
       - 'ios/Core/Sources/CinemaCore/TopShelf.swift'
       - 'ios/CinemaIQTVUITests/TVTopShelfFlowTests.swift'
-      - 'ios/scripts/drive-top-shelf-link.py'
       - '.github/workflows/tvos-top-shelf.yml'
   workflow_dispatch:
 permissions:
@@ -92,37 +91,21 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/topshelf-shared.xcresult" -parallel-testing-enabled NO \
             CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
             > "$RUNNER_TEMP/topshelf-shared.log" 2>&1
-      - name: Open registered display and play links through the system
-        timeout-minutes: 14
+      - name: Open registered display and play links through XCTest system launch
+        timeout-minutes: 12
         run: |
           set -euo pipefail
-          runner="$RUNNER_TEMP/TVTopShelfDerived/Build/Products/Debug-appletvsimulator/CinemaIQTVUITests-Runner.app"
-          runner_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$runner/Info.plist")"
-          for action in display play; do
-            if [ "$action" = display ]; then test_case=testSystemDisplayURLShowsDetails
-            else test_case=testSystemPlayURLStartsTheExistingPlayer; fi
-            python3 ios/scripts/drive-top-shelf-link.py "$TV_TEST_DEVICE" "$action" "$runner_id" \
-              > "$RUNNER_TEMP/topshelf-$action-driver.log" 2>&1 &
-            driver_pid=$!
-            trap 'kill "$driver_pid" 2>/dev/null || true' EXIT
-            set +e
-            xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
-              -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVTopShelfDerived" \
-              -only-testing:"CinemaIQTVUITests/TVTopShelfFlowTests/$test_case" \
-              -resultBundlePath "$RUNNER_TEMP/topshelf-$action.xcresult" -parallel-testing-enabled NO \
-              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
-              > "$RUNNER_TEMP/topshelf-$action.log" 2>&1
-            test_status=$?
-            wait "$driver_pid"
-            driver_status=$?
-            set -e
-            if [ "$test_status" -ne 0 ] || [ "$driver_status" -ne 0 ]; then exit 1; fi
-            trap - EXIT
-          done
+          xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVTopShelfDerived" \
+            -only-testing:CinemaIQTVUITests/TVTopShelfFlowTests/testSystemDisplayURLShowsDetails \
+            -only-testing:CinemaIQTVUITests/TVTopShelfFlowTests/testSystemPlayURLStartsTheExistingPlayer \
+            -resultBundlePath "$RUNNER_TEMP/topshelf-links.xcresult" -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            > "$RUNNER_TEMP/topshelf-links.log" 2>&1
       - name: Export actual screenshots and diagnostics
         if: always()
         run: |
-          for kind in shared display play; do
+          for kind in shared links; do
             if [ -d "$RUNNER_TEMP/topshelf-$kind.xcresult" ]; then
               xcrun xcresulttool export attachments --path "$RUNNER_TEMP/topshelf-$kind.xcresult" --output-path "$RUNNER_TEMP/topshelf-$kind-evidence" || true
               find "$RUNNER_TEMP/topshelf-$kind-evidence" -name '*.mp4' -delete

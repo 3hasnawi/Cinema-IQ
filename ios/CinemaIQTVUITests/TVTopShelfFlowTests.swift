@@ -4,10 +4,7 @@ import XCTest
 final class TVTopShelfFlowTests: XCTestCase {
     private let app = XCUIApplication()
     private let remote = XCUIRemote.shared
-    override func setUp() {
-        continueAfterFailure = false
-        for stage in ["prime", "display", "play"] { try? FileManager.default.removeItem(at: marker(stage)) }
-    }
+    override func setUp() { continueAfterFailure = false }
     override func tearDown() {
         let capture = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); capture.name = name; capture.lifetime = .keepAlways; add(capture)
         let tree = XCTAttachment(string: app.debugDescription); tree.name = "top-shelf-hierarchy"; tree.lifetime = .keepAlways; add(tree)
@@ -25,11 +22,11 @@ final class TVTopShelfFlowTests: XCTestCase {
     }
     func testSystemDisplayURLShowsDetails() {
         launchForLink()
-        ready("prime")
+        openLink(item: "big-buck-bunny", action: "play")
         let paused = pauseSystemLinkedMovie()
         XCTAssertEqual(paused.label, "Big Buck Bunny")
-        // Only now does the host driver send display, while the real movie cover is open.
-        ready("display")
+        // Open the next real OS URL while the movie cover is present.
+        openLink(item: "sintel", action: "display")
         let title = app.staticTexts.matching(NSPredicate(format: "identifier == %@ AND label == %@", "tv.detail.title", "Sintel")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 45))
         XCTAssertEqual(title.label, "Sintel")
@@ -39,7 +36,7 @@ final class TVTopShelfFlowTests: XCTestCase {
     }
     func testSystemPlayURLStartsTheExistingPlayer() {
         launchForLink()
-        ready("play")
+        openLink(item: "big-buck-bunny", action: "play")
         let paused = pauseSystemLinkedMovie()
         XCTAssertEqual(paused.label, "Big Buck Bunny")
         for _ in 0..<3 {
@@ -54,16 +51,20 @@ final class TVTopShelfFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["tv.home.showcase"].waitForExistence(timeout: 30))
         XCTAssertEqual(app.state, .runningForeground)
     }
-    private func marker(_ stage: String) -> URL {
-        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("top-shelf-link-ready-" + stage)
-    }
-    private func ready(_ stage: String) {
-        do {
-            let url = marker(stage)
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Data("ready".utf8).write(to: url, options: .atomic)
-        } catch { XCTFail("Could not notify the host system-link driver") }
+    private func openLink(item: String, action: String) {
+        let url = URL(string: "cinemaiq://top-shelf?media=ext%3Ademo%3A" + item + "&action=" + action)!
+        // Public XCTest URL launch (tvOS 16.4+), not an invocation of the app's handler.
+        app.open(url)
+        let system = XCUIApplication(bundleIdentifier: "com.apple.PineBoard")
+        let open = system.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Open", "فتح")).firstMatch
+        if open.waitForExistence(timeout: 5) {
+            for _ in 0..<3 {
+                if open.hasFocus { break }
+                remote.press(.left)
+            }
+            XCTAssertTrue(open.hasFocus, "The remote must select Open, not Cancel")
+            remote.press(.select)
+        }
     }
     private func pauseSystemLinkedMovie() -> XCUIElement {
         // Wait for real AVKit playback before sending the remote Play/Pause command.
