@@ -5,7 +5,7 @@ import UIKit
 final class IPTVFlowTests: XCTestCase {
     private let app = XCUIApplication()
     private var tablet: Bool { UIDevice.current.userInterfaceIdiom == .pad }
-    private let baseArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-iptv", "--cinema-ui-testing-player"]
+    private let baseArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-iptv", "--cinema-ui-testing-player", "--cinema-ui-testing-hero-artwork"]
     override func setUp() {
         continueAfterFailure = false
         KeyboardTestSupport.installIntroductionMonitor(on: self)
