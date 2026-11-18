@@ -1,0 +1,128 @@
+name: Apple TV Top Shelf checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tvos-top-shelf-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  simulator:
+    # Match the existing navigation check's Intel pool; ARM hosts can boot tvOS without a display/focus surface.
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    env:
+      CINEMAIQ_APP_GROUP: group.com.cinemaplus.rebuilt.tv.uitests
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode and generate the test project
+        run: |
+          set -euo pipefail
+          newest="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
+          sudo xcode-select -s "$newest/Contents/Developer"
+          xcodebuild -version
+          brew install xcodegen
+          # Include the licensed local clip before Xcode seals and signs the simulator app.
+          cp ios/CinemaIQUITests/Fixtures/player-pattern.mp4 ios/CinemaIQTV/UIPlayerFixture.mp4
+          cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQTV/UICompatibilityFixture.mkv
+          cd ios
+          xcodegen generate --spec project.yml
+      - name: Create a TV simulator
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if ! xcrun simctl list runtimes | grep -q tvOS; then xcodebuild -downloadPlatform tvOS; fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          def sim(*args):
+              return subprocess.check_output(['xcrun','simctl',*args],text=True)
+          runtimes = [r for r in json.loads(sim('list','runtimes','--json'))['runtimes']
+                      if r['isAvailable'] and '.tvOS-' in r['identifier']]
+          runtime = max(runtimes,key=lambda r:tuple(map(int,r['version'].split('.'))))['identifier']
+          types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
+          kind = next(t['identifier'] for t in types if 'Apple TV 4K' in t['name'] and 'at 1080p' in t['name'])
+          device = sim('create','CinemaTopShelfCheck',kind,runtime).strip()
+          with open(os.environ['GITHUB_ENV'],'a') as file:
+              file.write('TV_TEST_DEVICE='+device+'\n')
+          PY
+      - name: Compile app and remote tests
+        timeout-minutes: 10
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVTopShelfDerived" \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            2>&1 | tee "$RUNNER_TEMP/tvos-iptv-build.log" | grep -E 'error:|TEST BUILD (SUCCEEDED|FAILED)' || true
+          grep -q 'TEST BUILD SUCCEEDED' "$RUNNER_TEMP/tvos-iptv-build.log"
+      - name: Boot TV simulator with a display
+        timeout-minutes: 9
+        run: |
+          set -euo pipefail
+          python3 ios/scripts/boot-simulator.py "$TV_TEST_DEVICE" "$RUNNER_TEMP/tvos-display-ready.png"
+      - name: Validate the extension bundle and actual shared-container content
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/TVTopShelfDerived/Build/Products/Debug-appletvsimulator/CinemaIQTV.app"
+          test -d "$app/PlugIns/CinemaIQTopShelf.appex"
+          APP_PATH="$app" python3 - <<'PYTHON'
+          import os,pathlib,plistlib
+          app=pathlib.Path(os.environ['APP_PATH'])
+          host=plistlib.loads((app/'Info.plist').read_bytes())
+          ext=plistlib.loads((app/'PlugIns/CinemaIQTopShelf.appex/Info.plist').read_bytes())
+          assert ext['NSExtension']['NSExtensionPointIdentifier']=='com.apple.tv-services'
+          assert ext['CFBundleShortVersionString']==host['CFBundleShortVersionString']
+          assert ext['CFBundleVersion']==host['CFBundleVersion']
+          assert any('cinemaiq' in item.get('CFBundleURLSchemes',[]) for item in host['CFBundleURLTypes'])
+          print('Embedded extension, matching versions, and URL scheme verified.')
+          PYTHON
+          xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+            -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVTopShelfDerived" \
+            -only-testing:CinemaIQTVUITests/TVTopShelfFlowTests/testSharedSnapshotLoadsNativeTopShelfContent \
+            -resultBundlePath "$RUNNER_TEMP/topshelf-shared.xcresult" -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+            > "$RUNNER_TEMP/topshelf-shared.log" 2>&1
+      - name: Open registered display and play links through the system
+        timeout-minutes: 14
+        run: |
+          set -euo pipefail
+          for action in display play; do
+            xcrun simctl launch --terminate-running-process "$TV_TEST_DEVICE" com.cinemaplus.rebuilt.tv \
+              -ios.contentSource.v1 ext:demo --cinema-ui-testing-player
+            if [ "$action" = display ]; then
+              item=sintel
+              test_case=testSystemDisplayURLShowsDetails
+            else
+              item=big-buck-bunny
+              test_case=testSystemPlayURLStartsTheExistingPlayer
+            fi
+            xcrun simctl openurl "$TV_TEST_DEVICE" "cinemaiq://top-shelf?media=ext%3Ademo%3A$item&action=$action"
+            xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
+              -destination "id=$TV_TEST_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVTopShelfDerived" \
+              -only-testing:"CinemaIQTVUITests/TVTopShelfFlowTests/$test_case" \
+              -resultBundlePath "$RUNNER_TEMP/topshelf-$action.xcresult" -parallel-testing-enabled NO \
+              CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- TMDB_API_KEY= OMDB_API_KEY= YOUTUBE_API_KEY= \
+              > "$RUNNER_TEMP/topshelf-$action.log" 2>&1
+          done
+      - name: Export actual screenshots and diagnostics
+        if: always()
+        run: |
+          for kind in shared display play; do
+            if [ -d "$RUNNER_TEMP/topshelf-$kind.xcresult" ]; then
+              xcrun xcresulttool export attachments --path "$RUNNER_TEMP/topshelf-$kind.xcresult" --output-path "$RUNNER_TEMP/topshelf-$kind-evidence" || true
+              find "$RUNNER_TEMP/topshelf-$kind-evidence" -name '*.mp4' -delete
+            fi
+          done
+          for log in "$RUNNER_TEMP"/topshelf-*.log; do
+            grep -E 'error:|Test Case|TEST (EXECUTE )?(SUCCEEDED|FAILED)' "$log" | tail -30 || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tvos-top-shelf-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/topshelf-*.log
+            ${{ runner.temp }}/topshelf-*-evidence
+            ${{ runner.temp }}/tvos-iptv-build.log
+          retention-days: 1
+          if-no-files-found: warn

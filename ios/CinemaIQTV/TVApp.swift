@@ -19,7 +19,7 @@ import CinemaCore
                 .environmentObject(router)
                 .environment(\.layoutDirection, .rightToLeft)
                 .preferredColorScheme(.dark)
-                .task { cloud.start(library: library) }
+                .modifier(TVTopShelfIntegration())
                 .onChange(of: phase) { _, value in
                     if value == .active { cloud.scene(active: true) } else if value == .background { cloud.scene(active: false) }
                 }
