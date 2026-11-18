@@ -28,6 +28,11 @@ VLC retains its drawable/player until its stopped event before releasing output.
 Quality hints may arrive before asynchronous audio activation creates an item.
 Keep both the resolution and bandwidth cap and apply them to that eventual item;
 the focused queued-quality simulator case reads the actual AVPlayerItem properties.
+The existing phone flow pauses after `open()` when its scene is inactive. Pending
+activation must therefore use the latest play/pause, seek and engine intent rather
+than unconditionally starting playback. A native simulator case queues pause and
+a 30-second seek before activation, verifies that the clock stays paused, then
+resumes with the real remote.
 During dismissal, an exit latch prevents decoder cleanup from remounting the
 loading button. Cancelled compatibility-focus tasks also stop before resetting
 focus; pending source results cannot reopen an exiting player.

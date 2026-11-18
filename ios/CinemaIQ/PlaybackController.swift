@@ -107,11 +107,14 @@ struct MediaOption: Identifiable, Hashable {
                 guard !Task.isCancelled, let self, audioLease == lease else {
                     await PlaybackAudioSession.shared.release(lease); return
                 }
-                if mode.startsWithCompatibility(url) { startCompatibility(resume: resume, playing: true) }
-                else { openNative(url: url, resume: resume) }
+                openingTask = nil
+                // The phone pauses immediately after open() when its scene is inactive.
+                // Preserve that intent (and an early seek/engine choice) across activation.
+                if mode.startsWithCompatibility(url) { startCompatibility(resume: position, playing: wantsPlay) }
+                else { openNative(url: url, resume: position, playing: wantsPlay) }
             } catch {
                 guard !Task.isCancelled, let self, audioLease == lease else { return }
-                self.error = error.localizedDescription; buffering = false
+                openingTask = nil; self.error = error.localizedDescription; buffering = false
             }
         }
     }
@@ -203,6 +206,8 @@ struct MediaOption: Identifiable, Hashable {
         persist(); mode = value; enginePreference.save(value, in: .standard)
         guard currentURL != nil else { return }
         error = nil; lastFailure = nil; fallbackAttempted = false
+        // The pending activation reads the latest engine; do not start an item ahead of it.
+        guard openingTask == nil else { return }
         if shouldPlay { restart(resume: resume, preferred: value) }
         else { restartOnResume = true; pendingMode = value }
     }

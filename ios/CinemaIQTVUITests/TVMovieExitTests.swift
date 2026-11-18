@@ -15,6 +15,30 @@ final class TVMovieExitTests: XCTestCase {
     func testNativeMovieBackAfterTwoMinutesAndImmediateResume() { checkExit(compatibility: false, seconds: 125) }
     func testCompatibilityMovieBackAfterOneMinuteAndImmediateResume() { checkExit(compatibility: true, seconds: 65) }
 
+    func testPausedOpeningKeepsBackgroundIntentAndQueuedSeekUntilRemoteResume() {
+        continueAfterFailure = false
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player",
+                               "--cinema-ui-testing-pending-pause", "-ios.local.progress.v1", "",
+                               "-AppleLanguages", "(ar)", "-AppleLocale", "ar_IQ"]
+        app.launch()
+        let home = element("tv.home.showcase")
+        XCTAssertTrue(home.waitForExistence(timeout: 30)); expectFocus(home); remote.press(.select)
+        let play = app.buttons["tv.detail.play"]
+        XCTAssertTrue(play.waitForExistence(timeout: 20)); expectFocus(play); remote.press(.select)
+        let clock = element("tv.player.testClock")
+        waitFor(30) {
+            let fields = clock.label.split(separator: "|")
+            return fields.count >= 3 && fields[0] == "false" && self.time(clock) >= 29 && (Int(fields[2]) ?? 0) > 0
+        }
+        let paused = time(clock)
+        Thread.sleep(forTimeInterval: 1.2)
+        XCTAssertEqual(time(clock), paused)
+        shot("queued-background-pause-and-seek-applied-without-auto-playing")
+        remote.press(.playPause)
+        waitFor(15) { clock.label.hasPrefix("true|") && self.time(clock) > paused + 1 }
+        returnToDetails(play)
+    }
+
     func testBackWhileMovieIsOpeningDoesNotReappearOrTrapRemote() {
         continueAfterFailure = false
         app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player",

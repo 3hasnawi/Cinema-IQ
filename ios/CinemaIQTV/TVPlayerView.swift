@@ -126,7 +126,7 @@ struct TVPlayerView: View {
         .overlay(alignment: .topLeading) {
             if UITestSupport.playerFixtureEnabled && !exiting {
                 // Observe the real decoder clock without exposing an extra remote focus target.
-                Text("\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
+                Text(verbatim: "\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
                     .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
                     .accessibilityIdentifier("tv.player.testClock").allowsHitTesting(false)
             }
@@ -358,6 +358,13 @@ struct TVPlayerView: View {
         controller.open(media, url: playbackURL, resume: resume) { seconds, duration, completed in
             library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
         }
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-pending-pause") {
+            controller.chooseEngine(.apple)
+            controller.pause()
+            controller.seek(to: 30)
+        }
+#endif
         applyQualityHint()
     }
 
