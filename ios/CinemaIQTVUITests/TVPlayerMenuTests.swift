@@ -13,6 +13,9 @@ final class TVPlayerMenuTests: XCTestCase {
             app.launchArguments += ["--cinema-ui-testing-engine-preferences", "-apple.playback.engine.v1", "compatibility",
                                     "-apple.tv.movie.playback.engine.v1", "automatic"]
         }
+        if name.contains("testQualityChosenBeforeAudioActivationReachesNativeItem") {
+            app.launchArguments.append("--cinema-ui-testing-pending-quality")
+        }
         app.launch()
         let home = app.descendants(matching: .any).matching(identifier: "tv.home.showcase").firstMatch
         XCTAssertTrue(home.waitForExistence(timeout: 30))
@@ -57,6 +60,16 @@ final class TVPlayerMenuTests: XCTestCase {
         expectNativeOption("تلقائي")
         shot("movie-native-despite-live-compatibility-preference")
         remote.press(.menu)
+        closePlayerAndExpectDetails()
+    }
+
+    func testQualityChosenBeforeAudioActivationReachesNativeItem() {
+        // The normal detail flow sets the quality immediately after open(), before
+        // asynchronous audio activation creates an AVPlayerItem. Inspect that real item.
+        let clock = app.descendants(matching: .any).matching(identifier: "tv.player.testClock").firstMatch
+        XCTAssertTrue(clock.waitForExistence(timeout: 10))
+        XCTAssertEqual(Array(clock.label.split(separator: "|").suffix(2)).map(String.init), ["64000", "1080"])
+        shot("queued-quality-applied-to-real-native-item")
         closePlayerAndExpectDetails()
     }
 

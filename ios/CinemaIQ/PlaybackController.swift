@@ -35,6 +35,7 @@ struct MediaOption: Identifiable, Hashable {
     @Published private(set) var lastFailure: PlaybackFailure?
     private var currentURL: URL?
     private var maximumHeight: Int?
+    private var preferredBandwidth: Double = 0
     private var highest = false
     private var fallbackAttempted = false
     private var wantsPlay = true
@@ -220,18 +221,19 @@ struct MediaOption: Identifiable, Hashable {
 
     func setQuality(maximumHeight: Int?, bandwidth: Double = 0, highest: Bool = false) {
         let changed = self.maximumHeight != maximumHeight || self.highest != highest
-        self.maximumHeight = maximumHeight; self.highest = highest
+        self.maximumHeight = maximumHeight; self.preferredBandwidth = bandwidth; self.highest = highest
         if usesCompatibility {
             if changed {
                 // Keep the paused decoder/frame intact. Reopening a paused VLC input need not render a frame.
                 if wantsPlay { startCompatibility(resume: position, playing: true) }
                 else { restartOnResume = true }
             }
-        } else { applyNativeQuality(bandwidth: bandwidth) }
+        } else { applyNativeQuality() }
     }
-    private func applyNativeQuality(bandwidth: Double = 0) {
+    private func applyNativeQuality() {
         player.currentItem?.preferredMaximumResolution = maximumHeight.map { CGSize(width: Double($0) * 16 / 9, height: Double($0)) } ?? .zero
-        player.currentItem?.preferredPeakBitRate = bandwidth
+        // Quality can arrive while audio activation is pending and no item exists yet.
+        player.currentItem?.preferredPeakBitRate = preferredBandwidth
     }
     func pause() { wantsPlay = false; if usesCompatibility { compatibility.pause() } else { player.pause() }; playing = false }
     func play() {

@@ -121,7 +121,7 @@ struct TVPlayerView: View {
         .overlay(alignment: .topLeading) {
             if UITestSupport.playerFixtureEnabled {
                 // Observe the real decoder clock without exposing an extra remote focus target.
-                Text("\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))")
+                Text("\(controller.playing)|\(Int(controller.position))|\(Int(controller.duration))|\(Int(controller.player.currentItem?.preferredPeakBitRate ?? -1))|\(Int(controller.player.currentItem?.preferredMaximumResolution.height ?? -1))")
                     .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
                     .accessibilityIdentifier("tv.player.testClock").allowsHitTesting(false)
             }
@@ -324,6 +324,12 @@ struct TVPlayerView: View {
     }
 
     private func applyQualityHint() {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-pending-quality") {
+            controller.setQuality(maximumHeight: 1080, bandwidth: 64_000)
+            return
+        }
+#endif
         controller.setQuality(maximumHeight: qualityMode.height)
     }
 

@@ -6,7 +6,7 @@ Scope: Apple TV movie player and compatibility transport; shared controller rece
 
 Reserved files: ios/CinemaIQTV/TVPlayerView.swift, TVCompatibilityTransport.swift; ios/CinemaIQ/PlaybackController.swift; a CinemaCore preference policy/test; focused TV movie UI tests/workflow as needed. Android and live-TV design are outside this change.
 
-Validation pending. No merge, new IPA/version or publication is part of this editing request. Compile/unit checks and actual simulator remote tests will be reported separately, with no claim about a physical Apple TV or live provider access.
+Current validation results are recorded in PR #146. No merge, new IPA/version or publication is part of this editing request. Compile/unit checks and actual simulator remote tests are reported separately, with no claim about a physical Apple TV or live provider access.
 
 ## Exit after extended playback
 
@@ -25,10 +25,13 @@ deactivation waits for decoder retirement and an ownership token prevents an old
 exit from silencing newly opened playback. Shutdown cancels media-selection,
 subtitle and seek/asset work; progress saves use the last 250 ms clock snapshot.
 VLC retains its drawable/player until its stopped event before releasing output.
+Quality hints may arrive before asynchronous audio activation creates an item.
+Keep both the resolution and bandwidth cap and apply them to that eventual item;
+the focused queued-quality simulator case reads the actual AVPlayerItem properties.
 
 New tests: Core ownership, duplicate release, activation failure and deliberately
 blocked shutdown while MainActor remains responsive. Simulator exit cases play
 real H.264/AAC for 125 seconds and MPEG-2/MP2 for 65 seconds, press Menu, verify
 hittable/focused details, move left/right, reopen at saved progress and exit again.
-The test-only clock is excluded from Release. Current run results and provider
+The test-only clock and quality injection are excluded from Release. Current run results and provider
 reachability limitations are recorded in PR #146.

@@ -17,9 +17,9 @@ on:
   workflow_dispatch:
     inputs:
       scenario:
-        description: Full movie regression or the rapid opening/Back boundary only
+        description: Full movie regression or focused startup/rapid Back checks
         type: choice
-        options: [all, rapid-exit]
+        options: [all, rapid-exit, queued-quality]
         default: all
 permissions:
   contents: read
@@ -83,6 +83,9 @@ jobs:
                  -only-testing:CinemaIQTVUITests/TVMovieExitTests)
           if [ "${{ inputs.scenario || 'all' }}" = rapid-exit ]; then
             tests=(-only-testing:CinemaIQTVUITests/TVMovieExitTests/testBackWhileMovieIsOpeningDoesNotReappearOrTrapRemote)
+          fi
+          if [ "${{ inputs.scenario || 'all' }}" = queued-quality ]; then
+            tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests/testQualityChosenBeforeAudioActivationReachesNativeItem)
           fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
