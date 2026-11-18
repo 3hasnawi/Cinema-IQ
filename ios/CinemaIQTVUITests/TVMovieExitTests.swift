@@ -28,15 +28,25 @@ final class TVMovieExitTests: XCTestCase {
         let clock = element("tv.player.testClock")
         waitFor(30) {
             let fields = clock.label.split(separator: "|")
-            return fields.count >= 8 && fields[0] == "false" && fields[4] == "1" && fields[5] == "false"
+            return fields.count >= 9 && fields[0] == "false" && fields[4] == "1" && fields[5] == "false"
                 && self.nativeTime(clock) >= 29 && (Int(fields[2]) ?? 0) > 0
         }
+        XCTAssertEqual(remoteCount(clock), 0)
         let paused = nativeTime(clock)
         Thread.sleep(forTimeInterval: 1.2)
         XCTAssertEqual(nativeTime(clock), paused)
         shot("queued-background-pause-and-seek-applied-without-auto-playing")
         remote.press(.playPause)
-        waitFor(15) { clock.label.hasPrefix("true|") && self.nativeTime(clock) > paused + 1 }
+        waitFor(15) { clock.label.hasPrefix("true|") && self.nativeTime(clock) > paused + 1 && self.remoteCount(clock) == 1 }
+        remote.press(.playPause)
+        waitFor(15) { clock.label.hasPrefix("false|") && self.remoteCount(clock) == 2 }
+        let stopped = nativeTime(clock)
+        Thread.sleep(forTimeInterval: 1.2)
+        XCTAssertEqual(nativeTime(clock), stopped)
+        shot("remote-pause-consumed-once-at-restored-time")
+        remote.press(.playPause)
+        waitFor(15) { clock.label.hasPrefix("true|") && self.nativeTime(clock) > stopped + 1 && self.remoteCount(clock) == 3 }
+        shot("remote-resume-consumed-once-and-clock-advances")
         returnToDetails(play)
     }
 
@@ -117,6 +127,10 @@ final class TVMovieExitTests: XCTestCase {
     private func nativeTime(_ clock: XCUIElement) -> Int {
         let fields = clock.label.split(separator: "|")
         return fields.count >= 8 ? Int(fields[3]) ?? -1 : -1
+    }
+    private func remoteCount(_ clock: XCUIElement) -> Int {
+        let fields = clock.label.split(separator: "|")
+        return fields.count >= 9 ? Int(fields[6]) ?? -1 : -1
     }
     private func element(_ id: String) -> XCUIElement { app.descendants(matching: .any).matching(identifier: id).firstMatch }
     private func expectFocus(_ target: XCUIElement) { waitFor(15) { target.hasFocus } }

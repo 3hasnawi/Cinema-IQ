@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'ios/CinemaIQTV/TVPlayerView.swift'
+      - 'ios/CinemaIQTV/TVMoviePlayPauseAdapter.swift'
       - 'ios/CinemaIQTV/TVPauseInformation.swift'
       - 'ios/CinemaIQTV/TVCompatibilityTransport.swift'
       - 'ios/CinemaIQ/PlaybackController.swift'
@@ -19,7 +20,7 @@ on:
       scenario:
         description: Full movie regression or focused startup/rapid Back checks
         type: choice
-        options: [all, rapid-exit, queued-quality, startup-intent]
+        options: [all, rapid-exit, queued-quality, startup-intent, paused-opening]
         default: all
 permissions:
   contents: read
@@ -91,6 +92,9 @@ jobs:
             tests=(-only-testing:CinemaIQTVUITests/TVPlayerMenuTests/testQualityChosenBeforeAudioActivationReachesNativeItem
                    -only-testing:CinemaIQTVUITests/TVMovieExitTests/testPausedOpeningKeepsBackgroundIntentAndQueuedSeekUntilRemoteResume
                    -only-testing:CinemaIQTVUITests/TVMovieExitTests/testNativeMovieBackAfterTwoMinutesAndImmediateResume)
+          fi
+          if [ "${{ inputs.scenario || 'all' }}" = paused-opening ]; then
+            tests=(-only-testing:CinemaIQTVUITests/TVMovieExitTests/testPausedOpeningKeepsBackgroundIntentAndQueuedSeekUntilRemoteResume)
           fi
           xcodebuild test-without-building -project ios/CinemaIQ.xcodeproj -scheme CinemaIQTV \
             -destination "id=$TV_MENU_DEVICE" -derivedDataPath "$RUNNER_TEMP/TVMenus" \
