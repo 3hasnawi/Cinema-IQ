@@ -116,7 +116,7 @@ jobs:
             wait "$driver_pid"
             driver_status=$?
             set -e
-            test "$test_status" -eq 0 && test "$driver_status" -eq 0
+            if [ "$test_status" -ne 0 ] || [ "$driver_status" -ne 0 ]; then exit 1; fi
             trap - EXIT
           done
       - name: Export actual screenshots and diagnostics
