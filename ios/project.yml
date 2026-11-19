@@ -122,8 +122,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.cinemaplus.rebuilt.tv
         CODE_SIGN_ENTITLEMENTS: Generated/TopShelf.entitlements
-        MARKETING_VERSION: "0.4.6"
-        CURRENT_PROJECT_VERSION: "10"
+        MARKETING_VERSION: "0.4.7"
+        CURRENT_PROJECT_VERSION: "11"
         TARGETED_DEVICE_FAMILY: "3"
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Cinema iQ
