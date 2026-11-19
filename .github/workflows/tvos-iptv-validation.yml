@@ -5,7 +5,7 @@ on:
       scenario:
         description: Run all IPTV checks or a focused scenario
         type: choice
-        options: [all, quality, visibility, compatibility, guide, keyboard, hud, search, interaction, parity]
+        options: [all, quality, visibility, compatibility, guide, keyboard, hud, search, interaction, parity, access]
         default: all
 permissions:
   contents: read
@@ -79,7 +79,9 @@ jobs:
           if [ "$IPTV_TEST_SCENARIO" = search ]; then test_id="$test_id/testGuideSearchDismissesNativeKeyboardAndRestoresNavigation"; fi
           if [ "$IPTV_TEST_SCENARIO" = interaction ]; then test_id="$test_id/testToolbarHidesWhileFocusedAndPopupsRestoreTheirIcons"; fi
           if [ "$IPTV_TEST_SCENARIO" = parity ]; then test_id="$test_id/testRemoteChannelSurfingAndFloatingGuide"; fi
+          if [ "$IPTV_TEST_SCENARIO" = access ]; then test_id="$test_id/testLockedCategoryRequiresFreshPINAfterLeaving"; fi
           extra_tests=()
+          if [ "$IPTV_TEST_SCENARIO" = access ]; then extra_tests+=('-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/testXtreamFormShowsCredentialsAndMenuReturnsSafely'); fi
           if [ "$IPTV_TEST_SCENARIO" = parity ]; then
             for test in testGuideSearchDismissesNativeKeyboardAndRestoresNavigation testLockedCategoryRequiresFreshPINAfterLeaving testXtreamFormShowsCredentialsAndMenuReturnsSafely; do
               extra_tests+=("-only-testing:CinemaIQTVUITests/TVIPTVFlowTests/$test")

@@ -81,7 +81,7 @@ final class TVRedesignSmokeTests: XCTestCase {
     private func expectIPTVEntryFocus() {
         let add = app.buttons["tv.iptv.add"], back = app.buttons["tv.iptv.return"]
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            (add.isEnabled && add.hasFocus) || back.hasFocus
+            (add.exists && add.isEnabled && add.hasFocus) || (back.exists && back.hasFocus)
         }, object: nil)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 15), .completed)
     }

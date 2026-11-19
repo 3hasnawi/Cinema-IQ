@@ -163,24 +163,27 @@ final class TVIPTVFlowTests: XCTestCase {
         remote.press(.menu); expectFocus(player)
     }
     func testLockedCategoryRequiresFreshPINAfterLeaving() {
-        executionTimeAllowance = 360
+        executionTimeAllowance = 420
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
         app.launch(); openIPTV()
         let player = element("tv.iptv.player.native"), news = guideChannel("قناة الأخبار")
         expectFocus(player); remote.press(.select); expectFocus(news)
         remote.press(.up); expectFocus(element("tv.iptv.guide.search"))
-        focus(element("tv.iptv.guide.manage"), direction: .left); remote.press(.select)
-        focus(element("tv.iptv.manage.group.رياضة"), direction: .down); remote.press(.select)
-        focus(element("tv.iptv.manage.lock"), direction: .down); remote.press(.select)
+        remote.press(.left); expectFocus(element("tv.iptv.guide.manage")); remote.press(.select)
+        expectFocus(element("tv.iptv.manage.group.أخبار")); remote.press(.down)
+        expectFocus(element("tv.iptv.manage.group.رياضة")); remote.press(.select)
+        expectFocus(element("tv.iptv.manage.lock")); remote.press(.select)
         let one = element("tv.iptv.pin.1")
         expectFocus(one)
         for _ in 0..<8 { remote.press(.select) }
         expectFocus(element("tv.iptv.manage.group.رياضة"))
         remote.press(.menu); expectFocus(element("tv.iptv.guide.manage"))
         XCTAssertFalse(guideChannel("قناة الرياضة").exists)
-        focus(news, direction: .down); remote.press(.right)
+        remote.press(.down); expectFocus(news); remote.press(.right)
         let group = element("tv.iptv.guide.group.رياضة")
-        focus(group, direction: .down); remote.press(.select); expectFocus(one)
+        expectFocus(element("tv.iptv.guide.group.all"))
+        for _ in 0..<3 { remote.press(.down) }
+        expectFocus(group); remote.press(.select); expectFocus(one)
         for _ in 0..<4 { remote.press(.select) }
         let sport = guideChannel("قناة الرياضة")
         expectFocus(sport); remote.press(.select); expectFocus(player)
@@ -350,9 +353,14 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(next.waitForExistence(timeout: 10))
         for _ in 0..<8 { if next.hasFocus { break }; remote.press(.down) }
         XCTAssertTrue(next.hasFocus); remote.press(.select)
+        // Native Next transfers the open keyboard directly to the URL field.
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        app.typeText("https://xtream.example")
+        remote.press(.menu)
         waitFor { !self.app.keyboards.firstMatch.exists }
-        expectFocus(element("tv.iptv.form.address"))
-        fill("tv.iptv.form.address", "https://xtream.example")
+        let address = element("tv.iptv.form.address")
+        expectFocus(address)
+        XCTAssertEqual(address.value as? String, "https://xtream.example")
         fill("tv.iptv.form.username", "demo")
         fill("tv.iptv.form.password", "demo")
         focus(element("tv.iptv.form.save"), direction: .down)
