@@ -4,26 +4,29 @@ import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +51,7 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import com.cinemaplus.rebuilt.data.iptv.*
 import com.cinemaplus.rebuilt.ui.*
+import coil.ImageLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -65,15 +69,15 @@ private inline fun overlayFocusLog(message: () -> String) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun IptvTvChannelOverlay(
     channels: List<IptvChannel>, current: IptvChannel, section: IptvChannelSection,
-    collection: IptvChannelCollection, tune: (IptvChannel, IptvChannelSection) -> Unit, close: () -> Unit,
+    tune: (IptvChannel, IptvChannelSection) -> Unit, close: () -> Unit,
     categoryCounts: Map<String, Int>? = null, lockedGroups: Set<String> = emptySet(), hiddenGroups: Set<String> = emptySet(),
     requestGroupAccess: ((String?, () -> Unit, () -> Unit) -> Unit)? = null, manageCategory: ((String?) -> Unit)? = null,
     manageSources: (() -> Unit)? = null, canonicalNumbers: Map<String, Int>? = null,
-    sectionChanged: (IptvChannelSection) -> Unit = {}
+    sectionChanged: (IptvChannelSection) -> Unit = {},
+    preparedGuide: IptvTvGuideSnapshot?, logos: ImageLoader
 ) {
     val groups = categoryCounts ?: remember(channels, current.sourceId) { IptvNavigation.categories(channels, current.sourceId) }
     val numbering = canonicalNumbers ?: remember(channels, current.sourceId) { IptvNavigation.numbers(channels, current.sourceId) }
-    val logos = rememberIptvLogos()
     val keyboard = LocalSoftwareKeyboardController.current
     val manager = LocalFocusManager.current
     val inputMode = LocalInputModeManager.current
@@ -88,11 +92,21 @@ private inline fun overlayFocusLog(message: () -> String) {
     var beforeSearchSection by remember { mutableStateOf(section) }
     var beforeSearchChannelId by remember { mutableStateOf(current.id) }
     var categoriesOpen by remember { mutableStateOf(false) }
-    var visible by remember { mutableStateOf(emptyList<IptvChannel>()) }
-    var filtering by remember { mutableStateOf(true) }
+    // Reuse precomputed blank pages. Search results are never reused across different base pages.
+    val basePage = preparedGuide?.page(browsingSection)
+    val searchInput = remember(basePage, query, admissionPending) { Any() }
+    var preparedSearch by remember { mutableStateOf<Pair<Any, IptvTvGuidePage>?>(null) }
+    val page = when {
+        admissionPending || preparedGuide == null -> null
+        query.isBlank() -> basePage
+        else -> preparedSearch?.takeIf { it.first === searchInput }?.second
+    }
+    val visible = page?.rows.orEmpty()
+    val filtering = !admissionPending && page == null
     var focusedChannelId by remember { mutableStateOf(current.id) }
     var focusedCategoryKey by remember { mutableStateOf("") }
     var actualFocus by remember { mutableStateOf<OverlayObservedFocus?>(null) }
+    var channelPaneHasFocus by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<OverlayDestination?>(OverlayDestination.Channels) }
     var lastDestination by remember { mutableStateOf(OverlayDestination.Channels) }
     var windowLost by remember { mutableStateOf(false) }
@@ -103,7 +117,7 @@ private inline fun overlayFocusLog(message: () -> String) {
     val emptyFocus = remember { FocusRequester() }
     val channelScroll = rememberLazyListState()
     val categoryScroll = rememberLazyListState()
-    val target = IptvNavigation.entry(visible, focusedChannelId)
+    val target = focusedChannelId.takeIf { page?.indexById?.containsKey(it) == true } ?: visible.firstOrNull()?.id
     val categories = remember(groups, hiddenGroups, lockedGroups, numbering.size) {
         listOf(OverlayCategory("all", IptvChannelSection.All, "كل القنوات · ${numbering.size}"),
             OverlayCategory("favorites", IptvChannelSection.Favorites, "المفضلة")) +
@@ -121,7 +135,7 @@ private inline fun overlayFocusLog(message: () -> String) {
     fun focusStatus(): String {
         val observed = actualFocus
         val observedIndex = when (observed?.destination) {
-            OverlayDestination.Channels -> visible.indexOfFirst { it.id == observed.key }
+            OverlayDestination.Channels -> page?.indexById?.get(observed.key) ?: -1
             OverlayDestination.Categories -> categories.indexOfFirst { it.key == observed.key }
             else -> -1
         }
@@ -139,7 +153,7 @@ private inline fun overlayFocusLog(message: () -> String) {
         val origin = beforeSearchSection
         val originGroup = (origin as? IptvChannelSection.Group)?.name
         val originChannel = beforeSearchChannelId
-        hideKeyboard(); query = ""; searchSession = false; searchMode = false; filtering = true
+        hideKeyboard(); query = ""; searchSession = false; searchMode = false
         val restore = {
             browsingSection = origin; sectionChanged(origin); focusedChannelId = originChannel
             returnToChannels()
@@ -159,7 +173,7 @@ private inline fun overlayFocusLog(message: () -> String) {
         }
         val start = {
             browsingSection = IptvChannelSection.All; sectionChanged(IptvChannelSection.All)
-            filtering = true; categoriesOpen = false; searchMode = true; pending = null
+            categoriesOpen = false; searchMode = true; pending = null
         }
         requestGroupAccess?.invoke(null, start, {}) ?: start()
     }
@@ -184,7 +198,6 @@ private inline fun overlayFocusLog(message: () -> String) {
         lastDestination = OverlayDestination.Categories; pending = OverlayDestination.Categories
     }
     fun chooseSection(value: IptvChannelSection) {
-        if (value != browsingSection || query.isNotEmpty()) filtering = true
         browsingSection = value; sectionChanged(value); query = ""; searchSession = false; focusedChannelId = ""
         returnToChannels()
     }
@@ -219,9 +232,8 @@ private inline fun overlayFocusLog(message: () -> String) {
             pending = if (searchMode) { if (editor.editing || editor.focused) null else OverlayDestination.SearchDone } else lastDestination
         }
     }
-    LaunchedEffect(channels, current.sourceId, collection, browsingSection, query, hiddenGroups, groups, searchSession, admissionPending) {
-        filtering = true
-        if (admissionPending) { visible = emptyList(); return@LaunchedEffect }
+    LaunchedEffect(browsingSection, hiddenGroups, groups, admissionPending) {
+        if (admissionPending) return@LaunchedEffect
         val group = (browsingSection as? IptvChannelSection.Group)?.name
         if (group != null && (group !in groups || group in hiddenGroups)) {
             browsingSection = IptvChannelSection.All; sectionChanged(IptvChannelSection.All)
@@ -229,12 +241,25 @@ private inline fun overlayFocusLog(message: () -> String) {
             focusedChannelId = ""; pending = OverlayDestination.Channels
             return@LaunchedEffect
         }
-        visible = withContext(Dispatchers.Default) {
-            collection.channels(channels, current.sourceId, browsingSection, query = "").filter {
-                it.group !in hiddenGroups && IptvChannelSearch.matches(it, query, numbering[it.id] ?: 0)
-            }
+    }
+    LaunchedEffect(searchInput) {
+        val snapshot = preparedGuide ?: return@LaunchedEffect
+        if (admissionPending || query.isBlank()) return@LaunchedEffect
+        val requestedSection = browsingSection
+        val requestedQuery = query
+        val result = withContext(Dispatchers.Default) { snapshot.search(requestedSection, requestedQuery) }
+        preparedSearch = searchInput to result
+    }
+    LaunchedEffect(page, filtering) {
+        if (page == null || filtering) return@LaunchedEffect
+        // A refreshed authorized catalogue may remove the focused row while pages are prepared.
+        // Reuse the observed-ACK path only when no pane control/editor or other owner has focus.
+        withFrameNanos { }
+        if (pending == null && actualFocus == null && !channelPaneHasFocus &&
+            lastDestination == OverlayDestination.Channels && window.isWindowFocused &&
+            !admissionPending && !categoriesOpen && !searchMode && !editor.editing && !editor.focused) {
+            pending = OverlayDestination.Channels
         }
-        filtering = false
     }
     LaunchedEffect(pending, filtering, visible, categoriesOpen, searchMode, editor.editing, editor.focused, window.isWindowFocused, admissionPending) {
         val destination = pending ?: run {
@@ -251,7 +276,7 @@ private inline fun overlayFocusLog(message: () -> String) {
         }
         val (requester, expected, requestedIndex) = when (destination) {
             OverlayDestination.Channels -> {
-                val index = visible.indexOfFirst { it.id == target }
+                val index = page?.indexById?.get(target) ?: -1
                 if (index >= 0) {
                     channelScroll.scrollToItem(index)
                     Triple(channelFocus, OverlayObservedFocus(OverlayDestination.Channels, visible[index].id), index)
@@ -287,21 +312,25 @@ private inline fun overlayFocusLog(message: () -> String) {
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        BoxWithConstraints(Modifier.fillMaxSize().padding(24.dp).testTag("iptv.tv.overlay"), contentAlignment = Alignment.TopEnd) {
-            val channelWidth = (maxWidth * .33f).coerceIn(288.dp, 340.dp)
+        BoxWithConstraints(Modifier.fillMaxSize().testTag("iptv.tv.overlay"), contentAlignment = Alignment.TopEnd) {
+            val channelWidth = (maxWidth * .32f).coerceIn(288.dp, 360.dp)
             val categoryWidth = (maxWidth * .19f).coerceIn(168.dp, 196.dp)
-            // The HUD remains painted below; its borderless station logo protrudes 32dp above the strip.
-            val panelHeight = (maxHeight - 210.dp).coerceAtLeast(150.dp)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+            val edgeInset = (maxWidth * .032f).coerceIn(20.dp, 36.dp)
+            val fadeWidth by animateFloatAsState(if (categoriesOpen) .82f else .61f, tween(180), label = "guide-fade-width")
+            // Physical LTR coordinates keep the unbounded, noninteractive fade on the LEFT in Arabic too.
+            Box(Modifier.fillMaxHeight().fillMaxWidth(fadeWidth).background(IptvTvGlass.GuideBrush))
+            Row(Modifier.fillMaxHeight().padding(end = edgeInset, top = 24.dp, bottom = 18.dp),
+                horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    IptvTvGlassPanel(Modifier.width(channelWidth).height(panelHeight).focusGroup().onPreviewKeyEvent { event ->
+                    Box(Modifier.width(channelWidth).fillMaxHeight()
+                        .onFocusChanged { channelPaneHasFocus = it.hasFocus }.focusGroup().onPreviewKeyEvent { event ->
                         val key = event.nativeKeyEvent
                         if (key.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && !editor.editing && !editor.focused) {
                             if (key.action == KeyEvent.ACTION_DOWN) openCategories()
                             true
                         } else false
                     }) {
-                        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Label("القنوات", 18, bold = true)
@@ -325,7 +354,7 @@ private inline fun overlayFocusLog(message: () -> String) {
                             }
                             if (searchMode) {
                                 IptvTvSearchEditor(query, editor, doneFocus,
-                                    change = { if (it != query) { query = it; filtering = true } },
+                                    change = { if (it != query) query = it },
                                     submit = ::finishSearch, back = ::back, modifier = Modifier.testTag("iptv.tv.search.editor"))
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     OverlayButton("بحث / تم", Modifier.focusRequester(doneFocus).testTag("iptv.tv.search.done")
@@ -333,6 +362,8 @@ private inline fun overlayFocusLog(message: () -> String) {
                                     OverlayButton("إلغاء", Modifier.testTag("iptv.tv.search.cancel")) { cancelSearch() }
                                 }
                             }
+                            if (filtering) CircularProgressIndicator(Modifier.size(18.dp).align(Alignment.CenterHorizontally),
+                                color = Brand.TextSecondary, strokeWidth = 2.dp)
                             LazyColumn(state = channelScroll, modifier = Modifier.fillMaxWidth().weight(1f).focusGroup(),
                                 verticalArrangement = Arrangement.spacedBy(5.dp), contentPadding = PaddingValues(3.dp)) {
                                 itemsIndexed(visible, key = { _, item -> item.id }) { index, item ->
@@ -360,14 +391,14 @@ private inline fun overlayFocusLog(message: () -> String) {
                             }
                             if (!searchMode) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Label("OK تشغيل", 11, Brand.TextSecondary)
-                                OverlayButton("التصنيفات ←", Modifier.testTag("iptv.tv.categories.open")) { openCategories() }
+                                OverlayButton("التصنيفات", Modifier.testTag("iptv.tv.categories.open"), icon = Icons.Rounded.ArrowForward) { openCategories() }
                             }
                         }
                     }
                     AnimatedVisibility(categoriesOpen,
                         enter = fadeIn(tween(160)) + expandHorizontally(tween(160), expandFrom = Alignment.End),
                         exit = fadeOut(tween(120)) + shrinkHorizontally(tween(120), shrinkTowards = Alignment.End)) {
-                        IptvTvGlassPanel(Modifier.width(categoryWidth).height(panelHeight).testTag("iptv.tv.categories").focusGroup()
+                        Box(Modifier.width(categoryWidth).fillMaxHeight().testTag("iptv.tv.categories").focusGroup()
                             .onPreviewKeyEvent { event ->
                                 val key = event.nativeKeyEvent
                                 when (key.keyCode) {
@@ -376,7 +407,7 @@ private inline fun overlayFocusLog(message: () -> String) {
                                     else -> false
                                 }
                             }) {
-                            Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     Label("التصنيفات", 17, bold = true, modifier = Modifier.weight(1f))
                                     if (manageCategory != null) OverlayButton("إدارة التصنيفات", icon = Icons.Rounded.MoreVert, iconOnly = true) {
@@ -399,7 +430,7 @@ private inline fun overlayFocusLog(message: () -> String) {
                                                     true
                                                 } else false
                                             }, icon = if (entry.locked) Icons.Rounded.Lock else null,
-                                            selected = entry.section == browsingSection) { selectCategory(entry) }
+                                            selected = entry.section == browsingSection, category = true) { selectCategory(entry) }
                                     }
                                 }
                                 OverlayButton("رجوع إلى القنوات", Modifier.fillMaxWidth(), icon = Icons.Rounded.Close) { returnToChannels() }
@@ -414,14 +445,17 @@ private inline fun overlayFocusLog(message: () -> String) {
 
 @Composable private fun OverlayButton(
     label: String, modifier: Modifier = Modifier, icon: ImageVector? = null,
-    iconOnly: Boolean = false, selected: Boolean = false, action: () -> Unit
+    iconOnly: Boolean = false, selected: Boolean = false, category: Boolean = false, action: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = if (iconOnly) CircleShape else RoundedCornerShape(10.dp)
     Button(action, modifier.heightIn(min = 44.dp).then(if (iconOnly) Modifier.width(44.dp) else Modifier)
         .onFocusChanged { focused = it.isFocused }
-        .background(if (focused) IptvTvGlass.FocusedBrush else IptvTvGlass.QuietRowBrush, shape)
-        .border(.75.dp, if (focused) Color.White.copy(alpha = .35f) else if (selected) IptvTvGlass.Hairline else Color.Transparent, shape)
+        .background(when {
+            focused && !category -> IptvTvGlass.GuideRowFocusedBrush
+            focused || selected -> IptvTvGlass.GuideCategoryFocusedBrush
+            else -> IptvTvGlass.GuideRowQuietBrush
+        }, shape)
         .semantics { contentDescription = label },
         shape = ButtonDefaults.shape(shape),
         scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),

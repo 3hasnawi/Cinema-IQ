@@ -210,6 +210,13 @@ def open_channels(expected):
     values = wait_for(lambda v: visible('البحث', v) and focused_on(expected, v),
                       'One OK did not open channels at the current station')
     expect('One OK opens channel overlay on current station '+expected, not ime())
+    expect('Channel guide hides the current-channel information and toolbar', not hud_visible(values))
+    bounds = [list(map(int, re.findall(r'\d+', n.get('bounds', '')))) for n in values]
+    screen_bottom = max(b[3] for b in bounds if len(b) == 4)
+    footer = [list(map(int, re.findall(r'\d+', n.get('bounds', ''))))
+              for n in values if n.get('text') == 'OK تشغيل']
+    expect('Full-height guide reaches the bottom instead of reserving the old HUD area',
+           any(len(b) == 4 and b[3] > screen_bottom*.9 for b in footer))
     return values
 
 
@@ -232,7 +239,7 @@ def choose_group(name):
 def return_to_playback():
     key(4)  # Dismiss the management dialog.
     values = nodes()
-    if visible('التصنيفات ←', values): key(4)  # Retained channel overlay, independent from the new player.
+    if visible('OK تشغيل', values): key(4)  # The full-height guide remains mounted behind management.
 
 
 def open_manager(group='Protected'):
@@ -288,6 +295,7 @@ def open_protected_channels():
     values = wait_pin()
     expect('One OK reopens a locked group at PIN without exposing a protected row',
            not channel_row_visible(names[3], values))
+    expect('Protected guide admission does not leave the information strip underneath', not hud_visible(values))
     pin_digits()
     wait_for(lambda v: not ime() and focused_on(names[3], v),
              'Fresh remount PIN must restore the protected channel focus')
