@@ -38,10 +38,19 @@ struct TVIPTVView: View {
                 }, cancel: { self.pinGroup = nil; focus = pinGroup })
             } else if store.storageLoading || !access.loaded || leaving || playing != nil { waiting }
             else if !store.storageAvailable || access.unavailable {
-                VStack { Text("تعذّر قراءة بيانات التلفزيون المحفوظة"); Button("إعادة المحاولة") { access.load(); store.readSources() } }
+                VStack(spacing: 26) {
+                    Text("التلفزيون").font(.title).accessibilityIdentifier("tv.iptv.heading")
+                    Text("تعذّر قراءة بيانات التلفزيون المحفوظة")
+                    HStack(spacing: 30) {
+                        Button("إعادة المحاولة") { access.load(); store.readSources() }
+                            .focused($focus, equals: "retry").accessibilityIdentifier("tv.iptv.storage.retry")
+                        Button("العودة إلى الرئيسية") { router.tab = .home }
+                            .focused($focus, equals: "return").accessibilityIdentifier("tv.iptv.return")
+                    }
+                }.defaultFocus($focus, "return").onAppear { focus = "return" }
             } else if store.sources.isEmpty {
                 VStack(spacing: 28) {
-                    Label("التلفزيون", image: "TelevisionAntenna").font(.title).accessibilityIdentifier("tv.iptv.heading")
+                    HStack { Image("TelevisionAntenna"); Text("التلفزيون").accessibilityIdentifier("tv.iptv.heading") }.font(.title)
                     Text("أضف رابط M3U أو اشتراك Xtream لفتح القنوات.")
                     HStack(spacing: 30) {
                         Button("إضافة مصدر") { modal = .add }.focused($focus, equals: "add").accessibilityIdentifier("tv.iptv.add")
@@ -63,6 +72,7 @@ struct TVIPTVView: View {
                 }
             } else { waiting }
         }
+        .environmentObject(access)
         .task { access.load() }
         .task(id: store.loadKey + String(refreshID)) {
             let key = store.loadKey

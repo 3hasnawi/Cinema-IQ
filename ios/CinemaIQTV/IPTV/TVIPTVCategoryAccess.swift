@@ -7,6 +7,9 @@ import CinemaCore
     private struct Record: Codable {
         var pin: String?
         var sources: [String: IPTVGroupRules] = [:]
+        var failures: Int?
+        var lastAttempt: Date?
+        var blockedUntil: Date?
     }
     @Published private var record = Record()
     @Published private(set) var loaded = false
@@ -27,7 +30,21 @@ import CinemaCore
          kSecAttrAccount as String: "rules.v1", kSecAttrSynchronizable as String: false]
     }
     var hasPIN: Bool { record.pin != nil }
-    func matches(_ pin: String) -> Bool { hasPIN && pin == record.pin }
+    var retryDelay: Int {
+        guard let end = record.blockedUntil else { return 0 }
+        return max(0, Int(ceil(end.timeIntervalSince(max(Date(), record.lastAttempt ?? .distantPast)))))
+    }
+    func matches(_ pin: String) -> Bool {
+        guard loaded, !unavailable, let saved = record.pin, retryDelay == 0 else { return false }
+        var next = record
+        let now = max(Date(), next.lastAttempt ?? .distantPast)
+        next.lastAttempt = now
+        let accepted = pin == saved
+        let failures = accepted ? 0 : min(100, (next.failures ?? 0) + 1)
+        next.failures = failures
+        next.blockedUntil = failures < 5 ? nil : now.addingTimeInterval(Double(min(900, 30 << min(failures - 5, 5))))
+        return save(next) && accepted
+    }
     func rules(_ source: String) -> IPTVGroupRules { record.sources[source] ?? .init() }
     func load() {
         guard !loaded || unavailable else { return }
@@ -48,12 +65,13 @@ import CinemaCore
     enum Change { case lock, unlock, hide, restore }
     func apply(_ change: Change, source: String, group: String, pin: String?) -> Bool {
         guard loaded, !unavailable else { return false }
-        var next = record, rules = rules(source)
+        var rules = rules(source)
+        var firstPIN: String?
         // A hidden, locked category still requires the original PIN when restored or unlocked.
         if change == .lock || rules.locked.contains(group) {
             guard let pin, pin.count == 4, pin.allSatisfy({ $0.isASCII && $0.isNumber }),
                   record.pin == nil || matches(pin) else { return false }
-            next.pin = pin
+            if !hasPIN { firstPIN = pin }
         }
         switch change {
         case .lock: rules.locked.insert(group)
@@ -61,19 +79,27 @@ import CinemaCore
         case .hide: rules.hidden.insert(group)
         case .restore: rules.hidden.remove(group)
         }
+        var next = record
+        if let firstPIN { next.pin = firstPIN }
         next.sources[source] = rules
+        guard save(next) else { return false }
+        revision = UUID()
+        return true
+    }
+    private func save(_ next: Record) -> Bool {
         guard let data = try? JSONEncoder().encode(next) else { return false }
         let attributes: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly]
         var status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if status == errSecItemNotFound { status = SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil) }
         guard status == errSecSuccess else { return false }
-        record = next; revision = UUID()
+        record = next
         return true
     }
 }
 
 /// A remote keypad keeps PIN entry in the same focus system and never opens a second keyboard.
 struct TVIPTVPinPad: View {
+    @EnvironmentObject private var access: TVIPTVCategoryAccess
     let creating: Bool
     let submit: (String) -> Bool
     let cancel: () -> Void
@@ -108,7 +134,9 @@ struct TVIPTVPinPad: View {
         let value = digits; digits = ""
         if creating && first == nil { first = value; return }
         if creating && first != value { first = nil; message = "الرمزان غير متطابقين"; return }
-        if !submit(value) { message = "تعذّر التحقق من الرمز أو حفظ التغيير" }
+        if !submit(value) {
+            message = access.retryDelay > 0 ? "أعد المحاولة بعد \(access.retryDelay) ثانية" : "تعذّر التحقق من الرمز أو حفظ التغيير"
+        }
     }
 }
 

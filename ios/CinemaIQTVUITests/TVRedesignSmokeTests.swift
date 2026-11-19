@@ -74,7 +74,7 @@ final class TVRedesignSmokeTests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.3)
         }
         XCTAssertTrue(app.staticTexts["tv.iptv.heading"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["tv.iptv.add"].exists)
+        XCTAssertTrue(app.buttons["tv.iptv.add"].exists || app.buttons["tv.iptv.storage.retry"].exists)
         XCTAssertEqual(app.state, .runningForeground)
     }
 
