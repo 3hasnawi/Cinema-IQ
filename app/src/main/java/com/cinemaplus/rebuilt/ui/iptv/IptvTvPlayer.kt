@@ -410,7 +410,7 @@ import kotlinx.coroutines.*
     }
     LaunchedEffect(fullscreen) { onFullscreen(fullscreen) }
     LaunchedEffect(initialGroup) { if (startInBrowser) browserSection = initialGroup?.let { IptvChannelSection.Group(it) } ?: IptvChannelSection.All }
-    val showControls = fullscreen && (television || !guide) && (controls || (television && (panel != null || guide)))
+    val showControls = fullscreen && !guide && (controls || (television && panel != null))
     BackHandler(enabled = panel == null && !guide) {
         when {
             television && showControls -> {
