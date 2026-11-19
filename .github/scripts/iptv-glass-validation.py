@@ -71,6 +71,8 @@ fixture = Path(tempfile.mkdtemp(prefix='cinema-tv-glass-fixture-'))
 requests, failures, successes = Counter(), Counter(), Counter()
 fault = {'media': False, 'catalogue': False}
 server, error = None, None
+guide_samples = []
+scale_count = 11_962
 reentry_seconds = []
 startup_observations = []
 native_dump_failures = baseline['hierarchy_reader'].failures
@@ -204,11 +206,17 @@ def wait_live(name, timeout=60):
     raise AssertionError('Actual Media3 playing state not reached: '+name)
 
 
-def open_channels(expected):
+def open_channels(expected, sample=None):
     time.sleep(6)
+    started = time.monotonic()
     key(23)
     values = wait_for(lambda v: visible('البحث', v) and focused_on(expected, v),
                       'One OK did not open channels at the current station')
+    if sample:
+        # Includes adb dispatch and UIAutomator observation; the first painted video frame is not measured.
+        guide_samples.append({'sample':sample,'station':expected,'okToObservedFocusSeconds':round(time.monotonic()-started,3)})
+        expect('Large catalogue has all channels on '+sample, visible(str(scale_count)+' قناة', values))
+        snapshot('large-guide-'+sample, values)
     expect('One OK opens channel overlay on current station '+expected, not ime())
     expect('Channel guide hides the current-channel information and toolbar', not hud_visible(values))
     bounds = [list(map(int, re.findall(r'\d+', n.get('bounds', '')))) for n in values]
@@ -337,6 +345,10 @@ try:
             '-vf',f'format=rgba,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text={wordmark}:fontsize=64:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2',
             '-frames:v','1','-threads','1','-pix_fmt','rgba',str(fixture/f'logo{number}.png')],check=True,timeout=15)
         title = 'IQ: '+name if number == 1 else name
+        if number == 4:
+            # Keep the original four named stations and the protected station last for wraparound checks.
+            playlist += ''.join(f'#EXTINF:-1 tvg-id="scale{i}" group-title="Scale",Station {i}\n{host}/live2.m3u8\n'
+                                for i in range(4, scale_count))
         playlist += f'#EXTINF:-1 tvg-id="fixture{number}" tvg-logo="{host}/logo{number}.png" group-title="{group}",{title}\n{host}/live{number}.m3u8\n'
     (fixture/'list.m3u').write_text(playlist)
     now = datetime.now(timezone.utc)
@@ -384,6 +396,21 @@ try:
     snapshot('21-glass-playing-hud',values)
     advancing_frames('22-initial-native-video')
 
+    open_channels(names[0], 'first')
+    middle = scale_count // 2
+    search(str(middle)); key(66)
+    wait_for(lambda v: focused_on('Station '+str(middle),v) and not ime(), 'Middle station must have result focus')
+    key(23); wait_live('Station '+str(middle))
+    open_channels('Station '+str(middle), 'middle')
+    key(4)
+    open_channels('Station '+str(middle), 'warm-middle')
+    # Reselect All to start a new search from its first row via the remote.
+    choose_group('كل القنوات')
+    search(str(scale_count)); key(66)
+    wait_for(lambda v: focused_on(names[3],v) and not ime(), 'Final canonical number must focus the last station')
+    key(23); wait_live(names[3])
+    open_channels(names[3], 'last')
+    key(4); time.sleep(6); key(20); wait_live(names[0])
     values = open_channels(names[0])
     expect('Native guide displays the exact clean channel row without its provider prefix',
            channel_row_visible(names[0],values) and any(node.get('content-desc') == names[0] and
@@ -593,6 +620,7 @@ finally:
         'apkReusedWithoutBuild':True,'typedRealCredentials':False,'usesGeneratedLocalHls':True,
         'fixtureRequests':dict(requests),'injectedFailures':dict(failures),'reentrySeconds':reentry_seconds,
         'savedSourceStartupObservations':startup_observations,
+        'generatedChannelCount':scale_count,'guideSamples':guide_samples,
         'nativeHierarchyDumpFailures':native_dump_failures,
         'nativeHierarchyDumpRetryPolicy':'At most three fresh dumps for native UIAutomator null-child crash/exit137 with the same app PID; no action, PIN or assertion retries and no stale XML fallback',
         'firstBackObservation':first_back_observation,
