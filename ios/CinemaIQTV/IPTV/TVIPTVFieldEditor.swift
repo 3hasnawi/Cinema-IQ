@@ -10,7 +10,7 @@ struct TVIPTVFieldEditor: UIViewRepresentable {
     let secure: Bool
     let finish: (String, Bool) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(finish: finish) }
+    func makeCoordinator() -> Coordinator { Coordinator(value: value, finish: finish) }
 
     func makeUIView(context: Context) -> Input {
         let input = Input()
@@ -23,6 +23,7 @@ struct TVIPTVFieldEditor: UIViewRepresentable {
         input.returnKeyType = returnKey
         input.textAlignment = .natural
         input.delegate = context.coordinator
+        input.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
         input.accessibilityIdentifier = "tv.iptv.form.editor"
         return input
     }
@@ -44,11 +45,25 @@ struct TVIPTVFieldEditor: UIViewRepresentable {
 
     final class Coordinator: NSObject, UITextFieldDelegate {
         let finish: (String, Bool) -> Void
+        private var draft: String
         private var submitted = false
         private var finished = false
-        init(finish: @escaping (String, Bool) -> Void) { self.finish = finish }
+        init(value: String, finish: @escaping (String, Bool) -> Void) {
+            self.draft = value; self.finish = finish
+        }
+
+        @objc func changed(_ field: UITextField) {
+            if !finished, field.isEditing { draft = field.text ?? "" }
+        }
+
+        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            let previous = textField.text ?? ""
+            if let edit = Range(range, in: previous) { draft = previous.replacingCharacters(in: edit, with: string) }
+            return true
+        }
 
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            draft = textField.text ?? draft
             submitted = true
             textField.resignFirstResponder()
             complete(textField)
@@ -60,7 +75,8 @@ struct TVIPTVFieldEditor: UIViewRepresentable {
         private func complete(_ textField: UITextField) {
             guard !finished else { return }
             finished = true
-            let value = textField.text ?? "", next = submitted
+            // The tvOS Menu action restores the launch value in UITextField before ending editing.
+            let value = draft, next = submitted
             DispatchQueue.main.async { [finish] in finish(value, next) }
         }
     }

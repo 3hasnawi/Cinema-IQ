@@ -359,6 +359,7 @@ final class TVIPTVFlowTests: XCTestCase {
         waitFor { !self.app.keyboards.firstMatch.exists }
         let address = element("tv.iptv.form.address")
         expectFocus(address); remote.press(.select)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
         app.typeText("https://xtream.example")
         remote.press(.menu)
         waitFor { !self.app.keyboards.firstMatch.exists }
