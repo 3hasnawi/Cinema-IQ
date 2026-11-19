@@ -1,7 +1,6 @@
 package com.cinemaplus.rebuilt.ui.iptv
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -70,8 +69,7 @@ import com.cinemaplus.rebuilt.ui.*
     val shape = RoundedCornerShape(12.dp)
     androidx.tv.material3.Button(onClick = click,
         modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).onFocusChanged { focused = it.isFocused }
-        .clip(shape).background(if (focused) IptvTvGlass.FocusedBrush else IptvTvGlass.QuietRowBrush)
-        .border(.75.dp, if (focused) Color.White.copy(alpha = .3f) else Color.Transparent, shape)
+        .clip(shape).background(if (focused) IptvTvGlass.GuideRowFocusedBrush else IptvTvGlass.GuideRowQuietBrush)
         .semantics { contentDescription = displayName },
         shape = androidx.tv.material3.ButtonDefaults.shape(shape),
         scale = androidx.tv.material3.ButtonDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
@@ -90,8 +88,8 @@ import com.cinemaplus.rebuilt.ui.*
             Label(channel.group, 11, Brand.TextSecondary, lines = 1)
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Label(number.toString(), 11, Brand.TextSecondary, lines = 1)
-            if (playing) Label("▶", 10, Color(0xFFFFC36A), lines = 1)
+            Label(number.toString(), 11, if (playing) IptvTvGlass.GuidePlaying else Brand.TextSecondary, lines = 1)
+            if (playing) Label("▶", 10, IptvTvGlass.GuidePlaying, lines = 1)
         }
     }
     }
