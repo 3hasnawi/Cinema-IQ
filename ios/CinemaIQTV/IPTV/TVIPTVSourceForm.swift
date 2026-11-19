@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import CinemaCore
 
 struct TVIPTVSourceForm: View {
@@ -14,6 +15,7 @@ struct TVIPTVSourceForm: View {
     @State private var allowHTTP = false
     @State private var message: String?
     @State private var submitting = false
+    @State private var focusTransition: Task<Void, Never>?
     @State private var submission: Task<Void, Never>?
     @FocusState private var focus: String?
     var body: some View {
@@ -29,19 +31,19 @@ struct TVIPTVSourceForm: View {
                 }
                 Section {
                     TextField("اسم المصدر", text: $name).focused($focus, equals: "name")
-                        .submitLabel(.next).onSubmit { focus = "address" }.accessibilityIdentifier("tv.iptv.form.name")
+                        .submitLabel(.next).onSubmit { advance(to: "address") }.accessibilityIdentifier("tv.iptv.form.name")
                     TextField(kind == .playlist ? "رابط قائمة M3U" : "عنوان خادم Xtream", text: $address)
                         .textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                         .focused($focus, equals: "address").submitLabel(kind == .xtream ? .next : .done)
-                        .onSubmit { focus = kind == .xtream ? "username" : "allowHTTP" }
+                        .onSubmit { advance(to: kind == .xtream ? "username" : "allowHTTP") }
                         .privacySensitive().accessibilityIdentifier("tv.iptv.form.address")
                     if kind == .xtream {
                         TextField("اسم المستخدم", text: $username).textContentType(.username)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .focused($focus, equals: "username").submitLabel(.next).onSubmit { focus = "password" }
+                            .focused($focus, equals: "username").submitLabel(.next).onSubmit { advance(to: "password") }
                             .privacySensitive().accessibilityIdentifier("tv.iptv.form.username")
                         SecureField("كلمة المرور", text: $password).textContentType(.password)
-                            .focused($focus, equals: "password").submitLabel(.done).onSubmit { focus = "output" }
+                            .focused($focus, equals: "password").submitLabel(.done).onSubmit { advance(to: "output") }
                             .accessibilityIdentifier("tv.iptv.form.password")
                         Picker("صيغة البث", selection: $output) {
                             Text("HLS (m3u8) — مفضّل").tag(IPTVSource.Output.hls)
@@ -79,8 +81,19 @@ struct TVIPTVSourceForm: View {
                 focus = kind == .xtream ? "xtream" : "m3u"
             }
         }
-        .onDisappear { submission?.cancel() }
+        .onDisappear { submission?.cancel(); focusTransition?.cancel() }
         .onExitCommand { submission?.cancel(); dismiss() }
+    }
+    private func advance(to destination: String) {
+        // tvOS restores the launching row on Menu when two fields share its full-screen editor.
+        // End this native editing session before transferring remote focus to the next control.
+        focusTransition?.cancel()
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        focus = nil
+        focusTransition = Task { @MainActor in
+            do { try await Task.sleep(for: .milliseconds(450)) } catch { return }
+            focus = destination
+        }
     }
     private func connect() {
         guard !submitting else { return }

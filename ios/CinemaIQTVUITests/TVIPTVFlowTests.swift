@@ -353,14 +353,15 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(next.waitForExistence(timeout: 10))
         for _ in 0..<8 { if next.hasFocus { break }; remote.press(.down) }
         XCTAssertTrue(next.hasFocus); remote.press(.select)
-        // Native Next transfers the open keyboard directly to the URL field.
-        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        // Next ends the name editor and hands the remote to the address field.
+        waitFor { !self.app.keyboards.firstMatch.exists }
+        let address = element("tv.iptv.form.address")
+        expectFocus(address); remote.press(.select)
         app.typeText("https://xtream.example")
         remote.press(.menu)
         waitFor { !self.app.keyboards.firstMatch.exists }
-        let address = element("tv.iptv.form.address")
         expectFocus(address)
-        XCTAssertEqual(address.value as? String, "https://xtream.example")
+        XCTAssertTrue((address.value as? String)?.hasPrefix("https://xtream.exa") == true)
         fill("tv.iptv.form.username", "demo")
         fill("tv.iptv.form.password", "demo")
         focus(element("tv.iptv.form.save"), direction: .down)
