@@ -17,7 +17,10 @@ struct TVIPTVLiveGuide: View {
     @State private var managing = false
     @State private var search = false
     @State private var query = ""
+    @State private var searchOrigin: IPTVChannelSection?
+    @State private var searchOriginID = ""
     @State private var results: [IPTVChannel] = []
+    @State private var resultsKey: SearchKey?
     @State private var lastID: String
     @State private var targetGroup: String?
     @State private var focusRequest = 0
@@ -34,7 +37,8 @@ struct TVIPTVLiveGuide: View {
     }
 
     private var rows: [IPTVChannel] {
-        if !query.isEmpty { return results }
+        guard index.rules == access.rules(index.sourceID) else { return [] }
+        if !query.isEmpty { return resultsKey == searchKey ? results : [] }
         return index.rows(section: section, visit: visit, favorites: store.channelCollection.favorites)
     }
     private var groupFocus: String { targetGroup.map { "group.named." + $0 } ?? (section == .favorites ? "group.favorites" : "group.all") }
@@ -55,10 +59,14 @@ struct TVIPTVLiveGuide: View {
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }.padding(.trailing, size.size.width * 0.032).padding(.top, 48).padding(.bottom, 36)
-                    .disabled(pending != nil)
+                    .disabled(pending != nil || managing)
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 .overlay {
-                    if let group = pending {
+                    if managing {
+                        TVIPTVCategoryManager(source: index.sourceID, categories: index.categories) {
+                            managing = false; focus = "manage"
+                        }.background(TVIPTVStyle.panel.ignoresSafeArea())
+                    } else if let group = pending {
                         TVIPTVPinPad(creating: false, submit: { pin in
                             guard access.matches(pin), !access.rules(index.sourceID).hidden.contains(group) else { return false }
                             pending = nil; visit = group; choose(.group(group)); return true
@@ -67,15 +75,12 @@ struct TVIPTVLiveGuide: View {
                 }
         }.environment(\.layoutDirection, .leftToRight)
             .onExitCommand(perform: pending == nil && !managing ? back : nil)
+            .onChange(of: query) { _, value in if value.count > 200 { query = String(value.prefix(200)) } }
             .onChange(of: focus) { _, value in
                 if let value, value.hasPrefix("channel.") { lastID = String(value.dropFirst(8)) }
             }
             .onChange(of: index.rules) { _, _ in
                 visit = nil; section = .all; query = ""; results = []; focusRequest += 1
-            }
-            .fullScreenCover(isPresented: $managing, onDismiss: { focus = "manage" }) {
-                TVIPTVCategoryManager(source: index.sourceID, categories: index.categories) { managing = false }
-                    .environmentObject(access)
             }
     }
     private var channelPanel: some View {
@@ -87,6 +92,7 @@ struct TVIPTVLiveGuide: View {
                 }
                 Spacer()
                 icon("البحث", "magnifyingglass", "search") {
+                    if searchOrigin == nil { searchOrigin = section; searchOriginID = lastID }
                     visit = nil; section = .all; targetGroup = nil; categoriesOpen = false
                     search = true; focusRequest += 1
                 }
@@ -149,15 +155,16 @@ struct TVIPTVLiveGuide: View {
                     .focused($focus, equals: "categories").accessibilityIdentifier("tv.iptv.guide.categories")
             }.font(.system(size: 24)).frame(height: 64)
         }.environment(\.layoutDirection, .rightToLeft)
-            .task(id: SearchKey(query: query, revision: index.revision)) {
+            .task(id: searchKey) {
                 guard !query.isEmpty else { results = []; return }
-                let text = query, snapshot = index
+                let key = searchKey, text = query, snapshot = index
                 let found = await Task.detached { snapshot.rows(section: .all, visit: nil, favorites: [], query: text) }.value
                 guard !Task.isCancelled, query == text else { return }
-                results = found
+                results = found; resultsKey = key
                 if !search { focusRequest += 1 }
             }
     }
+    private var searchKey: SearchKey { SearchKey(query: query, revision: index.revision) }
     private struct SearchKey: Hashable { let query: String; let revision: UUID }
     private func icon(_ title: String, _ symbol: String, _ id: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).font(.system(size: 28)).frame(width: 68, height: 74) }
@@ -210,15 +217,21 @@ struct TVIPTVLiveGuide: View {
         if categoriesOpen { focus = groupFocus }
     }
     private func choose(_ value: IPTVChannelSection) {
-        section = value; targetGroup = value.group; lastID = ""; query = ""; results = []
+        section = value; targetGroup = value.group; lastID = ""; query = ""; results = []; searchOrigin = nil; search = false
         restoreChannels()
     }
     private func restoreChannels() { withAnimation(animation) { categoriesOpen = false }; focusRequest += 1 }
     private func finishSearch() { focus = nil; search = false; lastID = ""; focusRequest += 1 }
-    private func clearSearch() { query = ""; results = []; search = false; focus = "search" }
+    private func clearSearch() {
+        let origin = searchOrigin ?? .all
+        searchOrigin = nil; query = ""; results = []; search = false; lastID = searchOriginID
+        if let group = origin.group, index.rules.locked.contains(group) {
+            targetGroup = group; pending = group; section = .all
+        } else { section = origin; restoreChannels() }
+    }
     private func back() {
-        if search || !query.isEmpty { clearSearch() }
-        else if categoriesOpen { restoreChannels() }
+        if categoriesOpen { restoreChannels() }
+        else if search || searchOrigin != nil { clearSearch() }
         else { close() }
     }
 }

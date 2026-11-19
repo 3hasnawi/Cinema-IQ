@@ -79,7 +79,7 @@ struct TVIPTVView: View {
             enter()
         }
         .onChange(of: router.tab) { _, tab in if tab == .iptv { leaving = false; enter() } }
-        .onAppear { leaving = false; enter() }
+        .onAppear { enter() }
         .onExitCommand(perform: modal == nil && playing == nil && pinGroup == nil ? { router.tab = .home } : nil)
         .fullScreenCover(item: $modal, onDismiss: { enter(); if store.sources.isEmpty { focus = "add" } }) { sheet in
             Group {

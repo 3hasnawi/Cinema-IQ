@@ -23,6 +23,7 @@ struct TVIPTVPlayerView: View {
         var id: String?
         var group: String?
     }
+    @State private var surfVisit: String?
     @State private var grant: PlaybackGrant
 
     init(initial: IPTVChannel, group: String?, onSources: @escaping () -> Void, onClose: @escaping () -> Void) {
@@ -30,6 +31,7 @@ struct TVIPTVPlayerView: View {
         let grant = PlaybackGrant()
         if group == initial.group { grant.id = initial.id; grant.group = group }
         _grant = State(initialValue: grant)
+        _surfVisit = State(initialValue: group)
         let preference = VideoQuality(rawValue: UserDefaults.standard.string(forKey: TVPlaybackPreference.qualityKey) ?? "auto") ?? .automatic
         _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group, preferredMaximumHeight: preference.height, automaticallyReconnect: true, automaticEngine: true))
     }
@@ -39,11 +41,11 @@ struct TVIPTVPlayerView: View {
     private func surf(_ direction: Int) {
         guard let index = access.guide, index.sourceID == session.sourceID else { return }
         let rules = access.rules(index.sourceID)
-        let section = session.section.group.map { rules.allows($0) } == false ? .all : session.section
-        let rows = index.rows(section: section, visit: nil, favorites: store.channelCollection.favorites)
+        let section = session.section.group.map { rules.allows($0, visit: surfVisit) } == false ? .all : session.section
+        let rows = index.rows(section: section, visit: surfVisit, favorites: store.channelCollection.favorites)
         if let next = IPTVNavigation.neighbor(of: session.channel.id, step: direction, in: rows),
-           next.id != session.channel.id, rules.allows(next.group) {
-            grant.id = nil; grant.group = nil; session.section = section; session.tune(next, debounce: true)
+           next.id != session.channel.id, rules.allows(next.group, visit: surfVisit) {
+            grant.id = next.id; grant.group = surfVisit; session.section = section; session.tune(next, debounce: true)
         }
         interact()
     }
@@ -78,6 +80,7 @@ struct TVIPTVPlayerView: View {
         }
     }
     private func openGuide() {
+        surfVisit = nil
         restoreTask?.cancel(); interact()
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { guide = true }
     }
@@ -122,7 +125,7 @@ struct TVIPTVPlayerView: View {
                 if guide, let index = access.guide, index.sourceID == session.sourceID {
                     TVIPTVLiveGuide(session: session, index: index, sources: { onSources(); dismiss() }, selected: { channel, section, visit in
                         guard access.rules(channel.sourceID).allows(channel.group, visit: visit) else { return }
-                        grant.id = channel.id; grant.group = visit; session.section = section; session.group = section.group
+                        surfVisit = visit; grant.id = channel.id; grant.group = visit; session.section = section; session.group = section.group
                         if session.channel.id != channel.id { session.tune(channel) }
                         closeGuide()
                     }, close: closeGuide)
@@ -140,7 +143,7 @@ struct TVIPTVPlayerView: View {
             access.rules(channel.sourceID).allows(channel.group, visit: grant.id == channel.id ? grant.group : nil)
         }; session.attach(store); session.setActive(phase == .active); if !guide { focus = "surface" } }
         .onDisappear { restoreTask?.cancel(); session.close() }
-        .onChange(of: access.revision) { _, _ in grant.id = nil; grant.group = nil; validateCurrent() }
+        .onChange(of: access.revision) { _, _ in surfVisit = nil; grant.id = nil; grant.group = nil; validateCurrent() }
         .onChange(of: session.catalogRevision) { _, _ in validateCurrent() }
         .onChange(of: phase) { _, value in session.setActive(value == .active) }
         .onChange(of: session.channel.id) { _, _ in interact(); programmes = IPTVNowNext(); if !guide && pane == nil { focus = "surface" } }
