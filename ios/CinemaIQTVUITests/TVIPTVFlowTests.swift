@@ -21,12 +21,12 @@ final class TVIPTVFlowTests: XCTestCase {
         let player = element("tv.iptv.player.native")
         expectFocus(player); remote.press(.select); expectFocus(guideChannel("قناة الأخبار"))
         remote.press(.up); expectFocus(element("tv.iptv.guide.search"))
-        focus(element("tv.iptv.guide.sources"), direction: .left); remote.press(.select)
+        remote.press(.left); remote.press(.left); expectFocus(element("tv.iptv.guide.sources")); remote.press(.select)
         focus(element("tv.iptv.source.tv-fixture-xtream"), direction: .down); remote.press(.select)
         expectFocus(player); waitFor { player.label == "Xtream News" }
         remote.press(.select); expectFocus(guideChannel("Xtream News"))
         remote.press(.right); expectFocus(element("tv.iptv.guide.group.all"))
-        focus(element("tv.iptv.guide.group.أخبار"), direction: .down); remote.press(.select)
+        remote.press(.down); remote.press(.down); expectFocus(element("tv.iptv.guide.group.أخبار")); remote.press(.select)
         expectFocus(guideChannel("Xtream News"))
         XCTAssertFalse(guideChannel("Xtream Sport").exists)
         shot("xtream-filtered-guide")
@@ -304,12 +304,13 @@ final class TVIPTVFlowTests: XCTestCase {
         }
     }
     func testAddM3USourceWithNativeKeyboard() {
+        executionTimeAllowance = 360
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset"]
         app.launch(); openIPTV()
         expectFocus(element("tv.iptv.add")); remote.press(.select)
         XCTAssertTrue(element("tv.iptv.form.m3u").waitForExistence(timeout: 15))
-        fill("tv.iptv.form.name", "Remote List")
-        fill("tv.iptv.form.address", "http://iptv.example/channels.m3u")
+        remote.press(.down); editFocused("name", value: "Remote List")
+        remote.press(.down); editFocused("address", value: "http://iptv.example/channels.m3u")
         focus(element("tv.iptv.form.allowHTTP"), direction: .down); remote.press(.select)
         focus(element("tv.iptv.form.save"), direction: .down); remote.press(.select)
         expectFocus(element("tv.iptv.player.native")); shot("source-added-with-remote")
@@ -344,11 +345,12 @@ final class TVIPTVFlowTests: XCTestCase {
         app.launch(); openIPTV()
         expectFocus(element("tv.iptv.add")); remote.press(.select)
         expectFocus(element("tv.iptv.form.m3u"))
-        focus(element("tv.iptv.form.xtream"), direction: .left); remote.press(.select)
+        remote.press(.left); expectFocus(element("tv.iptv.form.xtream")); remote.press(.select)
         XCTAssertTrue(element("tv.iptv.form.username").waitForExistence(timeout: 10))
         XCTAssertTrue(element("tv.iptv.form.password").exists)
         let name = element("tv.iptv.form.name")
-        focus(name, direction: .down); remote.press(.select); app.typeText("Remote Xtream")
+        remote.press(.down); expectFocus(name); remote.press(.select)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10)); app.typeText("Remote Xtream")
         let next = app.buttons.matching(NSPredicate(format: "label IN %@", ["Next", "next", "التالي", "Done", "done", "تم"])).firstMatch
         XCTAssertTrue(next.waitForExistence(timeout: 10))
         for _ in 0..<8 { if next.hasFocus { break }; remote.press(.down) }
@@ -362,8 +364,8 @@ final class TVIPTVFlowTests: XCTestCase {
         waitFor { !self.app.keyboards.firstMatch.exists }
         expectFocus(address)
         XCTAssertTrue((address.value as? String)?.hasPrefix("https://xtream.exa") == true)
-        fill("tv.iptv.form.username", "demo")
-        fill("tv.iptv.form.password", "demo")
+        remote.press(.down); editFocused("username", value: "demo")
+        remote.press(.down); editFocused("password", value: "demo")
         focus(element("tv.iptv.form.save"), direction: .down)
         XCTAssertTrue(element("tv.iptv.form.save").isEnabled)
         shot("xtream-form")
@@ -372,13 +374,14 @@ final class TVIPTVFlowTests: XCTestCase {
         remote.press(.menu)
         XCTAssertTrue(element("tv.home.showcase").waitForExistence(timeout: 15))
     }
-    private func fill(_ id: String, _ text: String) {
-        let field = element(id)
-        focus(field, direction: .down); remote.press(.select)
-        app.typeText(text)
-        remote.press(.menu) // Native tvOS text bindings retain the entered value when leaving the keyboard.
+    private func editFocused(_ id: String, value: String) {
+        let row = element("tv.iptv.form." + id)
+        expectFocus(row); remote.press(.select)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        app.typeText(value)
+        remote.press(.menu)
         waitFor { !self.app.keyboards.firstMatch.exists }
-        XCTAssertTrue(element("tv.iptv.form.save").exists)
+        expectFocus(row)
     }
     private func openIPTV() {
         expectFocus(element("tv.home.showcase"))
@@ -466,6 +469,7 @@ final class TVIPTVFlowTests: XCTestCase {
         if id == "tv.iptv.guide.editor" { return app.textFields[id] }
         if id == "tv.iptv.track.panel" { return app.otherElements[id] }
         // Native Form rows may expose the field/action through their cell or switch; preserve that path.
+        if ["name", "address", "username", "password"].contains(String(id.dropFirst("tv.iptv.form.".count))), id.hasPrefix("tv.iptv.form.") { return app.buttons[id] }
         if id.hasPrefix("tv.iptv.form.") { return app.descendants(matching: .any).matching(identifier: id).firstMatch }
         return app.buttons[id]
     }
