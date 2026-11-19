@@ -73,6 +73,7 @@ fault = {'media': False, 'catalogue': False}
 server, error = None, None
 guide_samples = []
 scale_count = 11_962
+middle = scale_count // 2
 reentry_seconds = []
 startup_observations = []
 native_dump_failures = baseline['hierarchy_reader'].failures
@@ -347,7 +348,7 @@ try:
         title = 'IQ: '+name if number == 1 else name
         if number == 4:
             # Keep the original four named stations and the protected station last for wraparound checks.
-            playlist += ''.join(f'#EXTINF:-1 tvg-id="scale{i}" group-title="Scale",Station {i}\n{host}/live2.m3u8\n'
+            playlist += ''.join(f'#EXTINF:-1 tvg-id="scale{i}" group-title="Scale",Station {i}\n{host}/{"middle" if i == middle else "live2"}.m3u8\n'
                                 for i in range(4, scale_count))
         playlist += f'#EXTINF:-1 tvg-id="fixture{number}" tvg-logo="{host}/logo{number}.png" group-title="{group}",{title}\n{host}/live{number}.m3u8\n'
     (fixture/'list.m3u').write_text(playlist)
@@ -366,11 +367,16 @@ try:
     master = '#EXTM3U\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=640x360\n360/index.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=750000,RESOLUTION=1280x720\n720/index.m3u8\n'
     for number in range(1,5): (fixture/f'live{number}.m3u8').write_text(master)
 
+    (fixture/'middle.m3u8').write_text(master)
+    hold_middle = threading.Event()
+
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs): super().__init__(*args, directory=str(fixture), **kwargs)
         def log_message(self, *args): pass
         def do_GET(self):
             path = urlsplit(self.path).path; requests[path] += 1
+            if path == '/middle.m3u8' and not hold_middle.is_set():
+                self.send_response(503); self.send_header('Content-Length','0'); self.end_headers(); return
             initial = path == '/live1.m3u8' and failures['initial'] < 5
             blocked = (fault['media'] and path.endswith(('.m3u8','.ts'))) or (fault['catalogue'] and path == '/list.m3u')
             if initial or blocked:
@@ -397,11 +403,17 @@ try:
     advancing_frames('22-initial-native-video')
 
     open_channels(names[0], 'first')
-    middle = scale_count // 2
     search(str(middle)); key(66)
     wait_for(lambda v: focused_on('Station '+str(middle),v) and not ime(), 'Middle station must have result focus')
-    key(23); wait_live('Station '+str(middle))
+    key(23)
     open_channels('Station '+str(middle), 'middle')
+    expect('Middle channel is buffering during guide entry', requests['/middle.m3u8']>0 and successes['/middle.m3u8']==0)
+    hold_middle.set()
+    wait_for(lambda v: successes['/middle.m3u8']>0 and focused_on('Station '+str(middle),v),
+             'Guide focus must stay on the middle channel as the held stream becomes available', timeout=65)
+    advancing_frames('large-middle-starts-under-guide')
+    expect('Playback starting behind the guide preserves focused channel and keeps the HUD hidden',
+           focused_on('Station '+str(middle)) and not hud_visible())
     key(4)
     open_channels('Station '+str(middle), 'warm-middle')
     # Reselect All to start a new search from its first row via the remote.
