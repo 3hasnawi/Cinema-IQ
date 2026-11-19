@@ -106,6 +106,7 @@ private inline fun overlayFocusLog(message: () -> String) {
     var focusedChannelId by remember { mutableStateOf(current.id) }
     var focusedCategoryKey by remember { mutableStateOf("") }
     var actualFocus by remember { mutableStateOf<OverlayObservedFocus?>(null) }
+    var channelPaneHasFocus by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<OverlayDestination?>(OverlayDestination.Channels) }
     var lastDestination by remember { mutableStateOf(OverlayDestination.Channels) }
     var windowLost by remember { mutableStateOf(false) }
@@ -249,6 +250,17 @@ private inline fun overlayFocusLog(message: () -> String) {
         val result = withContext(Dispatchers.Default) { snapshot.search(requestedSection, requestedQuery) }
         preparedSearch = searchInput to result
     }
+    LaunchedEffect(page, filtering) {
+        if (page == null || filtering) return@LaunchedEffect
+        // A refreshed authorized catalogue may remove the focused row while pages are prepared.
+        // Reuse the observed-ACK path only when no pane control/editor or other owner has focus.
+        withFrameNanos { }
+        if (pending == null && actualFocus == null && !channelPaneHasFocus &&
+            lastDestination == OverlayDestination.Channels && window.isWindowFocused &&
+            !admissionPending && !categoriesOpen && !searchMode && !editor.editing && !editor.focused) {
+            pending = OverlayDestination.Channels
+        }
+    }
     LaunchedEffect(pending, filtering, visible, categoriesOpen, searchMode, editor.editing, editor.focused, window.isWindowFocused, admissionPending) {
         val destination = pending ?: run {
             overlayFocusLog { "gate=no-pending ${focusStatus()}" }
@@ -310,7 +322,8 @@ private inline fun overlayFocusLog(message: () -> String) {
             Row(Modifier.fillMaxHeight().padding(end = edgeInset, top = 24.dp, bottom = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                    Box(Modifier.width(channelWidth).fillMaxHeight().focusGroup().onPreviewKeyEvent { event ->
+                    Box(Modifier.width(channelWidth).fillMaxHeight()
+                        .onFocusChanged { channelPaneHasFocus = it.hasFocus }.focusGroup().onPreviewKeyEvent { event ->
                         val key = event.nativeKeyEvent
                         if (key.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && !editor.editing && !editor.focused) {
                             if (key.action == KeyEvent.ACTION_DOWN) openCategories()
