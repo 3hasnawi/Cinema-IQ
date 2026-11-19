@@ -1,8 +1,9 @@
 import SwiftUI
 import CinemaCore
 
-/// Android TV 4.39 live layout, with a stable full-screen video plane and independent floating focus panels.
+/// The live surface stays mounted while focus moves between the guide and the HUD.
 struct TVIPTVPlayerView: View {
+    @EnvironmentObject private var access: TVIPTVCategoryAccess
     @EnvironmentObject private var store: IPTVStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
@@ -16,14 +17,45 @@ struct TVIPTVPlayerView: View {
     @State private var programmes = IPTVNowNext()
     @State private var restoreTask: Task<Void, Never>?
     @FocusState private var focus: String?
-    let onReturn: (IPTVChannel, String?) -> Void
-
-    init(initial: IPTVChannel, group: String? = nil, startInGuide: Bool = false, onReturn: @escaping (IPTVChannel, String?) -> Void = { _, _ in }) {
-        self.onReturn = onReturn; _guide = State(initialValue: startInGuide)
-        let preference = VideoQuality(rawValue: UserDefaults.standard.string(forKey: TVPlaybackPreference.qualityKey) ?? "auto") ?? .automatic
-        _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group, preferredMaximumHeight: preference.height, automaticallyReconnect: true))
+    let onSources: () -> Void
+    let onClose: () -> Void
+    private final class PlaybackGrant {
+        var id: String?
+        var group: String?
     }
-    private func close() { onReturn(session.channel, session.group == session.channel.group ? session.group : nil); dismiss() }
+    @State private var surfVisit: String?
+    @State private var grant: PlaybackGrant
+
+    init(initial: IPTVChannel, group: String?, onSources: @escaping () -> Void, onClose: @escaping () -> Void) {
+        self.onSources = onSources; self.onClose = onClose
+        let grant = PlaybackGrant()
+        if group == initial.group { grant.id = initial.id; grant.group = group }
+        _grant = State(initialValue: grant)
+        _surfVisit = State(initialValue: group)
+        let preference = VideoQuality(rawValue: UserDefaults.standard.string(forKey: TVPlaybackPreference.qualityKey) ?? "auto") ?? .automatic
+        _session = StateObject(wrappedValue: IPTVPlayerSession(initial: initial, group: group, preferredMaximumHeight: preference.height, automaticallyReconnect: true, automaticEngine: true))
+    }
+    private func permits(_ channel: IPTVChannel) -> Bool {
+        access.rules(channel.sourceID).allows(channel.group, visit: grant.id == channel.id ? grant.group : nil)
+    }
+    private func surf(_ direction: Int) {
+        guard let index = access.guide, index.sourceID == session.sourceID else { return }
+        let rules = access.rules(index.sourceID)
+        let section = session.section.group.map { rules.allows($0, visit: surfVisit) } == false ? .all : session.section
+        let rows = index.rows(section: section, visit: surfVisit, favorites: store.channelCollection.favorites)
+        if let next = IPTVNavigation.neighbor(of: session.channel.id, step: direction, in: rows),
+           next.id != session.channel.id, rules.allows(next.group, visit: surfVisit) {
+            grant.id = next.id; grant.group = surfVisit; session.section = section; session.tune(next, debounce: true)
+        }
+        interact()
+    }
+    private func validateCurrent() {
+        let current = session.channels.first { $0.id == session.channel.id } ?? session.channel
+        guard !permits(current) else { return }
+        if let next = session.channels.first(where: { access.rules($0.sourceID).allows($0.group) }) {
+            session.section = .all; session.tune(next)
+        } else { session.close(); dismiss() }
+    }
     private func interact() { controls = true; interaction += 1 }
     private func showToolbar() {
         interact(); restoreTask?.cancel()
@@ -48,6 +80,7 @@ struct TVIPTVPlayerView: View {
         }
     }
     private func openGuide() {
+        surfVisit = nil
         restoreTask?.cancel(); interact()
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { guide = true }
     }
@@ -70,28 +103,32 @@ struct TVIPTVPlayerView: View {
                 Button(action: openGuide) { Color.clear.contentShape(Rectangle()) }
                     .buttonStyle(TVArtworkButtonStyle()).focusEffectDisabled().focused($focus, equals: "surface")
                     .disabled(guide || pane != nil || session.problem != nil)
-                    .accessibilityLabel(session.channel.name).accessibilityValue(session.status)
+                    .accessibilityLabel(session.channel.televisionTitle).accessibilityValue(session.status)
                     .accessibilityIdentifier("tv.iptv.player.native")
                     .onMoveCommand { direction in
                         switch direction {
-                        case .up: session.surf(-1); interact()
-                        case .down: session.surf(1); interact()
+                        case .up: surf(-1)
+                        case .down: surf(1)
                         case .left, .right: showToolbar()
                         default: break
                         }
                     }
-                if controls || pane != nil {
+                if !guide && (controls || pane != nil) {
                     TVIPTVPlayerHUD(session: session, programmes: programmes, focus: $focus,
-                        channels: openGuide, tracks: openTracks, iconBounds: { bounds[$0] = $1 }, interact: interact)
+                        channels: openGuide, tracks: openTracks, iconBounds: { bounds[$0] = $1 }, surf: surf, interact: interact)
                         .disabled(guide || pane != nil || session.problem != nil)
-                        .opacity(guide ? 0 : 1)
                 }
                 if (session.buffering || session.tuning || session.retrying) && !guide {
                     ProgressView().controlSize(.large).frame(maxWidth: .infinity, maxHeight: .infinity).allowsHitTesting(false)
                 }
                 if let problem = session.problem, !guide, pane == nil { errorPanel(problem).frame(maxWidth: .infinity, maxHeight: .infinity) }
-                if guide {
-                    TVIPTVLiveGuide(session: session, selected: closeGuide)
+                if guide, let index = access.guide, index.sourceID == session.sourceID {
+                    TVIPTVLiveGuide(session: session, index: index, sources: { onSources(); dismiss() }, selected: { channel, section, visit in
+                        guard access.rules(channel.sourceID).allows(channel.group, visit: visit) else { return }
+                        surfVisit = visit; grant.id = channel.id; grant.group = visit; session.section = section; session.group = section.group
+                        if session.channel.id != channel.id { session.tune(channel) }
+                        closeGuide()
+                    }, close: closeGuide)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
                 }
@@ -102,18 +139,23 @@ struct TVIPTVPlayerView: View {
         // Popup placement uses physical screen coordinates; individual HUD/panel text remains RTL.
         .environment(\.layoutDirection, .leftToRight)
         .defaultFocus($focus, "surface")
-        .onAppear { session.attach(store); session.setActive(phase == .active); if !guide { focus = "surface" } }
+        .onAppear { session.permitsPlayback = { [access, grant] channel in
+            access.rules(channel.sourceID).allows(channel.group, visit: grant.id == channel.id ? grant.group : nil)
+        }; session.attach(store); session.setActive(phase == .active); if !guide { focus = "surface" } }
         .onDisappear { restoreTask?.cancel(); session.close() }
+        .onChange(of: access.revision) { _, _ in surfVisit = nil; grant.id = nil; grant.group = nil; validateCurrent() }
+        .onChange(of: session.catalogRevision) { _, _ in validateCurrent() }
         .onChange(of: phase) { _, value in session.setActive(value == .active) }
         .onChange(of: session.channel.id) { _, _ in interact(); programmes = IPTVNowNext(); if !guide && pane == nil { focus = "surface" } }
         .onChange(of: focus) { _, value in
             if value?.hasPrefix("control.") == true || value?.hasPrefix("track.") == true { interact() }
         }
         .onPlayPauseCommand { session.toggle(); interact() }
-        .onExitCommand {
+        .onExitCommand(perform: guide ? nil : {
             if pane != nil { closeTracks() }
-            else if !guide { close() }
-        }
+            else if controls && session.problem == nil { restoreTask?.cancel(); controls = false; focus = "surface" }
+            else { onClose(); dismiss() }
+        })
         .task(id: "\(controls)|\(guide)|\(pane ?? "")|\(interaction)|\(phase)|\(session.problem == nil)") {
             guard controls, !guide, pane == nil, session.problem == nil, phase == .active else { return }
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
@@ -140,9 +182,6 @@ struct TVIPTVPlayerView: View {
             HStack(spacing: 28) {
                 Button("تحديث الرابط وإعادة المحاولة") { session.retry(); focus = "surface" }
                     .disabled(session.retrying).focused($focus, equals: "error.retry")
-                if session.controller.lastFailure == .unsupported || session.controller.lastFailure == .unknown {
-                    Button("توافق موسّع") { session.controller.chooseEngine(.compatibility); focus = "surface" }
-                }
                 Button("القنوات", action: openGuide)
             }
         }.padding(44).frame(maxWidth: 1100).background(TVIPTVStyle.panel.opacity(0.9), in: RoundedRectangle(cornerRadius: 28))
@@ -160,9 +199,9 @@ struct TVIPTVPlayerView: View {
         let quality = value == "quality", audio = value == "audio"
         let tracks = audio ? session.audio : session.subtitles
         let defaults: [String] = audio && !tracks.isEmpty ? [] : [audio ? "المسار الافتراضي" : "إيقاف الترجمة"]
-        let labels: [String] = quality ? ["جودة البث", "تلقائي", "تفضيل أعلى جودة متاحة", "محرك التشغيل"] + session.qualities.map(\.title)
+        let labels: [String] = quality ? ["جودة البث", "تلقائي", "تفضيل أعلى جودة متاحة"] + session.qualities.map(\.title)
                              : [audio ? "الصوت" : "الترجمة"] + defaults + tracks.map(\.title)
-        let rows = quality ? session.qualities.count + 3 : tracks.count + defaults.count
+        let rows = quality ? session.qualities.count + 2 : tracks.count + defaults.count
         return TVIPTVTrackPopup(title: quality ? "جودة البث" : audio ? "مسار الصوت" : "الترجمة", labels: labels, rows: rows,
             footnoteLines: !quality && tracks.isEmpty ? 2 : 0,
             anchor: bounds[value] ?? CGRect(x: window.width - 600, y: window.height - 80, width: 46, height: 46),
@@ -173,16 +212,6 @@ struct TVIPTVPlayerView: View {
                     ForEach(session.qualities) { item in
                         trackButton(item.title, id: item.id, selected: !session.prefersHighestQuality && session.quality?.id == item.id) { session.chooseQuality(item) }
                     }
-                    Menu {
-                        ForEach(IPTVPlaybackMode.allCases, id: \.rawValue) { mode in
-                            Button(mode.title) { session.controller.chooseEngine(mode); closeTracks() }
-                                .accessibilityIdentifier("tv.iptv.engine." + mode.rawValue)
-                        }
-                        Text("VideoLAN VLCKit · LGPL 2.1+")
-                    } label: {
-                        HStack { Text("محرك التشغيل"); Spacer(); Image(systemName: "chevron.left") }
-                            .font(.system(size: 26)).padding(20).frame(minHeight: 76)
-                    }.menuStyle(.button).buttonStyle(TVIPTVTrackButtonStyle()).focused($focus, equals: "track.engine")
                 } else if audio {
                     let first = session.audio.first
                     // Keep one stable focus target while the manifest's audio tracks arrive.

@@ -42,7 +42,7 @@ struct TVIPTVTrackPopup<Content: View>: View {
         }
         .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 40)
         .frame(width: size.width, height: size.height)
-        .background(TVIPTVStyle.panel.opacity(0.78), in: TVIPTVDropShape(pivot: pivot))
+        .background(TVIPTVStyle.hudGlass, in: TVIPTVDropShape(pivot: pivot))
         .overlay(TVIPTVDropShape(pivot: pivot).stroke(.white.opacity(0.15), lineWidth: 1))
         .environment(\.layoutDirection, .rightToLeft)
         .accessibilityElement(children: .contain)

@@ -2,6 +2,8 @@ import SwiftUI
 import CinemaCore
 
 enum TVIPTVStyle {
+    static let guideInk = Color(red: 11/255, green: 20/255, blue: 30/255)
+    static let hudGlass = LinearGradient(colors: [Color(red: 0.15, green: 0.18, blue: 0.23).opacity(0.28), panel.opacity(0.72)], startPoint: .top, endPoint: .bottom)
     static let focus = Color(red: 0.82, green: 0.20, blue: 0.42)
     static let panel = Color(red: 0.09, green: 0.10, blue: 0.16)
 }
@@ -35,7 +37,20 @@ struct TVIPTVLogo: View {
     }
 }
 
-/// Same physical order, typography scale and compact HUD actions as Android TV 4.39.
+struct TVIPTVGuideButtonStyle: ButtonStyle {
+    @Environment(\.isFocused) private var focused
+    var category = false
+    var selected = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.foregroundStyle(.white)
+            .background {
+                LinearGradient(colors: [.clear, category ? .white.opacity(focused || selected ? 0.16 : 0) : TVIPTVStyle.focus.opacity(focused ? 0.34 : 0)],
+                               startPoint: .leading, endPoint: .trailing)
+                    .environment(\.layoutDirection, .leftToRight)
+            }.contentShape(Rectangle())
+    }
+}
+
 struct TVIPTVPlayerHUD: View {
     @ObservedObject var session: IPTVPlayerSession
     @EnvironmentObject private var store: IPTVStore
@@ -44,13 +59,14 @@ struct TVIPTVPlayerHUD: View {
     let channels: () -> Void
     let tracks: (String) -> Void
     let iconBounds: (String, CGRect) -> Void
+    let surf: (Int) -> Void
     let interact: () -> Void
     var body: some View {
         VStack(spacing: 24) {
             HStack(spacing: 24) {
                 TVIPTVLogo(channel: session.channel).frame(width: 168, height: 168)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(session.channel.name).font(.system(size: 40, weight: .bold)).lineLimit(1)
+                    Text(session.channel.televisionTitle).font(.system(size: 40, weight: .bold)).lineLimit(1)
                         .accessibilityIdentifier("tv.iptv.player.title")
                     Text("\(session.numbers[session.channel.id] ?? 0) · \(session.status) · \(session.channel.group)")
                         .font(.system(size: 24)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
@@ -77,18 +93,16 @@ struct TVIPTVPlayerHUD: View {
                 button("الصوت", id: "audio", symbol: "headphones") { tracks("audio") }
                 button(session.videoHeight > 0 ? "\(session.videoHeight)p" : "الجودة", id: "quality", symbol: "chart.bar.xaxis") { tracks("quality") }
                 button("الترجمة", id: "subtitles", symbol: "captions.bubble") { tracks("subtitles") }
-                button("السابقة", id: "last", symbol: "arrow.left") { session.previous() }
-                    .disabled(session.previousID == nil)
                 Spacer(minLength: 0)
             }.focusSection()
                 .onMoveCommand { direction in
                     if direction == .up || direction == .down {
-                        session.surf(direction == .up ? -1 : 1); interact(); focus.wrappedValue = "surface"
+                        surf(direction == .up ? -1 : 1); focus.wrappedValue = "surface"
                     }
                 }
         }
-        .padding(.horizontal, 60).padding(.top, 56).padding(.bottom, 36)
-        .background(LinearGradient(colors: [.clear, .black.opacity(0.63), .black.opacity(0.91)], startPoint: .top, endPoint: .bottom))
+        .padding(.horizontal, 60).padding(.top, 10).padding(.bottom, 36)
+        .background { TVIPTVStyle.hudGlass.padding(.top, 54) }
         .environment(\.layoutDirection, .rightToLeft)
     }
     private func programme(_ prefix: String, _ value: IPTVProgramme?) -> some View {

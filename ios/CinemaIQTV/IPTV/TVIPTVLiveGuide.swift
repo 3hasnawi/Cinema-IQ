@@ -1,169 +1,246 @@
 import SwiftUI
 import CinemaCore
 
-/// Floating channels over the unchanged full-screen video; physical Right reveals categories on the right.
 struct TVIPTVLiveGuide: View {
     @ObservedObject var session: IPTVPlayerSession
     @EnvironmentObject private var store: IPTVStore
+    @EnvironmentObject private var access: TVIPTVCategoryAccess
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    let selected: () -> Void
-    @State private var query = ""
+    let index: IPTVTelevisionGuide
+    let sources: () -> Void
+    let selected: (IPTVChannel, IPTVChannelSection, String?) -> Void
+    let close: () -> Void
     @State private var section: IPTVChannelSection
+    @State private var visit: String?
+    @State private var pending: String?
     @State private var categoriesOpen = false
-    @State private var visible: [IPTVChannel] = []
-    @State private var categories: [(name: String, count: Int)] = []
-    @State private var lastFocused: String
-    @State private var focusTask: Task<Void, Never>?
+    @State private var managing = false
+    @State private var search = false
+    @State private var query = ""
+    @State private var searchOrigin: IPTVChannelSection?
+    @State private var searchOriginID = ""
+    @State private var results: [IPTVChannel] = []
+    @State private var resultsKey: SearchKey?
+    @State private var restoreID: String?
+    @State private var categoryOrigin: String?
+    @State private var lastID: String
+    @State private var targetGroup: String?
+    @State private var focusRequest = 0
     @FocusState private var focus: String?
-    private struct FilterKey: Hashable { let revision: UUID; let section: IPTVChannelSection; let query: String; let favorites: Set<String> }
-    init(session: IPTVPlayerSession, selected: @escaping () -> Void) {
-        self.session = session; self.selected = selected
-        _section = State(initialValue: session.section); _lastFocused = State(initialValue: session.channel.id)
+    init(session: IPTVPlayerSession, index: IPTVTelevisionGuide, sources: @escaping () -> Void,
+         selected: @escaping (IPTVChannel, IPTVChannelSection, String?) -> Void, close: @escaping () -> Void) {
+        self.session = session; self.index = index; self.sources = sources; self.selected = selected; self.close = close
+        _lastID = State(initialValue: session.channel.id)
+        _restoreID = State(initialValue: session.channel.id)
+        let group = session.section.group
+        let locked = group.flatMap { index.rules.locked.contains($0) && !index.rules.hidden.contains($0) ? $0 : nil }
+        _section = State(initialValue: locked == nil ? session.section : .all)
+        _pending = State(initialValue: locked)
+        _targetGroup = State(initialValue: locked)
     }
-    private var groupID: String {
-        switch section { case .all: return "group.all"; case .favorites: return "group.favorites"; case .group(let name): return "group." + name; case .recent: return "group.all" }
+
+    private var rows: [IPTVChannel] {
+        guard index.rules == access.rules(index.sourceID) else { return [] }
+        if !query.isEmpty { return resultsKey == searchKey ? results : [] }
+        return index.rows(section: section, visit: visit, favorites: store.channelCollection.favorites)
     }
-    private func restoreChannels() {
-        returnToChannels(after: .milliseconds(100))
-    }
-    private func returnToChannels(after delay: Duration) {
-        focusTask?.cancel()
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { categoriesOpen = false }
-        focusTask = Task { @MainActor in
-            do { try await Task.sleep(for: delay) } catch { return }
-            focus = IPTVNavigation.entry(currentID: lastFocused, in: visible).map { "channel." + $0 } ?? "categories"
-        }
-    }
-    private func openCategories() {
-        focusTask?.cancel()
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { categoriesOpen = true }
-        focusTask = Task { @MainActor in
-            do { try await Task.sleep(for: .milliseconds(160)) } catch { return }
-            guard categoriesOpen else { return }; focus = groupID
-        }
-    }
+    private var groupFocus: String { targetGroup.map { "group.named." + $0 } ?? (section == .favorites ? "group.favorites" : "group.all") }
+    private var animation: Animation? { reduceMotion ? nil : .easeOut(duration: 0.18) }
     var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 28) {
-                channelPanel.frame(width: min(840, max(600, geometry.size.width * 0.36)))
-                    .onMoveCommand { if $0 == .right && focus != "search" { openCategories() } }
-                if categoriesOpen {
-                    categoryPanel.frame(width: min(540, max(380, geometry.size.width * 0.22)))
-                        .onMoveCommand { if $0 == .left { restoreChannels() } }
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+        GeometryReader { size in
+            ZStack(alignment: .trailing) {
+                LinearGradient(stops: [
+                    .init(color: .clear, location: 0), .init(color: TVIPTVStyle.guideInk.opacity(0.24), location: 0.15),
+                    .init(color: TVIPTVStyle.guideInk.opacity(0.75), location: 0.38), .init(color: TVIPTVStyle.guideInk.opacity(0.91), location: 0.62),
+                    .init(color: TVIPTVStyle.guideInk.opacity(0.97), location: 1)
+                ], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: size.size.width * (categoriesOpen ? 0.82 : 0.61)).allowsHitTesting(false)
+                HStack(spacing: 48) {
+                    channelPanel.frame(width: size.size.width * 0.32)
+                    if categoriesOpen {
+                        categoryPanel.frame(width: size.size.width * 0.19)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    }
+                }.padding(.trailing, size.size.width * 0.032).padding(.top, 48).padding(.bottom, 36)
+                    .disabled(pending != nil || managing)
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                .overlay {
+                    if managing {
+                        TVIPTVCategoryManager(source: index.sourceID, categories: index.categories) {
+                            managing = false; focus = "manage"
+                        }.background(TVIPTVStyle.panel.ignoresSafeArea())
+                    } else if let group = pending {
+                        TVIPTVPinPad(creating: false, submit: { pin in
+                            guard access.matches(pin), !access.rules(index.sourceID).hidden.contains(group) else { return false }
+                            pending = nil; visit = group; choose(.group(group)); return true
+                        }, cancel: { pending = nil; openCategories() })
+                    }
                 }
+        }.environment(\.layoutDirection, .leftToRight)
+            .onExitCommand(perform: pending == nil && !managing ? back : nil)
+            .onChange(of: query) { _, value in if value.count > 200 { query = String(value.prefix(200)) } }
+            .onChange(of: focus) { _, value in
+                if !categoriesOpen, restoreID == nil, let value, value.hasPrefix("channel.") { lastID = String(value.dropFirst(8)) }
             }
-            .frame(height: geometry.size.height * 0.82)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing).padding(.horizontal, 48)
-        }
-        .environment(\.layoutDirection, .leftToRight)
-        .onChange(of: query) { _, value in if value.count > 200 { query = String(value.prefix(200)) } }
-        .onChange(of: focus) { _, value in if let value, value.hasPrefix("channel.") { lastFocused = String(value.dropFirst(8)) } }
-        .onExitCommand { if categoriesOpen { restoreChannels() } else { selected() } }
-        .onDisappear { focusTask?.cancel() }
-        .task(id: session.catalogRevision) {
-            let channels = session.channels, source = session.sourceID
-            let values = await Task.detached { IPTVNavigation.categories(channels, sourceID: source) }.value
-            guard !Task.isCancelled else { return }; categories = values
-        }
+            .onChange(of: index.rules) { _, _ in
+                visit = nil; section = .all; query = ""; results = []; focusRequest += 1
+            }
     }
     private var channelPanel: some View {
-        VStack(spacing: 24) {
-            HStack {
-                Text("القنوات").font(.system(size: 44, weight: .bold)).accessibilityIdentifier("tv.iptv.guide"); Spacer()
-                Button("إغلاق", action: selected).font(.system(size: 26)).accessibilityIdentifier("tv.iptv.guide.close")
-            }
-            TextField("ابحث عن قناة", text: $query).font(.system(size: 26)).focused($focus, equals: "search")
-                .textInputAutocapitalization(.never).autocorrectionDisabled().accessibilityIdentifier("tv.iptv.guide.search")
-                .submitLabel(.search)
-                .onSubmit {
-                    // Release the field first; the native keyboard otherwise restores its old focus on dismissal.
-                    focus = nil
-                    returnToChannels(after: .milliseconds(450))
+        VStack(spacing: 12) {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("القنوات").font(.system(size: 36, weight: .bold)).accessibilityIdentifier("tv.iptv.guide")
+                    Text("\(rows.count) قناة").font(.system(size: 22)).foregroundStyle(.secondary)
                 }
-                .onMoveCommand { if $0 == .down { restoreChannels() } }
+                Spacer()
+                icon("البحث", "magnifyingglass", "search") {
+                    if searchOrigin == nil { searchOrigin = section; searchOriginID = lastID }
+                    visit = nil; section = .all; targetGroup = nil; categoriesOpen = false
+                    search = true; focusRequest += 1
+                }
+                icon("إدارة التصنيفات", "ellipsis", "manage") { visit = nil; section = .all; managing = true }
+                icon("المصادر والاشتراكات", "gearshape", "sources", sources)
+            }
+            if search {
+                TextField("ابحث عن قناة", text: $query).font(.system(size: 26))
+                    .focused($focus, equals: "editor").textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("tv.iptv.guide.editor").submitLabel(.search).onSubmit { finishSearch() }
+                HStack {
+                    Button("تم", action: finishSearch).focused($focus, equals: "done")
+                    Button("إلغاء", action: clearSearch)
+                }.font(.system(size: 24))
+            }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 16) {
-                        ForEach(visible) { channel in
+                    LazyVStack(spacing: 7) {
+                        ForEach(rows) { channel in
                             Button {
-                                session.section = section; session.group = section.group
-                                if channel.id != session.channel.id { session.tune(channel) }
-                                selected()
+                                guard access.rules(index.sourceID).allows(channel.group, visit: visit) else { return }
+                                selected(channel, section, visit)
                             } label: {
-                                HStack(spacing: 18) {
-                                    TVIPTVLogo(channel: channel).frame(width: 100, height: 86)
-                                    VStack(alignment: .leading, spacing: 8) {
-                                        Text(channel.name).font(.system(size: 30, weight: .semibold)).lineLimit(2)
-                                        Text(channel.group).font(.system(size: 24)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                                HStack(spacing: 16) {
+                                    TVIPTVLogo(channel: channel).frame(width: 72, height: 64)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(channel.televisionTitle).font(.system(size: 28, weight: .semibold)).lineLimit(1)
+                                        Text(channel.group).font(.system(size: 20)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
                                     }
-                                    Spacer(minLength: 0)
-                                    if channel.id == session.channel.id { Image(systemName: "checkmark").font(.system(size: 26)) }
-                                    Text(String(session.numbers[channel.id] ?? 0)).font(.system(size: 24, design: .monospaced)).foregroundStyle(.white.opacity(0.6))
-                                }.frame(maxWidth: .infinity, minHeight: 96, alignment: .leading).padding(12)
-                            }
-                            .buttonStyle(TVIPTVTrackButtonStyle()).focusEffectDisabled()
-                            .focused($focus, equals: "channel." + channel.id).id(channel.id)
-                            .accessibilityLabel(channel.name).accessibilityIdentifier("tv.iptv.guide.channel." + channel.id)
-                            .onMoveCommand { direction in
-                                if direction == .right { openCategories() }
-                                else if direction == .up && visible.first?.id == channel.id { focus = "search" }
-                            }
+                                    Spacer(minLength: 4)
+                                    if channel.id == session.channel.id { Image(systemName: "waveform").foregroundStyle(.pink) }
+                                    Text(String(index.numbers[channel.id] ?? 0)).font(.system(size: 22).monospacedDigit())
+                                }.padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 86)
+                            }.buttonStyle(TVIPTVGuideButtonStyle()).focusEffectDisabled()
+                                .focused($focus, equals: "channel." + channel.id).id(channel.id)
+                                .accessibilityLabel(channel.televisionTitle).accessibilityIdentifier("tv.iptv.guide.channel." + channel.id)
+                                .onMoveCommand {
+                                    if $0 == .right { openCategories() }
+                                    if $0 == .up && rows.first?.id == channel.id { focus = "search" }
+                                }
                         }
-                        if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.").font(.system(size: 26)).foregroundStyle(.white.opacity(0.65)) }
-                    }.padding(10)
-                }.focusSection()
-                    .task(id: FilterKey(revision: session.catalogRevision, section: section, query: query, favorites: store.channelCollection.favorites)) {
-                        let channels = session.channels, source = session.sourceID, selection = section, text = query, collection = store.channelCollection
-                        if !text.isEmpty { do { try await Task.sleep(for: .milliseconds(150)) } catch { return } }
-                        let result = await Task.detached { collection.channels(channels, sourceID: source, section: selection, query: text) }.value
-                        guard !Task.isCancelled else { return }; visible = result
-                        let id = IPTVNavigation.entry(currentID: lastFocused, in: result)
-                        await Task.yield()
-                        guard !Task.isCancelled else { return }
+                        if rows.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.").font(.caption) }
+                    }
+                }.frame(maxHeight: .infinity).scrollIndicators(.hidden)
+                    .task(id: focusRequest) {
+                        if pending != nil || managing { return }
+                        if categoriesOpen { return }
+                        if search { await Task.yield(); focus = "editor"; return }
+                        let id = IPTVNavigation.entry(currentID: restoreID ?? lastID, in: rows)
                         if let id { proxy.scrollTo(id, anchor: .center) }
-                        guard focus != "search", !categoriesOpen else { return }
-                        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-                        focus = id.map { "channel." + $0 } ?? "categories"
+                        do { try await Task.sleep(for: .milliseconds(reduceMotion ? 80 : 220)) } catch { return }
+                        guard !categoriesOpen, !search, pending == nil, !managing else { return }
+                        focus = id.map { "channel." + $0 } ?? "search"
+                        if let id { lastID = id }; restoreID = nil
                     }
             }
-            Button("التصنيفات  ›", action: openCategories).font(.system(size: 26)).focused($focus, equals: "categories")
-                .accessibilityIdentifier("tv.iptv.guide.categories")
-        }
-        .padding(32).background(TVIPTVStyle.panel.opacity(0.86), in: RoundedRectangle(cornerRadius: 40))
-        .overlay(RoundedRectangle(cornerRadius: 40).stroke(.white.opacity(0.16), lineWidth: 1))
-        .environment(\.layoutDirection, .rightToLeft)
+            HStack {
+                Text("OK للتشغيل").font(.system(size: 22)).foregroundStyle(.secondary)
+                Spacer()
+                Button("التصنيفات  ›", action: openCategories).buttonStyle(TVIPTVGuideButtonStyle())
+                    .focused($focus, equals: "categories").accessibilityIdentifier("tv.iptv.guide.categories")
+            }.font(.system(size: 24)).frame(height: 64)
+        }.environment(\.layoutDirection, .rightToLeft)
+            .task(id: searchKey) {
+                guard !query.isEmpty else { results = []; return }
+                let key = searchKey, text = query, snapshot = index
+                let found = await Task.detached { snapshot.rows(section: .all, visit: nil, favorites: [], query: text) }.value
+                guard !Task.isCancelled, query == text else { return }
+                results = found; resultsKey = key
+                if !search { focusRequest += 1 }
+            }
+    }
+    private var searchKey: SearchKey { SearchKey(query: query, revision: index.revision) }
+    private struct SearchKey: Hashable { let query: String; let revision: UUID }
+    private func icon(_ title: String, _ symbol: String, _ id: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol).font(.system(size: 28)).frame(width: 68, height: 74) }
+            .buttonStyle(TVIPTVGuideButtonStyle()).focusEffectDisabled().focused($focus, equals: id)
+            .accessibilityLabel(title).accessibilityIdentifier("tv.iptv.guide." + id)
     }
     private var categoryPanel: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            Text("التصنيفات").font(.system(size: 42, weight: .bold)).accessibilityIdentifier("tv.iptv.guide.groups")
-            ScrollView {
-                LazyVStack(spacing: 20) {
-                    category("كل القنوات", value: .all, count: session.channels.count)
-                    category("المفضلة", value: .favorites, count: store.channelCollection.favorites.filter { session.numbers[$0] != nil }.count)
-                    ForEach(categories, id: \.name) { category($0.name, value: .group($0.name), count: $0.count) }
-                }.padding(10)
-            }.focusSection()
-            Button("رجوع", action: restoreChannels).font(.system(size: 26))
-        }
-        .padding(32).background(TVIPTVStyle.panel.opacity(0.88), in: RoundedRectangle(cornerRadius: 40))
-        .overlay(RoundedRectangle(cornerRadius: 40).stroke(.white.opacity(0.16), lineWidth: 1))
-        .environment(\.layoutDirection, .rightToLeft)
-    }
-    private func category(_ title: String, value: IPTVChannelSection, count: Int) -> some View {
-        let id: String
-        switch value { case .all: id = "all"; case .favorites: id = "favorites"; case .group(let name): id = name; case .recent: id = "all" }
-        return Button {
-            section = value; query = ""; lastFocused = session.channel.id
-            restoreChannels()
-        } label: {
-            HStack(spacing: 10) {
-                Text(title).font(.system(size: 28)).lineLimit(2).minimumScaleFactor(0.8)
-                Spacer(minLength: 4); Text(String(count)).font(.system(size: 24)).foregroundStyle(.white.opacity(0.65))
-                if section == value { Image(systemName: "checkmark") }
-            }.padding(20).frame(maxWidth: .infinity, minHeight: 76)
-        }.buttonStyle(TVIPTVTrackButtonStyle()).focusEffectDisabled().focused($focus, equals: "group." + id)
-            .accessibilityIdentifier("tv.iptv.guide.group." + id)
+        VStack(alignment: .leading, spacing: 18) {
+            Text("التصنيفات").font(.system(size: 34, weight: .bold)).accessibilityIdentifier("tv.iptv.guide.groups")
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        category(.all, "all", count: index.unrestricted.count)
+                        category(.favorites, "favorites", count: nil)
+                        ForEach(index.categories) { group in
+                            if !index.rules.hidden.contains(group.name) { category(.group(group.name), "named." + group.name, count: group.count) }
+                        }
+                    }
+                }.scrollIndicators(.hidden).task(id: groupFocus) {
+                    let target = groupFocus; proxy.scrollTo(target, anchor: .center)
+                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                    if categoriesOpen && pending == nil { focus = target }
+                }
+            }
+            Button("رجوع إلى القنوات", action: restoreChannels).buttonStyle(TVIPTVGuideButtonStyle(category: true)).font(.caption)
+        }.frame(maxHeight: .infinity).environment(\.layoutDirection, .rightToLeft)
             .onMoveCommand { if $0 == .left { restoreChannels() } }
+    }
+    private func category(_ value: IPTVChannelSection, _ id: String, count: Int?) -> some View {
+        Button {
+            visit = nil
+            if let name = value.group, access.rules(index.sourceID).locked.contains(name) { targetGroup = name; pending = name }
+            else { choose(value) }
+        } label: {
+            HStack(spacing: 8) {
+                if let group = value.group, index.rules.locked.contains(group) { Image(systemName: "lock.fill") }
+                Text(value.title).lineLimit(1)
+                Spacer(minLength: 4)
+                if let count { Text(String(count)).font(.system(size: 21)) }
+            }.padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 78).font(.system(size: 26))
+        }.buttonStyle(TVIPTVGuideButtonStyle(category: true, selected: section == value)).focusEffectDisabled()
+            .focused($focus, equals: "group." + id).id("group." + id)
+            .accessibilityIdentifier("tv.iptv.guide.group." + (value.group ?? id))
+            .onMoveCommand { if $0 == .left { restoreChannels() } }
+    }
+    private func openCategories() {
+        categoryOrigin = lastID
+        targetGroup = pending ?? section.group ?? targetGroup
+        if visit != nil { visit = nil; section = .all }
+        withAnimation(animation) { categoriesOpen = true }; focusRequest += 1
+        if categoriesOpen { focus = groupFocus }
+    }
+    private func choose(_ value: IPTVChannelSection) {
+        section = value; targetGroup = value.group; lastID = ""; query = ""; results = []; searchOrigin = nil; search = false
+        categoryOrigin = nil
+        restoreChannels()
+    }
+    private func restoreChannels() {
+        restoreID = categoryOrigin ?? lastID; categoryOrigin = nil
+        withAnimation(animation) { categoriesOpen = false }; focusRequest += 1
+    }
+    private func finishSearch() { focus = nil; search = false; lastID = ""; restoreID = ""; focusRequest += 1 }
+    private func clearSearch() {
+        let origin = searchOrigin ?? .all
+        searchOrigin = nil; query = ""; results = []; search = false; lastID = searchOriginID
+        if let group = origin.group, index.rules.locked.contains(group) {
+            targetGroup = group; pending = group; section = .all
+        } else { section = origin; restoreChannels() }
+    }
+    private func back() {
+        if categoriesOpen { restoreChannels() }
+        else if search || searchOrigin != nil { clearSearch() }
+        else { close() }
     }
 }

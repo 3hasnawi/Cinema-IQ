@@ -112,9 +112,9 @@ struct MediaOption: Identifiable, Hashable {
     private static let arabicWindows = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
         CFStringEncoding(CFStringEncodings.windowsArabic.rawValue)))
 
-    init(enginePreference: PlaybackEnginePreference = .shared) {
+    init(enginePreference: PlaybackEnginePreference = .shared, automaticEngine: Bool = false) {
         self.enginePreference = enginePreference
-        mode = enginePreference.mode(in: .standard)
+        mode = automaticEngine ? .automatic : enginePreference.mode(in: .standard)
         player.appliesMediaSelectionCriteriaAutomatically = false
 #if DEBUG
         let args = ProcessInfo.processInfo.arguments
