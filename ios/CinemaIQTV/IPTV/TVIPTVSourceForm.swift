@@ -15,6 +15,10 @@ struct TVIPTVSourceForm: View {
     @State private var allowHTTP = false
     @State private var message: String?
     @State private var submitting = false
+    @StateObject private var remoteFocus = TVIPTVRemoteFieldFocus()
+    @Namespace private var formScope
+    @Environment(\.resetFocus) private var resetFocus
+    @State private var preferred = "m3u"
     @State private var focusTransition: Task<Void, Never>?
     @State private var submission: Task<Void, Never>?
     @FocusState private var focus: String?
@@ -24,9 +28,11 @@ struct TVIPTVSourceForm: View {
                 Section("طريقة الإضافة") {
                     HStack(spacing: 28) {
                         Button { kind = .playlist } label: { Label("M3U", systemImage: kind == .playlist ? "checkmark.circle.fill" : "link") }
-                            .focused($focus, equals: "m3u").accessibilityIdentifier("tv.iptv.form.m3u")
+                            .focused($focus, equals: "m3u")
+                        .prefersDefaultFocus(preferred == "m3u", in: formScope).accessibilityIdentifier("tv.iptv.form.m3u")
                         Button { kind = .xtream } label: { Label("Xtream", systemImage: kind == .xtream ? "checkmark.circle.fill" : "person.crop.rectangle") }
-                            .focused($focus, equals: "xtream").accessibilityIdentifier("tv.iptv.form.xtream")
+                            .focused($focus, equals: "xtream")
+                        .prefersDefaultFocus(preferred == "xtream", in: formScope).accessibilityIdentifier("tv.iptv.form.xtream")
                     }.buttonStyle(.bordered)
                 }
                 Section {
@@ -34,21 +40,29 @@ struct TVIPTVSourceForm: View {
                         .submitLabel(.next).onSubmit { advance(to: "address") }.accessibilityIdentifier("tv.iptv.form.name")
                     TextField(kind == .playlist ? "رابط قائمة M3U" : "عنوان خادم Xtream", text: $address)
                         .textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .focused($focus, equals: "address").submitLabel(kind == .xtream ? .next : .done)
+                        .focused($focus, equals: "address")
+                        .prefersDefaultFocus(preferred == "address", in: formScope)
+                        .background(TVIPTVFieldAnchor(id: "address", registry: remoteFocus)).submitLabel(kind == .xtream ? .next : .done)
                         .onSubmit { advance(to: kind == .xtream ? "username" : "allowHTTP") }
                         .privacySensitive().accessibilityIdentifier("tv.iptv.form.address")
                     if kind == .xtream {
                         TextField("اسم المستخدم", text: $username).textContentType(.username)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .focused($focus, equals: "username").submitLabel(.next).onSubmit { advance(to: "password") }
+                            .focused($focus, equals: "username")
+                        .prefersDefaultFocus(preferred == "username", in: formScope)
+                        .background(TVIPTVFieldAnchor(id: "username", registry: remoteFocus)).submitLabel(.next).onSubmit { advance(to: "password") }
                             .privacySensitive().accessibilityIdentifier("tv.iptv.form.username")
                         SecureField("كلمة المرور", text: $password).textContentType(.password)
-                            .focused($focus, equals: "password").submitLabel(.done).onSubmit { advance(to: "output") }
+                            .focused($focus, equals: "password")
+                        .prefersDefaultFocus(preferred == "password", in: formScope)
+                        .background(TVIPTVFieldAnchor(id: "password", registry: remoteFocus)).submitLabel(.done).onSubmit { advance(to: "output") }
                             .accessibilityIdentifier("tv.iptv.form.password")
                         Picker("صيغة البث", selection: $output) {
                             Text("HLS (m3u8) — مفضّل").tag(IPTVSource.Output.hls)
                             Text("MPEG-TS (ts)").tag(IPTVSource.Output.transportStream)
                         }.focused($focus, equals: "output")
+                        .prefersDefaultFocus(preferred == "output", in: formScope)
+                        .background(TVIPTVFieldAnchor(id: "output", registry: remoteFocus))
                     }
                 } header: { Text("بيانات المصدر") } footer: {
                     Text(kind == .playlist ? "أدخل رابط القائمة من مزوّدك. يمكنك استخدام لوحة مفاتيح Apple TV أو الكتابة من iPhone عند ظهور إشعار لوحة المفاتيح."
@@ -56,7 +70,9 @@ struct TVIPTVSourceForm: View {
                 }
                 Section {
                     Toggle("السماح باتصال HTTP لهذا المصدر", isOn: $allowHTTP)
-                        .focused($focus, equals: "allowHTTP").accessibilityIdentifier("tv.iptv.form.allowHTTP")
+                        .focused($focus, equals: "allowHTTP")
+                        .prefersDefaultFocus(preferred == "allowHTTP", in: formScope)
+                        .background(TVIPTVFieldAnchor(id: "allowHTTP", registry: remoteFocus)).accessibilityIdentifier("tv.iptv.form.allowHTTP")
                 } footer: {
                     Text("فعّل الخيار إذا كان رابط القائمة أو بعض قنواتها يستخدم HTTP. الاتصال غير مشفّر وقد تمر بيانات الاشتراك دون تشفير؛ يُفضّل HTTPS.")
                 }
@@ -71,14 +87,15 @@ struct TVIPTVSourceForm: View {
                 } footer: { Text("تحفظ بيانات الاشتراك على Apple TV في Keychain، ولا تُرسل إلى حساب المزامنة.") }
             }
             .buttonStyle(.bordered)
+            .focusScope(formScope)
             .navigationTitle(existing == nil ? "إضافة مصدر IPTV" : "تعديل مصدر IPTV")
         }
-        .defaultFocus($focus, "m3u")
+        .defaultFocus($focus, preferred)
         .onAppear {
             if let existing {
                 name = existing.name; kind = existing.kind; address = existing.address.absoluteString
                 username = existing.username; password = existing.password; output = existing.output; allowHTTP = existing.allowHTTP
-                focus = kind == .xtream ? "xtream" : "m3u"
+                preferred = kind == .xtream ? "xtream" : "m3u"; focus = preferred
             }
         }
         .onDisappear { submission?.cancel(); focusTransition?.cancel() }
@@ -89,10 +106,17 @@ struct TVIPTVSourceForm: View {
         // End this native editing session before transferring remote focus to the next control.
         focusTransition?.cancel()
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        focus = nil
+        preferred = destination; focus = nil
         focusTransition = Task { @MainActor in
             do { try await Task.sleep(for: .milliseconds(450)) } catch { return }
             focus = destination
+            resetFocus(in: formScope)
+            // The system keyboard dismisses asynchronously. Stop once the native focus engine
+            // confirms the target, and cancel when the form leaves the window.
+            for _ in 0..<6 {
+                if remoteFocus.restore(destination) { return }
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            }
         }
     }
     private func connect() {
