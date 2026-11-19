@@ -141,7 +141,7 @@ final class TVIPTVFlowTests: XCTestCase {
         expectFocus(editor)
         // Reopen and submit the native keyboard as well as exercising Back above.
         remote.press(.select)
-        let done = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["done", "Done", "تم", "بحث", "search", "Search"])).firstMatch
+        let done = app.buttons.matching(NSPredicate(format: "label IN %@", ["search", "Search", "بحث", "done", "Done"])).firstMatch
         XCTAssertTrue(done.waitForExistence(timeout: 10))
         shot("guide-native-keyboard-before-done")
         // A newline typed by XCTest is not tvOS's on-screen Done button. Reach that button with the remote.
@@ -346,7 +346,7 @@ final class TVIPTVFlowTests: XCTestCase {
         XCTAssertTrue(element("tv.iptv.form.password").exists)
         let name = element("tv.iptv.form.name")
         focus(name, direction: .down); remote.press(.select); app.typeText("Remote Xtream")
-        let next = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Next", "next", "التالي", "Done", "done", "تم"])).firstMatch
+        let next = app.buttons.matching(NSPredicate(format: "label IN %@", ["Next", "next", "التالي", "Done", "done", "تم"])).firstMatch
         XCTAssertTrue(next.waitForExistence(timeout: 10))
         for _ in 0..<8 { if next.hasFocus { break }; remote.press(.down) }
         XCTAssertTrue(next.hasFocus); remote.press(.select)

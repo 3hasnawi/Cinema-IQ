@@ -146,39 +146,45 @@ struct TVIPTVCategoryManager: View {
     let categories: [IPTVGuideCategory]
     let done: () -> Void
     @State private var selected: String?
+    @State private var anchorGroup: String?
     @State private var pending: TVIPTVCategoryAccess.Change?
     @State private var confirmHide = false
     @State private var error = false
     @FocusState private var focus: String?
     var body: some View {
         ZStack {
-            NavigationStack {
-                List {
-                    if let group = selected {
-                        let rules = access.rules(source)
-                        Button(rules.locked.contains(group) ? "إزالة القفل" : "قفل برمز PIN") {
-                            pending = rules.locked.contains(group) ? .unlock : .lock
-                        }.focused($focus, equals: "lock").accessibilityIdentifier("tv.iptv.manage.lock")
-                        Button(rules.hidden.contains(group) ? "استعادة التصنيف" : "حذف من القائمة") {
-                            if rules.hidden.contains(group) { request(.restore) } else { confirmHide = true }
-                        }.focused($focus, equals: "hide").accessibilityIdentifier("tv.iptv.manage.hide")
-                    } else {
-                        ForEach(categories) { category in
-                            Button {
-                                selected = category.name; focus = "lock"
-                            } label: {
-                                HStack {
-                                    Text(category.name); Spacer()
-                                    if access.rules(source).hidden.contains(category.name) { Image(systemName: "eye.slash") }
-                                    if access.rules(source).locked.contains(category.name) { Image(systemName: "lock.fill") }
+            VStack(alignment: .leading, spacing: 20) {
+                Text(selected ?? "إدارة التصنيفات").font(.title2.bold())
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            if let group = selected {
+                                let rules = access.rules(source)
+                                action(rules.locked.contains(group) ? "إزالة القفل" : "قفل برمز PIN", id: "lock") {
+                                    pending = rules.locked.contains(group) ? .unlock : .lock
                                 }
-                            }.focused($focus, equals: "group." + category.name)
-                                .accessibilityIdentifier("tv.iptv.manage.group." + category.name)
+                                action(rules.hidden.contains(group) ? "استعادة التصنيف" : "حذف من القائمة", id: "hide") {
+                                    if rules.hidden.contains(group) { request(.restore) } else { confirmHide = true }
+                                }
+                            } else {
+                                ForEach(categories) { category in
+                                    action(category.name, id: "group." + category.name,
+                                           symbol: access.rules(source).hidden.contains(category.name) ? "eye.slash" :
+                                               access.rules(source).locked.contains(category.name) ? "lock.fill" : nil) {
+                                        anchorGroup = category.name; selected = category.name
+                                    }
+                                }
+                            }
+                            action("رجوع", id: "back", run: back)
                         }
+                    }.task(id: selected) {
+                        let target = selected == nil ? (anchorGroup ?? categories.first?.name).map { "group." + $0 } ?? "back" : "lock"
+                        proxy.scrollTo(target, anchor: .center)
+                        do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
+                        if pending == nil { focus = target }
                     }
-                    Button("رجوع", action: back)
-                }.navigationTitle(selected ?? "إدارة التصنيفات")
-            }.disabled(pending != nil)
+                }
+            }.padding(60).frame(maxWidth: 900, maxHeight: .infinity).disabled(pending != nil)
             if let pending {
                 TVIPTVPinPad(creating: !access.hasPIN, submit: { apply(pending, pin: $0) }, cancel: { self.pending = nil; focus = "lock" })
             }
@@ -188,6 +194,13 @@ struct TVIPTVCategoryManager: View {
                 Button("حذف من القائمة", role: .destructive) { request(.hide) }; Button("إلغاء", role: .cancel) {}
             }
             .alert("تعذّر حفظ التغيير", isPresented: $error) { Button("موافق") {} }
+    }
+    private func action(_ title: String, id: String, symbol: String? = nil, run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            HStack { Text(title); Spacer(); if let symbol { Image(systemName: symbol) } }
+                .padding(18).frame(maxWidth: .infinity, minHeight: 82)
+        }.buttonStyle(TVIPTVGuideButtonStyle(category: true)).focusEffectDisabled()
+            .focused($focus, equals: id).id(id).accessibilityIdentifier("tv.iptv.manage." + id)
     }
     private func back() {
         if let selected { self.selected = nil; focus = "group." + selected } else { done() }

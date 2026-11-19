@@ -21,6 +21,8 @@ struct TVIPTVLiveGuide: View {
     @State private var searchOriginID = ""
     @State private var results: [IPTVChannel] = []
     @State private var resultsKey: SearchKey?
+    @State private var restoreID: String?
+    @State private var categoryOrigin: String?
     @State private var lastID: String
     @State private var targetGroup: String?
     @State private var focusRequest = 0
@@ -29,6 +31,7 @@ struct TVIPTVLiveGuide: View {
          selected: @escaping (IPTVChannel, IPTVChannelSection, String?) -> Void, close: @escaping () -> Void) {
         self.session = session; self.index = index; self.sources = sources; self.selected = selected; self.close = close
         _lastID = State(initialValue: session.channel.id)
+        _restoreID = State(initialValue: session.channel.id)
         let group = session.section.group
         let locked = group.flatMap { index.rules.locked.contains($0) && !index.rules.hidden.contains($0) ? $0 : nil }
         _section = State(initialValue: locked == nil ? session.section : .all)
@@ -77,7 +80,7 @@ struct TVIPTVLiveGuide: View {
             .onExitCommand(perform: pending == nil && !managing ? back : nil)
             .onChange(of: query) { _, value in if value.count > 200 { query = String(value.prefix(200)) } }
             .onChange(of: focus) { _, value in
-                if let value, value.hasPrefix("channel.") { lastID = String(value.dropFirst(8)) }
+                if !categoriesOpen, restoreID == nil, let value, value.hasPrefix("channel.") { lastID = String(value.dropFirst(8)) }
             }
             .onChange(of: index.rules) { _, _ in
                 visit = nil; section = .all; query = ""; results = []; focusRequest += 1
@@ -141,11 +144,12 @@ struct TVIPTVLiveGuide: View {
                         if pending != nil || managing { return }
                         if categoriesOpen { return }
                         if search { await Task.yield(); focus = "editor"; return }
-                        let id = IPTVNavigation.entry(currentID: lastID, in: rows)
+                        let id = IPTVNavigation.entry(currentID: restoreID ?? lastID, in: rows)
                         if let id { proxy.scrollTo(id, anchor: .center) }
-                        do { try await Task.sleep(for: .milliseconds(90)) } catch { return }
+                        do { try await Task.sleep(for: .milliseconds(reduceMotion ? 80 : 220)) } catch { return }
                         guard !categoriesOpen, !search, pending == nil, !managing else { return }
                         focus = id.map { "channel." + $0 } ?? "search"
+                        if let id { lastID = id }; restoreID = nil
                     }
             }
             HStack {
@@ -211,6 +215,7 @@ struct TVIPTVLiveGuide: View {
             .onMoveCommand { if $0 == .left { restoreChannels() } }
     }
     private func openCategories() {
+        categoryOrigin = lastID
         targetGroup = pending ?? section.group ?? targetGroup
         if visit != nil { visit = nil; section = .all }
         withAnimation(animation) { categoriesOpen = true }; focusRequest += 1
@@ -218,10 +223,14 @@ struct TVIPTVLiveGuide: View {
     }
     private func choose(_ value: IPTVChannelSection) {
         section = value; targetGroup = value.group; lastID = ""; query = ""; results = []; searchOrigin = nil; search = false
+        categoryOrigin = nil
         restoreChannels()
     }
-    private func restoreChannels() { withAnimation(animation) { categoriesOpen = false }; focusRequest += 1 }
-    private func finishSearch() { focus = nil; search = false; lastID = ""; focusRequest += 1 }
+    private func restoreChannels() {
+        restoreID = categoryOrigin ?? lastID; categoryOrigin = nil
+        withAnimation(animation) { categoriesOpen = false }; focusRequest += 1
+    }
+    private func finishSearch() { focus = nil; search = false; lastID = ""; restoreID = ""; focusRequest += 1 }
     private func clearSearch() {
         let origin = searchOrigin ?? .all
         searchOrigin = nil; query = ""; results = []; search = false; lastID = searchOriginID
