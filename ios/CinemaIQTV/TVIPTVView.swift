@@ -1,246 +1,118 @@
 import SwiftUI
 import CinemaCore
 
-/// Live channels, with real remote focus targets and an escape path in every loading/error state.
 struct TVIPTVView: View {
     @EnvironmentObject private var router: TVRouter
     @StateObject private var store = TVIPTVConfiguration.makeStore()
-    @State private var query = ""
-    @State private var group: String?
-    @State private var visible: [IPTVChannel] = []
-    @State private var sheet: Sheet?
+    @StateObject private var access = TVIPTVCategoryAccess()
     @State private var playing: IPTVChannel?
-    @State private var returningFromPlayer = false
-    @State private var lastChannel: String?
-    @State private var autoplayOnEntry = true
-    @State private var modalTransition = false
-    @State private var startInGuide = false
-    @State private var lastControl = "add"
-    @State private var modalSource: String?
-    @State private var modalGroup: String?
-    @State private var modalRevision = UUID()
-    @State private var reloadID = UUID()
-    @State private var forceReload = false
-    @State private var editingSearch = false
-    @State private var focusTask: Task<Void, Never>?
+    @State private var startGroup: String?
+    @State private var modal: Sheet?
+    @State private var manageOnDismiss = false
+    @State private var leaving = false
+    @State private var editing: Editor?
+    @State private var pinGroup: String?
+    @State private var completedLoad: String?
+    @State private var refreshID = 0
     @FocusState private var focus: String?
-    @Namespace private var gridScope
-    @Environment(\.resetFocus) private var resetFocus
-    private enum Sheet: Identifiable {
-        case source(IPTVSource?), sources, groups
-        var id: String { switch self { case .source(let value): return value?.id ?? "add"; case .sources: return "sources"; case .groups: return "groups" } }
-    }
-    private struct FilterKey: Hashable { let revision: UUID; let query: String; let group: String?; let source: String? }
-    private struct StartupKey: Hashable { let source: String?; let revision: UUID; let blocked: Bool; let pending: Bool; let tab: TVTab }
-    private var filterKey: FilterKey { FilterKey(revision: store.catalogRevision, query: query, group: group, source: store.selectedID) }
-    private var initialFocus: String {
-        if let first = visible.first { return "channel." + first.id }
-        return store.storageAvailable ? "add" : "return"
+    private enum Sheet: String, Identifiable { case sources, add, categories; var id: Self { self } }
+    private struct Editor: Identifiable { let source: IPTVSource?; let id = UUID() }
+    private struct IndexKey: Hashable { let id: String?; let catalog: UUID; let rules: UUID; let ready: Bool }
+    private var key: IndexKey { IndexKey(id: store.selectedID, catalog: store.catalogRevision, rules: access.revision, ready: access.loaded && !access.unavailable) }
+    private var guide: IPTVTelevisionGuide? { access.guide.flatMap { $0.sourceID == store.selectedID ? $0 : nil } }
+    private var waiting: some View {
+        VStack(spacing: 26) {
+            Image("TelevisionAntenna").resizable().scaledToFit().frame(width: 90, height: 90)
+            ProgressView().accessibilityLabel("جارٍ فتح التلفزيون")
+        }.accessibilityIdentifier("tv.iptv.loading")
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 30) {
-            header
-            if store.storageLoading {
-                HStack(spacing: 20) { ProgressView(); Text("جارٍ قراءة مصادر IPTV…") }
-            } else if !store.storageAvailable {
-                Text((store.message ?? "تعذّر الوصول إلى البيانات الآمنة.").replacingOccurrences(of: "افتح قفل الجهاز", with: "أعد تشغيل Apple TV"))
-                    .foregroundStyle(.secondary)
-                Button("إعادة المحاولة") { store.readSources() }.accessibilityIdentifier("tv.iptv.storage.retry")
+        ZStack {
+            TVTheme.ink.ignoresSafeArea()
+            if let pinGroup {
+                TVIPTVPinPad(creating: false, submit: { pin in
+                    guard access.matches(pin), let row = guide?.rows(section: .group(pinGroup), visit: pinGroup, favorites: []).first,
+                          access.rules(row.sourceID).allows(row.group, visit: pinGroup) else { return false }
+                    self.pinGroup = nil; startGroup = pinGroup; playing = row; return true
+                }, cancel: { self.pinGroup = nil; focus = pinGroup })
+            } else if store.storageLoading || !access.loaded || leaving || playing != nil { waiting }
+            else if !store.storageAvailable || access.unavailable {
+                VStack { Text("تعذّر قراءة بيانات التلفزيون المحفوظة"); Button("إعادة المحاولة") { access.load(); store.readSources() } }
             } else if store.sources.isEmpty {
-                VStack(alignment: .leading, spacing: 22) {
-                    Text("قنواتك في مكان واحد").font(.title2.bold())
-                    Text("أضف رابط قائمة M3U أو بيانات اشتراك Xtream لتصفح القنوات وتشغيلها داخل التطبيق.")
-                        .font(.callout).foregroundStyle(TVTheme.muted)
-                }.padding(48).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(TVTheme.panel, in: RoundedRectangle(cornerRadius: 28))
-            } else {
-                controls
-                if store.loading {
-                    HStack(spacing: 20) { ProgressView(); Text("جارٍ تحميل القنوات…") }
-                } else if let message = store.message, store.catalog.channels.isEmpty {
-                    Text(message).foregroundStyle(.secondary).accessibilityIdentifier("tv.iptv.error")
-                    Button("إعادة المحاولة", action: refresh).accessibilityIdentifier("tv.iptv.retry")
-                } else {
-                    Text("\(visible.count) قناة").font(.callout).foregroundStyle(TVTheme.muted)
-                    if visible.isEmpty { Text("لا توجد قنوات تطابق البحث أو التصنيف.").foregroundStyle(.secondary) }
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 32) {
-                            ForEach(visible) { channel in
-                                Button { startInGuide = false; lastChannel = channel.id; playing = channel } label: { card(channel) }
-                                    .buttonStyle(.card)
-                                    .focused($focus, equals: "channel." + channel.id)
-                                    .prefersDefaultFocus(visible.first?.id == channel.id, in: gridScope)
-                                    .accessibilityLabel(channel.name)
-                                    .accessibilityIdentifier("tv.iptv.channel." + channel.id)
-                            }
-                        }.padding(20)
-                    }.focusScope(gridScope).focusSection().accessibilityIdentifier("tv.iptv.channels")
+                VStack(spacing: 28) {
+                    Label("التلفزيون", image: "TelevisionAntenna").font(.title).accessibilityIdentifier("tv.iptv.heading")
+                    Text("أضف رابط M3U أو اشتراك Xtream لفتح القنوات.")
+                    Button("إضافة مصدر") { modal = .add }.focused($focus, equals: "add").accessibilityIdentifier("tv.iptv.add")
+                    Button("العودة إلى الرئيسية") { router.tab = .home }
+                }.defaultFocus($focus, "add").onAppear { focus = "add" }
+            } else if let guide, guide.unrestricted.isEmpty, completedLoad == store.loadKey, !store.loading {
+                ScrollView {
+                    VStack(spacing: 24) {
+                        Text(store.message ?? "لا توجد قنوات متاحة حاليًا").font(.title3)
+                        ForEach(guide.categories.filter { guide.rules.locked.contains($0.name) && !guide.rules.hidden.contains($0.name) }) { group in
+                            Button { pinGroup = group.name } label: { Label(group.name, systemImage: "lock") }.focused($focus, equals: group.name)
+                        }
+                        Button("إدارة التصنيفات") { modal = .categories }
+                        Button("المصادر والاشتراكات") { modal = .sources }
+                        Button("إعادة المحاولة") { refreshID += 1 }
+                    }.padding(44)
                 }
-            }
-            Spacer(minLength: 0)
+            } else { waiting }
         }
-        .padding(.horizontal, 60).padding(.top, 32).padding(.bottom, 24)
-        .background(TVTheme.ink.ignoresSafeArea())
-        .defaultFocus($focus, initialFocus)
-        .task(id: store.loadKey + reloadID.uuidString) {
-            let forced = forceReload; forceReload = false
-            await store.reload(force: forced)
+        .task { access.load() }
+        .task(id: store.loadKey + String(refreshID)) {
+            let key = store.loadKey
+            await store.reload(force: refreshID > 0)
+            if !Task.isCancelled { completedLoad = key }
         }
-        .task(id: StartupKey(source: store.selectedID, revision: store.catalogRevision,
-                            blocked: sheet != nil || modalTransition, pending: autoplayOnEntry, tab: router.tab)) {
-            guard autoplayOnEntry, router.tab == .iptv, sheet == nil, !modalTransition, playing == nil,
-                  let source = store.selectedID else { return }
-            let channels = store.catalog.channels.filter { $0.sourceID == source }
-            guard !channels.isEmpty else { return }
-            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
-            guard !Task.isCancelled, autoplayOnEntry, store.selectedID == source, sheet == nil, !modalTransition, playing == nil else { return }
-            let recent = store.channelCollection.channels(channels, sourceID: source, section: .recent).first
-            autoplayOnEntry = false; startInGuide = false
-            playing = channels.first(where: { $0.id == lastChannel }) ?? recent ?? channels.first
+        .task(id: key) {
+            guard access.loaded, !access.unavailable, let source = store.selectedID else { access.guide = nil; return }
+            let catalog = store.catalog.channels, rules = access.rules(source)
+            let value = await Task.detached(priority: .userInitiated) { IPTVTelevisionGuide(channels: catalog, sourceID: source, rules: rules) }.value
+            guard !Task.isCancelled, store.selectedID == source else { return }
+            access.guide = value
+            enter()
         }
-        .task(id: filterKey) {
-            let channels = store.catalog.channels, selected = group, source = store.selectedID, text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !text.isEmpty { do { try await Task.sleep(for: .milliseconds(200)) } catch { return } }
-            let result = await Task.detached(priority: .userInitiated) {
-                channels.filter { $0.sourceID == source && (selected == nil || $0.group == selected) &&
-                    (text.isEmpty || $0.name.localizedStandardContains(text) || $0.group.localizedStandardContains(text)) }
-            }.value
-            guard !Task.isCancelled else { return }
-            let changed = visible.map(\.id) != result.map(\.id)
-            visible = result
-            // A cache refresh on returning from AVKit must not override the restored channel focus.
-            if changed, !editingSearch, sheet == nil, playing == nil {
-                if returningFromPlayer { restoreAfterPlayer() } else { focusFirstChannel() }
-            }
-        }
-        .onChange(of: store.selectedID) { _, _ in group = nil; query = ""; lastChannel = nil; autoplayOnEntry = true }
-        .onChange(of: router.tab) { _, tab in if tab != .iptv { autoplayOnEntry = true } }
-        .onChange(of: store.storageLoading) { _, loading in if !loading { focus = initialFocus } }
-        .onChange(of: focus) { _, value in
-            if value == "search" { editingSearch = true }
-            else if value != nil { editingSearch = false }
-        }
-        .onAppear { focus = initialFocus }
-        .fullScreenCover(item: $sheet, onDismiss: restoreAfterModal) { item in
+        .onChange(of: router.tab) { _, tab in if tab == .iptv { leaving = false; enter() } }
+        .onAppear { leaving = false; enter() }
+        .onExitCommand(perform: modal == nil && playing == nil && pinGroup == nil ? { router.tab = .home } : nil)
+        .fullScreenCover(item: $modal, onDismiss: { enter(); if store.sources.isEmpty { focus = "add" } }) { sheet in
             Group {
-                switch item {
-                case .source(let source): TVIPTVSourceForm(existing: source).environmentObject(store)
-                case .sources: TVIPTVSourcesView(edit: { sheet = .source($0) }).environmentObject(store)
-                case .groups: TVIPTVGroupView(groups: store.catalog.groups, selection: $group)
+                switch sheet {
+                case .add: TVIPTVSourceForm(existing: nil)
+                case .categories:
+                    if let guide { TVIPTVCategoryManager(source: guide.sourceID, categories: guide.categories) { modal = nil } }
+                case .sources:
+                    TVIPTVSourcesView(edit: { editing = Editor(source: $0) })
+                        .fullScreenCover(item: $editing) { editor in TVIPTVSourceForm(existing: editor.source).environmentObject(store) }
                 }
-            }
-            .environment(\.layoutDirection, .rightToLeft)
+            }.environmentObject(store).environmentObject(access).environment(\.layoutDirection, .rightToLeft)
         }
-        .fullScreenCover(item: $playing, onDismiss: restoreAfterPlayer) { channel in
-            TVIPTVPlayerView(initial: channel, group: group, startInGuide: startInGuide) { value, selectedGroup in
-                autoplayOnEntry = false; lastChannel = value.id; returningFromPlayer = true; group = selectedGroup; query = ""
-            }.environmentObject(store).environment(\.layoutDirection, .rightToLeft)
-        }
-        .onDisappear { focusTask?.cancel(); if router.tab != .iptv { autoplayOnEntry = true } }
-        // Let native keyboards, modal lists and AVKit consume Menu before this page's Home fallback.
-        .onExitCommand(perform: sheet == nil && playing == nil ? { router.tab = .home } : nil)
-    }
-    private var header: some View {
-        HStack(spacing: 24) {
-            Label("التلفزيون", image: "TelevisionAntenna").font(.system(size: 48, weight: .bold))
-                .accessibilityIdentifier("tv.iptv.heading")
-            Spacer()
-            Button { present(.source(nil), from: "add") } label: { Label("إضافة مصدر", systemImage: "plus") }
-                .disabled(!store.storageAvailable).focused($focus, equals: "add").accessibilityIdentifier("tv.iptv.add")
-            Button { router.tab = .home } label: { Image(systemName: "house") }
-                .focused($focus, equals: "return").accessibilityLabel("العودة إلى الرئيسية").accessibilityIdentifier("tv.iptv.return")
-        }.buttonBorderShape(.capsule).focusSection()
-    }
-    private var controls: some View {
-        HStack(spacing: 24) {
-            Button { present(.sources, from: "source") } label: { Label(store.selected?.name ?? "المصادر", systemImage: "slider.horizontal.3") }
-                .focused($focus, equals: "source").accessibilityIdentifier("tv.iptv.sources")
-            Button { present(.groups, from: "group") } label: { Label(group ?? "كل القنوات", systemImage: "line.3.horizontal.decrease") }
-                .disabled(store.loading).focused($focus, equals: "group").accessibilityIdentifier("tv.iptv.groups")
-            TextField("ابحث عن قناة", text: $query).textInputAutocapitalization(.never).autocorrectionDisabled()
-                .focused($focus, equals: "search").accessibilityIdentifier("tv.iptv.search")
-                .onSubmit { editingSearch = false; focus = initialFocus }
-            Button(action: refresh) { Image(systemName: "arrow.clockwise") }
-                .disabled(store.loading).focused($focus, equals: "refresh").accessibilityLabel("تحديث القنوات").accessibilityIdentifier("tv.iptv.refresh")
-        }
-        .onMoveCommand { if $0 == .down, let first = visible.first { focus = "channel." + first.id } }
-        .focusSection()
-    }
-    private func card(_ channel: IPTVChannel) -> some View {
-        HStack(spacing: 22) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 18).fill(TVTheme.raised)
-                Image(systemName: "tv").font(.system(size: 40)).foregroundStyle(.secondary)
-                if let logo = channel.logo { AsyncImage(url: logo) { if let image = $0.image { image.resizable().scaledToFit() } } }
-            }.frame(width: 96, height: 86).clipped().accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 12) {
-                Text(channel.name).font(.system(size: 25, weight: .semibold)).lineLimit(2)
-                Text(channel.group).font(.system(size: 20)).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(24).frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
-        .background(TVTheme.panel, in: RoundedRectangle(cornerRadius: 24))
-    }
-    private func present(_ item: Sheet, from control: String) {
-        lastControl = control; modalSource = store.selectedID; modalGroup = group; modalRevision = store.sourceRevision
-        modalTransition = true; sheet = item
-    }
-    private func restoreAfterModal() {
-        modalTransition = false
-        let changed = modalSource != store.selectedID || modalGroup != group || modalRevision != store.sourceRevision
-        if changed { focusFirstChannel() }
-        else { focus = lastControl }
-    }
-    private func focusFirstChannel() {
-        focusTask?.cancel()
-        focusTask = Task { @MainActor in
-            // Allow native modal focus restoration/layout to finish before selecting the new grid.
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard sheet == nil, playing == nil, !editingSearch else { return }
-            focus = initialFocus
-            if !visible.isEmpty { resetFocus(in: gridScope) }
+        .fullScreenCover(item: $playing, onDismiss: {
+            if manageOnDismiss { manageOnDismiss = false; modal = .sources }
+            else if leaving { router.tab = .home }
+            else { enter() }
+        }) { channel in
+            TVIPTVPlayerView(initial: channel, group: startGroup, onSources: { manageOnDismiss = true },
+                             onClose: { leaving = true })
+                .environmentObject(store).environmentObject(access)
         }
     }
-    private func restoreAfterPlayer() {
-        focusTask?.cancel()
-        focusTask = Task { @MainActor in
-            do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
-            guard sheet == nil, playing == nil else { return }
-            if let lastChannel, visible.contains(where: { $0.id == lastChannel }) { focus = "channel." + lastChannel; returningFromPlayer = false }
-            else { focus = initialFocus }
-        }
-    }
-    private func refresh() { forceReload = true; reloadID = UUID() }
-}
-
-private struct TVIPTVGroupView: View {
-    let groups: [String]
-    @Binding var selection: String?
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var focus: String?
-    var body: some View {
-        NavigationStack {
-            List {
-                Button { selection = nil; dismiss() } label: { row("كل القنوات", selected: selection == nil) }
-                    .focused($focus, equals: "all").accessibilityIdentifier("tv.iptv.group.all")
-                ForEach(groups, id: \.self) { group in
-                    Button { selection = group; dismiss() } label: { row(group, selected: selection == group) }
-                        .focused($focus, equals: group).accessibilityIdentifier("tv.iptv.group." + group)
-                }
-                Button("إغلاق") { dismiss() }
-            }.buttonStyle(.bordered).navigationTitle("تصنيفات القنوات")
-        }.defaultFocus($focus, selection ?? "all").onExitCommand { dismiss() }
-    }
-    private func row(_ text: String, selected: Bool) -> some View {
-        HStack { Text(text); Spacer(); if selected { Image(systemName: "checkmark") } }
+    private func enter() {
+        guard router.tab == .iptv, !leaving, !manageOnDismiss, playing == nil, modal == nil, pinGroup == nil,
+              let guide, guide.rules == access.rules(guide.sourceID), !guide.unrestricted.isEmpty else { return }
+        let recent = store.channelCollection.recent
+        let wanted = Set(recent)
+        let matches = Dictionary(uniqueKeysWithValues: guide.unrestricted.filter { wanted.contains($0.id) }.map { ($0.id, $0) })
+        startGroup = nil
+        playing = recent.lazy.compactMap { matches[$0] }.first ?? guide.unrestricted.first
     }
 }
 
 private struct TVIPTVSourcesView: View {
     @EnvironmentObject private var store: IPTVStore
     @Environment(\.dismiss) private var dismiss
-    let edit: (IPTVSource) -> Void
+    let edit: (IPTVSource?) -> Void
     @State private var deleting: IPTVSource?
     @FocusState private var focus: String?
     var body: some View {
@@ -258,6 +130,7 @@ private struct TVIPTVSourcesView: View {
                         }.buttonStyle(.bordered)
                     }
                 }
+                Button("إضافة مصدر") { edit(nil) }.accessibilityIdentifier("tv.iptv.add")
                 if let message = store.message { Text(message).foregroundStyle(.secondary) }
                 Button("إغلاق") { dismiss() }
             }.buttonStyle(.bordered).navigationTitle("مصادر IPTV")
