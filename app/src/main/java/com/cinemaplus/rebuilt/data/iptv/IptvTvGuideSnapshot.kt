@@ -25,7 +25,8 @@ internal class IptvTvGuideCatalog private constructor(
 ) {
     internal fun group(name: String): IptvTvGuidePage = groups[name] ?: IptvTvGuidePage.Empty
 
-    fun snapshot(collection: IptvChannelCollection): IptvTvGuideSnapshot = IptvTvGuideSnapshot(this, collection)
+    fun snapshot(collection: IptvChannelCollection, previous: IptvTvGuideSnapshot? = null): IptvTvGuideSnapshot =
+        IptvTvGuideSnapshot(this, collection, previous)
 
     companion object {
         fun build(
@@ -50,14 +51,15 @@ internal class IptvTvGuideCatalog private constructor(
 
 /** Collection changes reuse the catalogue's All/Group pages and prepared search fields. */
 internal class IptvTvGuideSnapshot internal constructor(
-    private val catalog: IptvTvGuideCatalog, collection: IptvChannelCollection
+    private val catalog: IptvTvGuideCatalog, collection: IptvChannelCollection, previous: IptvTvGuideSnapshot? = null
 ) {
-    private val favorites = collection.favorites.toHashSet().let { ids ->
-        if (ids.isEmpty()) IptvTvGuidePage.Empty else IptvTvGuidePage.of(catalog.all.rows.filter { it.id in ids })
-    }
-    private val recent = collection.recent.toList().distinct().let { ids ->
-        IptvTvGuidePage.of(ids.mapNotNull { catalog.byId[it] })
-    }
+    private val favoriteKeys: Set<String> = Collections.unmodifiableSet(HashSet(collection.favorites))
+    private val recentKeys: List<String> = Collections.unmodifiableList(ArrayList(collection.recent))
+    private val favorites: IptvTvGuidePage = previous?.takeIf { it.catalog === catalog && it.favoriteKeys == favoriteKeys }?.favorites
+        ?: if (favoriteKeys.isEmpty()) IptvTvGuidePage.Empty
+        else IptvTvGuidePage.of(catalog.all.rows.filter { it.id in favoriteKeys })
+    private val recent: IptvTvGuidePage = previous?.takeIf { it.catalog === catalog && it.recentKeys == recentKeys }?.recent
+        ?: IptvTvGuidePage.of(recentKeys.distinct().mapNotNull { catalog.byId[it] })
 
     fun page(section: IptvChannelSection): IptvTvGuidePage = when (section) {
         IptvChannelSection.All -> catalog.all

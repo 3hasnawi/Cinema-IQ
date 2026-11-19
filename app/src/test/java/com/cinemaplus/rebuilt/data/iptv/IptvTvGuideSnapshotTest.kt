@@ -121,6 +121,60 @@ class IptvTvGuideSnapshotTest {
         } catch (_: UnsupportedOperationException) { }
     }
 
+    @Test fun collectionOnlyUpdatesReuseUnchangedFavoriteAndRecentPagesIndependently() {
+        val value = catalog(listOf(channel("A"), channel("B")))
+        val first = value.snapshot(IptvChannelCollection(setOf("A"), listOf("A")))
+        val recentChanged = value.snapshot(IptvChannelCollection(setOf("A"), listOf("B", "A")), first)
+        assertSame(first.page(IptvChannelSection.Favorites), recentChanged.page(IptvChannelSection.Favorites))
+        assertNotSame(first.page(IptvChannelSection.Recent), recentChanged.page(IptvChannelSection.Recent))
+        assertEquals(listOf("B", "A"), ids(recentChanged.page(IptvChannelSection.Recent)))
+
+        val favoriteChanged = value.snapshot(IptvChannelCollection(setOf("B"), listOf("B", "A")), recentChanged)
+        assertSame(recentChanged.page(IptvChannelSection.Recent), favoriteChanged.page(IptvChannelSection.Recent))
+        assertNotSame(recentChanged.page(IptvChannelSection.Favorites), favoriteChanged.page(IptvChannelSection.Favorites))
+        assertEquals(listOf("B"), ids(favoriteChanged.page(IptvChannelSection.Favorites)))
+        assertSame(favoriteChanged.page(IptvChannelSection.Favorites),
+            favoriteChanged.search(IptvChannelSection.Favorites, " "))
+    }
+
+    @Test fun previousSnapshotKeysAreCopiedBeforeMutableCollectionsChange() {
+        val value = catalog(listOf(channel("A"), channel("B")))
+        val favoriteKeys = mutableSetOf("A")
+        val recentKeys = mutableListOf("A")
+        val collection = IptvChannelCollection(favoriteKeys, recentKeys)
+        val first = value.snapshot(collection)
+        favoriteKeys.clear(); favoriteKeys.add("B")
+        val next = value.snapshot(collection, first)
+        assertEquals(listOf("A"), ids(first.page(IptvChannelSection.Favorites)))
+        assertEquals(listOf("B"), ids(next.page(IptvChannelSection.Favorites)))
+        assertSame(first.page(IptvChannelSection.Recent), next.page(IptvChannelSection.Recent))
+        recentKeys.clear(); recentKeys.add("B")
+        val last = value.snapshot(collection, next)
+        assertEquals(listOf("A"), ids(first.page(IptvChannelSection.Recent)))
+        assertEquals(listOf("B"), ids(last.page(IptvChannelSection.Recent)))
+        assertSame(next.page(IptvChannelSection.Favorites), last.page(IptvChannelSection.Favorites))
+    }
+
+    @Test fun previousPagesCannotCrossCatalogueIdentityOrReintroduceRevokedAuthorization() {
+        val open = channel("open")
+        val protected = channel("protected", "Protected", "Protected")
+        val values = listOf(open, protected)
+        val collection = IptvChannelCollection(setOf("open", "protected"), listOf("protected", "open"))
+        val admitted = catalog(values).snapshot(collection)
+        val equivalentNewCatalog = catalog(values).snapshot(collection, admitted)
+        assertNotSame(admitted.page(IptvChannelSection.Favorites), equivalentNewCatalog.page(IptvChannelSection.Favorites))
+        assertNotSame(admitted.page(IptvChannelSection.Recent), equivalentNewCatalog.page(IptvChannelSection.Recent))
+        assertEquals(listOf("protected", "open"), ids(equivalentNewCatalog.page(IptvChannelSection.Recent)))
+
+        val revoked = catalog(listOf(open)).snapshot(collection, admitted)
+        assertNotSame(admitted.page(IptvChannelSection.Favorites), revoked.page(IptvChannelSection.Favorites))
+        assertNotSame(admitted.page(IptvChannelSection.Recent), revoked.page(IptvChannelSection.Recent))
+        assertEquals(listOf("open"), ids(revoked.page(IptvChannelSection.Favorites)))
+        assertEquals(listOf("open"), ids(revoked.page(IptvChannelSection.Recent)))
+        assertTrue(revoked.search(IptvChannelSection.Favorites, "Protected").rows.isEmpty())
+        assertTrue(revoked.search(IptvChannelSection.Recent, "Protected").rows.isEmpty())
+    }
+
     @Test fun revokedAuthorizedProjectionCannotBeRecreatedFromFavoritesRecentOrCanonicalNumbers() {
         val open = channel("open")
         val protected = channel("protected", "Protected", "Protected")

@@ -107,14 +107,17 @@ import kotlinx.coroutines.*
     }
     val guideCatalog = preparedCatalog?.takeIf { it.first === guideCatalogInput }?.second
     val guideSnapshotInput = remember(guideCatalog, collection) { Any() }
-    var preparedSnapshot by remember { mutableStateOf<Pair<Any, IptvTvGuideSnapshot>?>(null) }
+    var preparedSnapshot by remember { mutableStateOf<Pair<IptvTvGuideCatalog, IptvTvGuideSnapshot>?>(null) }
     LaunchedEffect(guideSnapshotInput, television) {
         val catalog = guideCatalog ?: return@LaunchedEffect
         if (!television) return@LaunchedEffect
-        val snapshot = withContext(Dispatchers.Default) { catalog.snapshot(collection) }
-        preparedSnapshot = guideSnapshotInput to snapshot
+        val previous = preparedSnapshot?.takeIf { it.first === catalog }?.second
+        val snapshot = withContext(Dispatchers.Default) { catalog.snapshot(collection, previous) }
+        preparedSnapshot = catalog to snapshot
     }
-    val guideSnapshot = preparedSnapshot?.takeIf { it.first === guideSnapshotInput }?.second
+    // A recent/favorite update can keep current-catalog rows mounted while collection pages refresh.
+    // A revoked authorization projection still rejects that snapshot immediately.
+    val guideSnapshot = preparedSnapshot?.takeIf { it.first === guideCatalog }?.second
     val liveLoadControl = remember(television, allowHttp) { if (television) IptvTvLiveLoadControl() else null }
     val player = remember(allowHttp, television) {
         val factory = DefaultHttpDataSource.Factory().setUserAgent("Cinema-iQ-IPTV/1.0")

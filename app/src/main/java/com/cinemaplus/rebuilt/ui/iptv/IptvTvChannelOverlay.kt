@@ -20,7 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Search
@@ -92,12 +92,13 @@ private inline fun overlayFocusLog(message: () -> String) {
     var beforeSearchSection by remember { mutableStateOf(section) }
     var beforeSearchChannelId by remember { mutableStateOf(current.id) }
     var categoriesOpen by remember { mutableStateOf(false) }
-    // Blank pages are ready before the overlay mounts. Search results are never reused across inputs.
-    val searchInput = remember(preparedGuide, browsingSection, query, admissionPending) { Any() }
+    // Reuse precomputed blank pages. Search results are never reused across different base pages.
+    val basePage = preparedGuide?.page(browsingSection)
+    val searchInput = remember(basePage, query, admissionPending) { Any() }
     var preparedSearch by remember { mutableStateOf<Pair<Any, IptvTvGuidePage>?>(null) }
     val page = when {
         admissionPending || preparedGuide == null -> null
-        query.isBlank() -> preparedGuide.page(browsingSection)
+        query.isBlank() -> basePage
         else -> preparedSearch?.takeIf { it.first === searchInput }?.second
     }
     val visible = page?.rows.orEmpty()
@@ -377,7 +378,7 @@ private inline fun overlayFocusLog(message: () -> String) {
                             }
                             if (!searchMode) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Label("OK تشغيل", 11, Brand.TextSecondary)
-                                OverlayButton("التصنيفات", Modifier.testTag("iptv.tv.categories.open"), icon = Icons.Rounded.ChevronRight) { openCategories() }
+                                OverlayButton("التصنيفات", Modifier.testTag("iptv.tv.categories.open"), icon = Icons.Rounded.ArrowForward) { openCategories() }
                             }
                         }
                     }
