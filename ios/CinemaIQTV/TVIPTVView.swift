@@ -14,6 +14,7 @@ struct TVIPTVView: View {
     @State private var pinGroup: String?
     @State private var completedLoad: String?
     @State private var refreshID = 0
+    @State private var forceRefresh = false
     @FocusState private var focus: String?
     private enum Sheet: String, Identifiable { case sources, add, categories; var id: Self { self } }
     private struct Editor: Identifiable { let source: IPTVSource?; let id = UUID() }
@@ -42,8 +43,11 @@ struct TVIPTVView: View {
                 VStack(spacing: 28) {
                     Label("التلفزيون", image: "TelevisionAntenna").font(.title).accessibilityIdentifier("tv.iptv.heading")
                     Text("أضف رابط M3U أو اشتراك Xtream لفتح القنوات.")
-                    Button("إضافة مصدر") { modal = .add }.focused($focus, equals: "add").accessibilityIdentifier("tv.iptv.add")
-                    Button("العودة إلى الرئيسية") { router.tab = .home }
+                    HStack(spacing: 30) {
+                        Button("إضافة مصدر") { modal = .add }.focused($focus, equals: "add").accessibilityIdentifier("tv.iptv.add")
+                        Button("العودة إلى الرئيسية") { router.tab = .home }.focused($focus, equals: "return")
+                            .accessibilityIdentifier("tv.iptv.return")
+                    }
                 }.defaultFocus($focus, "add").onAppear { focus = "add" }
             } else if let guide, guide.unrestricted.isEmpty, completedLoad == store.loadKey, !store.loading {
                 ScrollView {
@@ -54,7 +58,7 @@ struct TVIPTVView: View {
                         }
                         Button("إدارة التصنيفات") { modal = .categories }
                         Button("المصادر والاشتراكات") { modal = .sources }
-                        Button("إعادة المحاولة") { refreshID += 1 }
+                        Button("إعادة المحاولة") { forceRefresh = true; refreshID += 1 }
                     }.padding(44)
                 }
             } else { waiting }
@@ -62,7 +66,8 @@ struct TVIPTVView: View {
         .task { access.load() }
         .task(id: store.loadKey + String(refreshID)) {
             let key = store.loadKey
-            await store.reload(force: refreshID > 0)
+            let force = forceRefresh; forceRefresh = false
+            await store.reload(force: force)
             if !Task.isCancelled { completedLoad = key }
         }
         .task(id: key) {

@@ -162,6 +162,35 @@ final class TVIPTVFlowTests: XCTestCase {
         remote.press(.menu); expectFocus(guideChannel("قناة الرياضة"))
         remote.press(.menu); expectFocus(player)
     }
+    func testLockedCategoryRequiresFreshPINAfterLeaving() {
+        executionTimeAllowance = 360
+        app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]
+        app.launch(); openIPTV()
+        let player = element("tv.iptv.player.native"), news = guideChannel("قناة الأخبار")
+        expectFocus(player); remote.press(.select); expectFocus(news)
+        remote.press(.up); expectFocus(element("tv.iptv.guide.search"))
+        focus(element("tv.iptv.guide.manage"), direction: .left); remote.press(.select)
+        focus(element("tv.iptv.manage.group.رياضة"), direction: .down); remote.press(.select)
+        focus(element("tv.iptv.manage.lock"), direction: .down); remote.press(.select)
+        let one = element("tv.iptv.pin.1")
+        expectFocus(one)
+        for _ in 0..<8 { remote.press(.select) }
+        expectFocus(element("tv.iptv.manage.group.رياضة"))
+        remote.press(.menu); expectFocus(element("tv.iptv.guide.manage"))
+        XCTAssertFalse(guideChannel("قناة الرياضة").exists)
+        focus(news, direction: .down); remote.press(.right)
+        let group = element("tv.iptv.guide.group.رياضة")
+        focus(group, direction: .down); remote.press(.select); expectFocus(one)
+        for _ in 0..<4 { remote.press(.select) }
+        let sport = guideChannel("قناة الرياضة")
+        expectFocus(sport); remote.press(.select); expectFocus(player)
+        XCTAssertEqual(player.label, "قناة الرياضة")
+        remote.press(.select); expectFocus(one)
+        remote.press(.menu); expectFocus(group)
+        XCTAssertFalse(guideChannel("قناة الرياضة").exists)
+        remote.press(.select); expectFocus(one); shot("category-requires-pin-on-reentry")
+    }
+
     func testFocusedVideoHasNoButtonBackdrop() throws {
         executionTimeAllowance = 360
         app.launchArguments = base + ["--cinema-tv-ui-testing-iptv-reset", "--cinema-tv-ui-testing-iptv-seed"]

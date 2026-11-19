@@ -149,7 +149,7 @@ struct TVIPTVLiveGuide: View {
                     .focused($focus, equals: "categories").accessibilityIdentifier("tv.iptv.guide.categories")
             }.font(.system(size: 24)).frame(height: 64)
         }.environment(\.layoutDirection, .rightToLeft)
-            .task(id: SearchKey(query: query, revision: session.catalogRevision, policy: access.revision)) {
+            .task(id: SearchKey(query: query, revision: index.revision)) {
                 guard !query.isEmpty else { results = []; return }
                 let text = query, snapshot = index
                 let found = await Task.detached { snapshot.rows(section: .all, visit: nil, favorites: [], query: text) }.value
@@ -158,7 +158,7 @@ struct TVIPTVLiveGuide: View {
                 if !search { focusRequest += 1 }
             }
     }
-    private struct SearchKey: Hashable { let query: String; let revision: UUID; let policy: UUID }
+    private struct SearchKey: Hashable { let query: String; let revision: UUID }
     private func icon(_ title: String, _ symbol: String, _ id: String, _ action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: symbol).font(.system(size: 28)).frame(width: 68, height: 74) }
             .buttonStyle(TVIPTVGuideButtonStyle()).focusEffectDisabled().focused($focus, equals: id)

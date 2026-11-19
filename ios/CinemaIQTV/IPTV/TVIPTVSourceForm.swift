@@ -28,20 +28,25 @@ struct TVIPTVSourceForm: View {
                     }.buttonStyle(.bordered)
                 }
                 Section {
-                    TextField("اسم المصدر", text: $name).accessibilityIdentifier("tv.iptv.form.name")
+                    TextField("اسم المصدر", text: $name).focused($focus, equals: "name")
+                        .submitLabel(.next).onSubmit { focus = "address" }.accessibilityIdentifier("tv.iptv.form.name")
                     TextField(kind == .playlist ? "رابط قائمة M3U" : "عنوان خادم Xtream", text: $address)
                         .textContentType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .focused($focus, equals: "address").submitLabel(kind == .xtream ? .next : .done)
+                        .onSubmit { focus = kind == .xtream ? "username" : "allowHTTP" }
                         .privacySensitive().accessibilityIdentifier("tv.iptv.form.address")
                     if kind == .xtream {
                         TextField("اسم المستخدم", text: $username).textContentType(.username)
                             .textInputAutocapitalization(.never).autocorrectionDisabled()
+                            .focused($focus, equals: "username").submitLabel(.next).onSubmit { focus = "password" }
                             .privacySensitive().accessibilityIdentifier("tv.iptv.form.username")
                         SecureField("كلمة المرور", text: $password).textContentType(.password)
+                            .focused($focus, equals: "password").submitLabel(.done).onSubmit { focus = "output" }
                             .accessibilityIdentifier("tv.iptv.form.password")
                         Picker("صيغة البث", selection: $output) {
                             Text("HLS (m3u8) — مفضّل").tag(IPTVSource.Output.hls)
                             Text("MPEG-TS (ts)").tag(IPTVSource.Output.transportStream)
-                        }
+                        }.focused($focus, equals: "output")
                     }
                 } header: { Text("بيانات المصدر") } footer: {
                     Text(kind == .playlist ? "أدخل رابط القائمة من مزوّدك. يمكنك استخدام لوحة مفاتيح Apple TV أو الكتابة من iPhone عند ظهور إشعار لوحة المفاتيح."
@@ -49,7 +54,7 @@ struct TVIPTVSourceForm: View {
                 }
                 Section {
                     Toggle("السماح باتصال HTTP لهذا المصدر", isOn: $allowHTTP)
-                        .accessibilityIdentifier("tv.iptv.form.allowHTTP")
+                        .focused($focus, equals: "allowHTTP").accessibilityIdentifier("tv.iptv.form.allowHTTP")
                 } footer: {
                     Text("فعّل الخيار إذا كان رابط القائمة أو بعض قنواتها يستخدم HTTP. الاتصال غير مشفّر وقد تمر بيانات الاشتراك دون تشفير؛ يُفضّل HTTPS.")
                 }

@@ -19,6 +19,7 @@ public struct IPTVGuideCategory: Identifiable, Sendable {
 /// Prepare once per catalog or rule change, before opening the guide. Stream URLs stay in memory.
 public struct IPTVTelevisionGuide: Sendable {
     public let sourceID: String
+    public let revision = UUID()
     public let unrestricted: [IPTVChannel]
     public let categories: [IPTVGuideCategory]
     public let rules: IPTVGroupRules
