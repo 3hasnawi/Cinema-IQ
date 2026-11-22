@@ -4,6 +4,8 @@ import CinemaCore
 /// Featured titles first (they change by themselves every six seconds), then continue watching, then the
 /// source's shelves.
 struct HomeView: View {
+    let openSettings: () -> Void
+    let openLibrary: () -> Void
     @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
@@ -33,7 +35,13 @@ struct HomeView: View {
                 }
                 if !recent.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
-                        SectionHeader(title: "تابع المشاهدة")
+                        HStack {
+                            Text("متابعة المشاهدة").font(.title3.bold())
+                            Spacer()
+                            Button("مكتبتي", action: openLibrary).font(.subheadline.weight(.semibold))
+                                .frame(minHeight: 44)
+                        }
+                        .padding(.horizontal, layout.sideInset)
                         ScrollView(.horizontal) {
                             LazyHStack(spacing: 12) {
                                 ForEach(recent) { media in
@@ -57,8 +65,33 @@ struct HomeView: View {
         }
         .background(Theme.canvas)
         .accessibilityIdentifier("ios.home")
-        .ignoresSafeArea(edges: .top)
-        // No bar over the featured artwork; the source is chosen in Settings (and in Browse and Search).
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                if layout.isTablet {
+                    Text("الرئيسية").font(.headline)
+                } else {
+                    CinemaWordmark()
+                }
+                Spacer()
+                Button(action: openSettings) {
+                    Group {
+                        if let initial = cloud.activeProfile?.name.first {
+                            Text(String(initial)).font(.headline)
+                        } else {
+                            Image(systemName: "person.crop.circle").font(.title3)
+                        }
+                    }
+                    .frame(width: 44, height: 44)
+                    .glass(in: Circle(), interactive: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("الملف الشخصي والإعدادات")
+                .accessibilityIdentifier("ios.home.profile")
+            }
+            .padding(.horizontal, layout.sideInset)
+            .padding(.vertical, 5)
+            .background(Theme.ink)
+        }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: sourceName) {
             guard loadedSource != sourceName || shelves.isEmpty else { return }
