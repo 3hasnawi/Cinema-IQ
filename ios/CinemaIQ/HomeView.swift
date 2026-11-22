@@ -4,6 +4,7 @@ import CinemaCore
 /// Featured titles first (they change by themselves every six seconds), then continue watching, then the
 /// source's shelves.
 struct HomeView: View {
+    let isActive: Bool
     let openSettings: () -> Void
     let openLibrary: () -> Void
     @Environment(\.contentLayout) private var layout
@@ -31,7 +32,9 @@ struct HomeView: View {
                         .frame(height: loading ? layout.heroHeight : 110)
                         .overlay { if loading { ProgressView() } }
                 } else {
-                    HeroCarousel(items: featured, index: $heroIndex)
+                    HeroCarousel(items: featured, index: $heroIndex, isActive: isActive)
+                        .clipShape(RoundedRectangle(cornerRadius: layout.isTablet ? 20 : 0, style: .continuous))
+                        .padding(.horizontal, layout.isTablet ? layout.sideInset : 0)
                 }
                 if !recent.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
@@ -45,7 +48,7 @@ struct HomeView: View {
                         ScrollView(.horizontal) {
                             LazyHStack(spacing: 12) {
                                 ForEach(recent) { media in
-                                    ContinueCard(media: media, fraction: library.fraction(media),
+                                    ContinueCard(media: media, progress: library.progress[media.id],
                                                  action: { player.play(media) }, remove: { library.remove(media) })
                                 }
                             }
@@ -124,15 +127,18 @@ struct HeroCarousel: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var player: PlayerPresenter
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+    @Environment(\.dynamicTypeSize) private var textSize
     @State private var visible = false
     let items: [Media]
     @Binding var index: Int
+    let isActive: Bool
     private var canRotate: Bool {
 #if DEBUG
         // A pixel/navigation fixture must stay still while XCTest waits for the app to idle.
         if HeroArtwork.fixtureEnabled { return false }
 #endif
-        return visible && phase == .active && !reduceMotion && player.selection == nil && items.count > 1
+        return isActive && visible && phase == .active && !reduceMotion && !voiceOver && player.selection == nil && items.count > 1
     }
     private var rotationKey: String { "\(canRotate)|\(index)|" + items.map(\.id).joined(separator: ",") }
     var body: some View {
@@ -142,7 +148,7 @@ struct HeroCarousel: View {
             }
         }
         .tabViewStyle(.page(indexDisplayMode: .never))
-        .frame(height: layout.heroHeight)
+        .frame(height: textSize.isAccessibilitySize ? max(layout.heroHeight, 410) : layout.heroHeight)
         .accessibilityIdentifier("ios.home.hero")
         .overlay(alignment: .bottom) {
             if items.count > 1 { PageDots(count: items.count, index: index).padding(.bottom, 2) }
@@ -173,54 +179,52 @@ struct HeroPage: View {
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.zoomNamespace) private var zoom
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: .bottomLeading) {
             HeroArtwork(url: heroImage, fallbackURL: TVArtworkSelection.providerFallback(for: media, excluding: heroImage))
             LinearGradient(stops: [
-                .init(color: .clear, location: 0.3),
-                .init(color: Theme.ink.opacity(0.7), location: 0.68),
-                .init(color: Theme.ink, location: 1)
+                .init(color: .clear, location: 0.18),
+                .init(color: .black.opacity(0.45), location: 0.58),
+                .init(color: Theme.ink.opacity(0.96), location: 1)
             ], startPoint: .top, endPoint: .bottom)
-            VStack(spacing: 10) {
-                Text(media.isSeries ? "مسلسل" : "فيلم")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .glass(in: Capsule())
+            .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: 6) {
+                if !media.enTitle.isEmpty && media.title.caseInsensitiveCompare(media.enTitle) != .orderedSame {
+                    Text(media.enTitle.uppercased())
+                        .font(.caption.weight(.semibold)).tracking(1.4)
+                        .foregroundStyle(Theme.accent).lineLimit(1)
+                        .environment(\.layoutDirection, .leftToRight)
+                }
                 Text(media.title)
-                    .font(.largeTitle.bold())
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
+                    .font(.largeTitle.bold()).lineLimit(2)
+                    .minimumScaleFactor(0.8)
                 MetaLine(media: media, imdb: currentOMDb?.imdbRating)
-                // Compact single-line actions: the play button carries the text, the others are icons.
-                HStack(spacing: 12) {
-                    if media.isSeries {
-                        NavigationLink(value: DetailRoute(media: media, key: routeKey)) { playLabel }
-                            .primaryAction()
-                    } else {
-                        Button { player.play(media) } label: { playLabel }
-                            .primaryAction()
-                    }
+                HStack(spacing: 10) {
                     NavigationLink(value: DetailRoute(media: media, key: routeKey)) {
-                        Image(systemName: "info").font(.body.weight(.semibold))
-                            .frame(width: 50, height: 50)
-                            .glass(in: Circle(), interactive: true).contentShape(Circle())
+                        Label("عرض التفاصيل", systemImage: "film")
+                            .font(.subheadline.bold()).foregroundStyle(Theme.ink)
+                            .padding(.horizontal, 16).frame(minHeight: 44)
+                            .background(.white, in: Capsule())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("التفاصيل")
                     .accessibilityIdentifier("ios.home.detail.\(media.id)")
+                    .contextMenu {
+                        if !media.isSeries {
+                            Button { player.play(media) } label: { Label("تشغيل", systemImage: "play.fill") }
+                        }
+                    }
                     Button { library.toggle(media) } label: {
                         Image(systemName: library.isFavorite(media) ? "checkmark" : "plus")
-                            .font(.body.weight(.semibold)).frame(width: 50, height: 50)
+                            .font(.body.weight(.semibold)).frame(width: 44, height: 44)
                             .glass(in: Circle(), interactive: true).contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(library.isFavorite(media) ? "إزالة من قائمتي" : "إضافة إلى قائمتي")
+                    .accessibilityIdentifier("ios.home.favorite.\(media.id)")
                 }
-                .controlSize(.regular)
+                .padding(.top, 4)
             }
-            .frame(maxWidth: layout.readableWidth)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 36)
+            .padding(.horizontal, layout.sideInset)
+            .padding(.bottom, 32)
         }
         .zoomSource(routeKey, in: zoom)
         .task(id: media.id) {
@@ -246,16 +250,6 @@ struct HeroPage: View {
     private var currentOMDb: OMDbInfo? { omdbID == media.id ? omdb : nil }
     private var heroImage: String {
         TVArtworkSelection.url(for: media, tmdb: tmdbID == media.id ? tmdb : nil, fallbackPoster: currentOMDb?.largePoster ?? "")
-    }
-}
-
-private extension HeroPage {
-    var playLabel: some View {
-        Label("شاهد", systemImage: "play.fill")
-            .font(.subheadline.weight(.bold))
-            .lineLimit(1)
-            .fixedSize()
-            .padding(.horizontal, 6)
     }
 }
 

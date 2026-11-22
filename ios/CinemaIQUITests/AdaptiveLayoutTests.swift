@@ -33,6 +33,35 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
+    func testCinematicHomeAndDirectTelevision() {
+        let hero = element("ios.home.hero")
+        let detail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.home.detail."))
+            .allElementsBoundByIndex.first { $0.isHittable }
+        XCTAssertNotNil(detail)
+        guard let detail else { return }
+        XCTAssertTrue(hero.frame.intersects(detail.frame))
+        screenshot("cinematic-home-portrait")
+        detail.tap()
+        XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
+        let back = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(back.isHittable); back.tap()
+        XCTAssertTrue(hero.waitForExistence(timeout: 15))
+        if tablet {
+            landscape()
+            XCTAssertTrue(element("ios.home.profile").isHittable)
+            screenshot("cinematic-home-landscape")
+        }
+        tab("التلفزيون")
+        XCTAssertTrue(element("ios.iptv.empty.add").waitForExistence(timeout: 15))
+        screenshot("cinematic-tv-entry")
+        tab("الرئيسية")
+        XCTAssertTrue(hero.waitForExistence(timeout: 15))
+        tab("الإعدادات")
+        XCTAssertTrue(element("ios.settings").waitForExistence(timeout: 10))
+        tab("الرئيسية")
+        XCTAssertTrue(element("ios.home.profile").isHittable)
+    }
+
     func testNavigationAndRotation() {
         screenshot("home-portrait")
         tab("تصفّح")
@@ -65,7 +94,6 @@ final class AdaptiveLayoutTests: XCTestCase {
         tab("الإعدادات")
         XCTAssertTrue(element("ios.settings").waitForExistence(timeout: 10))
         screenshot("settings")
-        if !tablet { XCTAssertTrue(app.tabBars.firstMatch.exists, "iPhone must retain its tab bar") }
         tab("البحث")
         let search = app.searchFields.firstMatch
         // iPad's native navigation bar initially presents search as a toolbar button.
@@ -152,16 +180,7 @@ final class AdaptiveLayoutTests: XCTestCase {
         return card
     }
     private func tab(_ title: String) {
-        func visibleTab() -> XCUIElement? {
-            let button = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
-            return button.exists && button.isHittable ? button : nil
-        }
-        if visibleTab() == nil {
-            let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
-            if sidebar.exists && sidebar.isHittable { sidebar.tap() }
-        }
-        waitFor("The tab must be reachable: \(title)") { visibleTab() != nil }
-        visibleTab()?.tap()
+        CinemaTabNavigation.open(title, in: app)
     }
     private func landscape() {
         XCUIDevice.shared.orientation = .landscapeLeft

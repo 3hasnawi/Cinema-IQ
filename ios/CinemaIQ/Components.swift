@@ -161,29 +161,33 @@ struct ProgressBar: View {
 struct ContinueCard: View {
     @Environment(\.contentLayout) private var layout
     let media: Media
-    let fraction: Double
+    let progress: WatchProgress?
     let action: () -> Void
     let remove: () -> Void
+    private var remainingMinutes: Int? {
+        guard let progress, progress.duration.isFinite, progress.seconds.isFinite,
+              progress.seconds >= 0, progress.duration > progress.seconds else { return nil }
+        return Int(exactly: ceil((progress.duration - progress.seconds) / 60))
+    }
     var body: some View {
         Button(action: action) {
-            ArtworkTile(url: media.backdrop.isEmpty ? media.poster : media.backdrop, aspect: 16.0 / 9.0, corner: 18)
-                .overlay {
-                    LinearGradient(colors: [.clear, .black.opacity(0.85)], startPoint: .center, endPoint: .bottom)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
-                .overlay(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(media.title).font(.subheadline.bold()).lineLimit(1)
-                        if media.episode > 0 {
-                            Text("الموسم \(media.season) • الحلقة \(media.episode)")
-                                .font(.caption).foregroundStyle(.white.opacity(0.7))
+            VStack(alignment: .leading, spacing: 5) {
+                ArtworkTile(url: media.backdrop.isEmpty ? media.poster : media.backdrop, aspect: 16.0 / 9.0, corner: 12)
+                    .overlay(alignment: .bottom) {
+                        if let progress, progress.duration > 0 {
+                            ProgressBar(fraction: progress.seconds / progress.duration).padding(6)
                         }
-                        ProgressBar(fraction: fraction).padding(.top, 6)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                Text(media.title).font(.subheadline.bold()).lineLimit(1)
+                if media.episode > 0 {
+                    Text("الموسم \(media.season) · الحلقة \(media.episode)")
+                        .font(.caption).foregroundStyle(Theme.muted)
                 }
-                .frame(width: layout.continueWidth)
+                if let remainingMinutes {
+                    Text("متبقٍ \(remainingMinutes) د").font(.caption).foregroundStyle(Theme.muted)
+                }
+            }
+            .frame(width: layout.continueWidth, alignment: .leading)
         }
         .buttonStyle(.plain)
         .contextMenu {

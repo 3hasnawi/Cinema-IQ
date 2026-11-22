@@ -18,7 +18,7 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $tab) {
             Tab("الرئيسية", systemImage: "house.fill", value: AppTab.home) {
-                RoutedStack { HomeView(openSettings: { showingSettings = true }, openLibrary: { tab = .library }) }
+                RoutedStack { HomeView(isActive: tab == .home && !showingSettings, openSettings: { showingSettings = true }, openLibrary: { tab = .library }) }
             }
             Tab("تصفّح", systemImage: "square.grid.2x2.fill", value: AppTab.browse) {
                 RoutedStack { BrowseView() }
