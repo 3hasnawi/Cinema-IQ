@@ -6,7 +6,11 @@ object IptvLivePlaybackPolicy {
     const val MAX_BUFFER_MS = 30_000
     const val START_BUFFER_MS = 750
     const val BASE_REBUFFER_MS = 2_000
-    const val TARGET_BUFFER_BYTES = 32 * 1024 * 1024
+    private const val MIB = 1024 * 1024
+
+    // Reserve more compressed media for UHD while leaving most of the heap to the app and decoder.
+    fun targetBufferBytes(heapBytes: Long): Int =
+        (heapBytes / 8).coerceIn(8L * MIB, 96L * MIB).toInt()
 
     fun rebufferMs(disruptions: Int): Int = when {
         disruptions <= 0 -> BASE_REBUFFER_MS
