@@ -23,6 +23,7 @@ import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -245,7 +246,7 @@ private fun HomeFeaturedSurface(vm: CinemaViewModel, featured: List<Film>, index
     firstRowTitle: String?, onFocused: (Boolean) -> Unit, onOpen: (Film) -> Unit) {
     val hero = featured.getOrNull(index.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork) ?: return
     Box(Modifier.fillMaxWidth().height(height)) {
-        HomeHeroArtwork(hero, Modifier.matchParentSize())
+        HomeHeroArtwork(hero, Modifier.fillMaxWidth().height(height))
         HomeHero(hero, featured.size, index.intValue, height, firstRowTitle,
             Modifier.focusRequester(focus).onFocusChanged { onFocused(it.isFocused) }
                 .onPreviewKeyEvent { event ->
@@ -286,8 +287,8 @@ private fun HomeHeroArtwork(film: Film?, modifier: Modifier) {
     val context = LocalContext.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(modifier) {
-        Crossfade(targetState = film?.heroArt().orEmpty(), animationSpec = tween(600), label = "Hero artwork") { url ->
-            if (url.isNotBlank()) HeroArt(heroRequest(context, url)) else Box(Modifier.fillMaxSize().background(Brand.Raised))
+        Crossfade(targetState = film?.heroArt().orEmpty(), modifier = Modifier.fillMaxSize(), animationSpec = tween(600), label = "Hero artwork") { url ->
+            if (url.isNotBlank()) HeroArt(remember(context, url) { heroRequest(context, url) }) else Box(Modifier.fillMaxSize().background(Brand.Raised))
         }
         Box(Modifier.fillMaxSize().drawWithCache {
             val bg = Brand.Background
@@ -358,8 +359,9 @@ private fun featuredFilms(shelves: List<Shelf>): List<Film> {
 @Composable
 private fun HeroArt(request: ImageRequest) {
     var ratio by remember(request) { mutableFloatStateOf(0f) }
-    val framed = ratio in 0.1f..1.55f
-    Box(Modifier.fillMaxSize().then(if (framed) Modifier.background(Ink) else Modifier)) {
+    val framed = ratio in 0.1f..1.05f
+    Box(Modifier.fillMaxSize().then(if (ratio > 0) Modifier.testTag("tv.hero.artwork") else Modifier)
+        .then(if (framed) Modifier.background(Ink) else Modifier)) {
         // The dimmed side fill only needs the small, already cached decode.
         if (framed) AsyncImage(request, null, Modifier.fillMaxSize().graphicsLayer { alpha = .30f }, contentScale = ContentScale.Crop)
         // A poster is shown at the full screen height, so it is decoded at a larger size than a wide backdrop.
@@ -382,8 +384,8 @@ fun HeroBackdrop(film: Film?, modifier: Modifier = Modifier, sideScrim: Boolean 
     val context = LocalContext.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     Box(modifier) {
-        Crossfade(targetState = film?.heroArt().orEmpty(), animationSpec = tween(600), label = "Hero artwork") { url ->
-            if (url.isNotBlank()) HeroArt(heroRequest(context, url))
+        Crossfade(targetState = film?.heroArt().orEmpty(), modifier = Modifier.fillMaxSize(), animationSpec = tween(600), label = "Hero artwork") { url ->
+            if (url.isNotBlank()) HeroArt(remember(context, url) { heroRequest(context, url) })
         }
         // One cached draw pass for both scrims: a shade on the text side and a fade into the page below.
         Box(Modifier.fillMaxSize().drawWithCache {

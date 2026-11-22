@@ -760,7 +760,7 @@ private fun PlayPauseButton(playing: Boolean, enabled: Boolean, modifier: Modifi
 private fun QualityBadge(text: String, enabled: Boolean, modifier: Modifier, onPlaced: (IntRect) -> Unit, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(8.mx)
-    Box(modifier.onGloballyPositioned { onPlaced(it.windowRect()) }.height(40.mx)
+    Box(modifier.onGloballyPositioned { onPlaced(it.windowRect()) }.height(64.mx)
         .graphicsLayer { alpha = if(enabled) 1f else .5f }
         .background(if(focused) Color.White else Color.Transparent, shape)
         .border(1.dp, if(focused) Color.White else Color.White.copy(alpha = .2f), shape)
@@ -768,7 +768,7 @@ private fun QualityBadge(text: String, enabled: Boolean, modifier: Modifier, onP
         .clickable(remember { MutableInteractionSource() }, null, enabled = enabled, onClick = onClick)
         .semantics { contentDescription = "الجودة والسرعة" }
         .padding(horizontal = 14.mx), contentAlignment = Alignment.Center) {
-        Label(text, 10, if(focused) Brand.OnPrimary else Color.White, true, lines = 1)
+        Label(if (text == "الجودة") text else "الجودة · $text", 12, if(focused) Brand.OnPrimary else Color.White, true, lines = 1)
     }
 }
 
