@@ -10,7 +10,7 @@ final class AdaptiveLayoutTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player"]
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-static-carousel"]
         addUIInterruptionMonitor(withDescription: "System permission") { alert in
             for title in ["Allow", "OK", "السماح", "موافق"] where alert.buttons[title].exists {
                 alert.buttons[title].tap(); return true
@@ -35,16 +35,16 @@ final class AdaptiveLayoutTests: XCTestCase {
 
     func testCinematicHomeAndDirectTelevision() {
         let hero = element("ios.home.hero")
-        let detail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.home.detail."))
-            .allElementsBoundByIndex.first { $0.isHittable }
-        XCTAssertNotNil(detail)
-        guard let detail else { return }
+        let detail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.home.detail.")).firstMatch
+        waitFor("The visible featured title must open with a single tap") { detail.exists && detail.isHittable }
         XCTAssertTrue(hero.frame.intersects(detail.frame))
         screenshot("cinematic-home-portrait")
         detail.tap()
         XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
-        let back = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(back.isHittable); back.tap()
+        let back = app.navigationBars.buttons.matching(NSPredicate(
+            format: "identifier == 'Back' OR label IN %@", ["رجوع", "Back", "الرئيسية"])).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        back.tap()
         XCTAssertTrue(hero.waitForExistence(timeout: 15))
         if tablet {
             landscape()

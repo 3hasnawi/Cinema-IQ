@@ -73,6 +73,15 @@ final class PhoneParityTests: XCTestCase {
         waitForKeyboardDismissal()
         shot("account-toolbar-done-dismissed")
 
+        // Remove the synthetic password before leaving the form. Otherwise iCloud Keychain can
+        // offer to save it over the next screen, including over a subsequent test's app launch.
+        revealSetting(password)
+        password.tap()
+        app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "preview-only".count))
+        waitFor("The unsubmitted test credential should be removed") { !login.isEnabled }
+        pressKeyboardButton(["Done", "تم"])
+        waitForKeyboardDismissal()
+
         tab("الرئيسية")
         XCTAssertTrue(element("ios.home.hero").waitForExistence(timeout: 20))
         XCTAssertFalse(app.keyboards.firstMatch.exists)

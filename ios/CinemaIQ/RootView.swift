@@ -16,6 +16,20 @@ struct RootView: View {
     }()
 
     var body: some View {
+        GeometryReader { window in
+            // A portrait or narrow iPad presents its sidebar over the hero. Start those windows
+            // in the native tab bar and reserve the expanded sidebar for a wide column layout.
+            tabs.defaultAdaptableTabBarPlacement(window.size.width >= 1000 && window.size.width > window.size.height ? .sidebar : .tabBar)
+        }
+        .environmentObject(player)
+        .environmentObject(iptv)
+        .sheet(isPresented: $showingSettings) { settings }
+        .fullScreenCover(item: $player.selection) { selection in
+            ResponsiveContainer { PlaybackView(selection: selection).environmentObject(library) }
+        }
+    }
+
+    private var tabs: some View {
         TabView(selection: $tab) {
             Tab("الرئيسية", systemImage: "house.fill", value: AppTab.home) {
                 RoutedStack { HomeView(isActive: tab == .home && !showingSettings, openSettings: { showingSettings = true }, openLibrary: { tab = .library }) }
@@ -34,7 +48,6 @@ struct RootView: View {
             }
         }
         .tabViewStyle(.sidebarAdaptable)
-        .defaultAdaptableTabBarPlacement(.sidebar)
         .tabViewSidebarHeader { CinemaWordmark().padding(.vertical, 8) }
         .tabViewSidebarFooter {
             Button { showingSettings = true } label: {
@@ -44,23 +57,19 @@ struct RootView: View {
             .accessibilityIdentifier("ios.sidebar.settings")
         }
         .minimizingTabBar()
-        .environmentObject(player)
-        .environmentObject(iptv)
-        .sheet(isPresented: $showingSettings) {
-            ResponsiveContainer {
-                NavigationStack {
-                    SettingsView()
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button("إغلاق") { showingSettings = false }
-                                    .accessibilityIdentifier("ios.settings.close")
-                            }
+    }
+
+    private var settings: some View {
+        ResponsiveContainer {
+            NavigationStack {
+                SettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("إغلاق") { showingSettings = false }
+                                .accessibilityIdentifier("ios.settings.close")
                         }
-                }
+                    }
             }
-        }
-        .fullScreenCover(item: $player.selection) { selection in
-            ResponsiveContainer { PlaybackView(selection: selection).environmentObject(library) }
         }
     }
 }

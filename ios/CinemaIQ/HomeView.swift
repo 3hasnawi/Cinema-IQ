@@ -86,6 +86,7 @@ struct HomeView: View {
                     }
                     .frame(width: 44, height: 44)
                     .glass(in: Circle(), interactive: true)
+                    .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("الملف الشخصي والإعدادات")
@@ -136,7 +137,7 @@ struct HeroCarousel: View {
     private var canRotate: Bool {
 #if DEBUG
         // A pixel/navigation fixture must stay still while XCTest waits for the app to idle.
-        if HeroArtwork.fixtureEnabled { return false }
+        if HeroArtwork.fixtureEnabled || ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-static-carousel") { return false }
 #endif
         return isActive && visible && phase == .active && !reduceMotion && !voiceOver && player.selection == nil && items.count > 1
     }
