@@ -3,6 +3,10 @@ package com.cinemaplus.rebuilt.ui
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Context
+import com.cinemaplus.rebuilt.ui.iptv.IptvTvActivity
+import com.cinemaplus.rebuilt.data.iptv.IptvSourceStore
+import com.cinemaplus.rebuilt.data.iptv.IptvSource
+import com.cinemaplus.rebuilt.data.iptv.IptvKind
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.SystemClock
@@ -59,6 +63,8 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             throw AssertionError("Timed out: $name; Media3: ${mediaState()}; visible semantics: ${visibleText()}")
         }
         fun screenshot(name: String) {
+            waitForIdleSync()
+            Thread.sleep(420) // Wait for compositor frames after D-pad focus/overlay transitions.
             val bitmap = uiAutomation.takeScreenshot() ?: return
             File(output, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
@@ -73,24 +79,74 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         try {
             prefs.edit().putBoolean("demo", true).commit()
             val video = File(targetContext.cacheDir, "player-smoke.mp4")
-            context.assets.open("player-smoke.mp4").use { input -> video.outputStream().use { input.copyTo(it) } }
+            val scenic = File(targetContext.filesDir, "tv-capture.mp4")
+            if (scenic.isFile) scenic.copyTo(video, overwrite = true)
+            else context.assets.open("player-smoke.mp4").use { input -> video.outputStream().use { input.copyTo(it) } }
             val subtitleFiles = listOf("player-ar.vtt", "player-en.vtt").map { name ->
                 File(targetContext.cacheDir, name).also { file -> context.assets.open(name).use { input -> file.outputStream().use { input.copyTo(it) } } }
             }
             activity = startActivitySync(android.content.Intent(targetContext, MainActivity::class.java)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             targetActivity = activity
+            if (scenic.isFile) {
+                val pm = targetContext.packageManager
+                val info = pm.getApplicationInfo(targetContext.packageName, 0)
+                runOnMainSync {
+                    val row = android.widget.LinearLayout(activity).apply {
+                        gravity = android.view.Gravity.CENTER
+                        setBackgroundColor(android.graphics.Color.rgb(12, 17, 25))
+                    }
+                    for ((drawable, width, height) in listOf(
+                        Triple(info.loadIcon(pm), 220, 220), Triple(info.loadBanner(pm), 640, 360))) {
+                        val view = android.widget.ImageView(activity).apply { setImageDrawable(drawable) }
+                        row.addView(view, android.widget.LinearLayout.LayoutParams(width,height).apply { setMargins(32,0,32,0) })
+                    }
+                    activity!!.setContentView(row)
+                }
+                waitForIdleSync(); Thread.sleep(500); screenshot("tv-installed-identity")
+            }
             try { runBrowseChecks(activity!!, ::record, ::screenshot) }
             catch (error: Throwable) {
                 browseFailure = error.stackTraceToString()
                 screenshot("browse-failure")
             }
+            if (browseFailure != null) {
+                startActivitySync(android.content.Intent(targetContext, MainActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            }
+            if (scenic.isFile) {
+                val store = IptvSourceStore(targetContext)
+                check(store.read().isEmpty()) { "Live fixture requires an empty emulator" }
+                val source = IptvSource(name = "بث تجريبي", kind = IptvKind.M3U,
+                    address = "http://10.0.2.2:8765/list.m3u", allowHttp = true)
+                store.write(listOf(source))
+                val live = startActivitySync(android.content.Intent(targetContext, IptvTvActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                try {
+                    waitUntil("Television opens the local live channel", 30_000) { visibleText().contains("الوثائقية") }
+                    Thread.sleep(1500)
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+                    waitUntil("OK opens the live channel guide", 10_000) { focusedText().contains("الوثائقية") }
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+                    waitUntil("Guide focus moves independently of tuned channel", 10_000) { focusedText().contains("الطبيعة") }
+                    screenshot("tv-channels-focused")
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+                    waitUntil("Right opens live categories", 10_000) { visibleText().contains("كل القنوات") }
+                    screenshot("tv-categories")
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+                    waitUntil("Left restores prior channel row", 10_000) { focusedText().contains("الطبيعة") }
+                } finally {
+                    runOnMainSync { live.finish() }
+                    store.write(emptyList())
+                    waitForIdleSync()
+                }
+            }
             runOnMainSync {
                 val vm = CinemaViewModel(activity!!.application)
                 playerVm = vm
-                vm.selected = Film("demo-show", "اختبار مشغّل التلفزيون", series = true)
-                vm.playing = Film("demo-smoke-fixture", "حلقة الاختبار", description = "وصف الحلقة لاختبار موضع المعلومات فوق شريط التقدم، مع بقاء الفيديو واضحاً خلفها.",
-                    year = "2026", season = 2, episode = 3, episodeTitle = "رحلة الاختبار", contentQuality = "480p", subtitles = listOf(
+                vm.selected = Film("demo-show", "أطلس الأرض", series = true)
+                vm.playing = Film("demo-smoke-fixture", "حلقة الاختبار", description = "على سفوح الجبال نتتبّع الطريق من الغابة إلى الوادي، حيث تتبدّل ملامح الطبيعة مع الضوء.",
+                    year = "2026", season = 2, episode = 3, episodeTitle = "رحلة إلى الوادي", contentQuality = "480p", subtitles = listOf(
                     Subtitle(android.net.Uri.fromFile(subtitleFiles[0]).toString(), "ar", "العربية"),
                     Subtitle(android.net.Uri.fromFile(subtitleFiles[1]).toString(), "en", "الإنجليزية")))
                 vm.streams = listOf(Stream(android.net.Uri.fromFile(video).toString(), "480p"))
@@ -101,12 +157,12 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             waitUntil("Compose controller is visible", predicate = { visibleText().contains("إيقاف مؤقت") })
             screenshot("player-controls")
             waitUntil("Controller and title auto-hide after inactivity", 10_000) {
-                !visibleText().contains("اختبار مشغّل التلفزيون") && !visibleText().contains("إيقاف مؤقت")
+                !visibleText().contains("أطلس الأرض") && !visibleText().contains("إيقاف مؤقت")
             }
             screenshot("player-hidden")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Hidden Center reveals and pauses exactly once") {
-                val text = visibleText(); text.contains("اختبار مشغّل التلفزيون") && text.contains("تشغيل") && !text.contains("إيقاف مؤقت")
+                val text = visibleText(); text.contains("أطلس الأرض") && text.contains("تشغيل") && !text.contains("إيقاف مؤقت")
             }
             // Wait beyond the timeout; a paused player must retain its controls.
             Thread.sleep(3500)
@@ -114,25 +170,33 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             record("Paused controls remain visible; Select key-up does not toggle again")
             waitUntil("Paused overlay shows season, episode, synopsis and actual metadata") {
                 val text = visibleText()
-                text.contains("الموسم 2 · الحلقة 3") && text.contains("رحلة الاختبار") && text.contains("وصف الحلقة") && text.contains("2026")
+                text.contains("الموسم 2 · الحلقة 3") && text.contains("رحلة إلى الوادي") && text.contains("على سفوح الجبال") && text.contains("2026")
             }
             assertPauseGeometry()
             record("Paused work title is upper right; episode information lower right above transport")
+            waitUntil("Pause puts focus on Play") { focusedText().trim() == "تشغيل" }
             screenshot("player-paused")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Visible focused Play resumes playback", predicate = { visibleText().contains("إيقاف مؤقت") })
-            waitUntil("Paused metadata disappears on resume") { !visibleText().contains("وصف الحلقة") }
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+            waitUntil("Paused metadata disappears on resume") { !visibleText().contains("على سفوح الجبال") }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
             waitUntil("D-pad Up reaches the seek bar", predicate = { focusedText().contains("موضع الفيديو") })
             var seekFrom = 0L
             runOnMainSync { withPlayer { seekFrom = it.currentPosition } }
             val expectedTime = String.format(java.util.Locale.US, "%02d:%02d", (seekFrom + 10_000) / 60_000, (seekFrom + 10_000) / 1000 % 60)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-            waitUntil("Seek preview exposes target time and pauses actual playback", 750) {
+            waitUntil("Seek preview exposes target time and pauses actual playback", 4000) {
                 !mediaIsPlaying() && visibleText().contains(expectedTime)
             }
+            waitUntil("Real frame thumbnails are decoded", 12_000) { visibleText().contains("معاينة المشهد") }
+            Thread.sleep(1200)
+            check(!mediaIsPlaying()) { "An idle preview must not seek or resume" }
             screenshot("player-seek")
+            sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            waitUntil("Back cancels preview without seeking", 5000) { mediaIsPlaying() && !visibleText().contains("الانتقال إلى المشهد") }
+            runOnMainSync { withPlayer { check(it.currentPosition < seekFrom + 9000) } }
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+            waitUntil("Second preview waits for Select") { visibleText().contains("الانتقال إلى المشهد") }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Seek confirmation commits the actual playback position") {
                 var committed = false
@@ -140,7 +204,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
                 committed
             }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
-            focusWithRemote("الترجمة والصوت", KeyEvent.KEYCODE_DPAD_RIGHT)
+            focusWithRemote("الترجمة", KeyEvent.KEYCODE_DPAD_RIGHT)
             record("Remote reaches subtitle/audio button from transport")
             // Hardware media keys must bypass whichever controller item currently owns focus.
             sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
@@ -170,11 +234,18 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             waitUntil("Reopened track panel retains English selection") { visibleText().contains("إيقاف الترجمة") && visibleText().contains("✓") }
             screenshot("player-english-selected")
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-            focusWithRemote("480p", KeyEvent.KEYCODE_DPAD_LEFT)
+            focusWithRemote("الجودة والسرعة", KeyEvent.KEYCODE_DPAD_LEFT)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Quality and speed panel opens from remote") { visibleText().contains("السرعة:") }
             screenshot("player-quality-panel")
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            waitUntil("Back from quality restores focus to the quality pill") {
+                focusedText().contains("الجودة والسرعة") && !visibleText().contains("السرعة:")
+            }
+            screenshot("player-quality-focused")
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+            waitUntil("Right from quality focuses the adjacent subtitle pill") { focusedText().trim() == "الترجمة" }
+            screenshot("player-subtitles-focused")
             runOnMainSync {
                 val vm = playerVm!!
                 vm.playing = vm.playing!!.copy(markers = com.cinemaplus.rebuilt.data.SkipMarkers(introEndMs = 30_000))
@@ -202,7 +273,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             result.putString("stream", "Media3 remote smoke passed: ${checks.length()} checks\n")
             status.putString("stream", result.getString("stream")); sendStatus(0, status)
             File(output, "results.json").writeText(JSONObject().put("passed", browseFailure == null).put("checks", checks)
-                .put("browseError", browseFailure).put("fixture", "Locally generated test pattern; no live service request").toString(2))
+                .put("browseError", browseFailure).put("fixture", "Local test footage; no commercial stream").toString(2))
         } catch(error: Throwable) {
             screenshot("player-failure")
             status.putString("stack", error.stackTraceToString()); sendStatus(-2, status)
@@ -276,9 +347,9 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             fun rect(text: String) = nodes().first { node ->
                 node.config.getOrNull(SemanticsProperties.Text)?.any { it.text.contains(text) } == true
             }.boundsInRoot
-            val title = rect("اختبار مشغّل التلفزيون")
+            val title = rect("أطلس الأرض")
             val info = rect("الموسم 2 · الحلقة 3")
-            val description = rect("وصف الحلقة")
+            val description = rect("على سفوح الجبال")
             val width = targetActivity!!.resources.displayMetrics.widthPixels.toFloat()
             val height = targetActivity!!.resources.displayMetrics.heightPixels.toFloat()
             check(title.right > width * .8f && title.top < height * .2f) { "Title not upper right: $title ($width x $height)" }
@@ -301,8 +372,11 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         fun key(code: Int) { sendKeyDownUpSync(code); Thread.sleep(650) }
         runOnMainSync { vm.changeDemo(true); vm.chooseTrailerPreview(false) }
         waitFor("Offline catalog loaded") { !vm.busy && vm.shelves.isNotEmpty() }
+        val titles = listOf("رحلة إلى النهر", "أضواء المدينة", "أسرار الشمال", "بين العوالم", "النداء الأخير", "ممر الظلال",
+            "ليل الساحل", "آخر الطريق", "يوم في بغداد", "سفينة الرمل", "أفق بعيد", "وادي النجوم", "نقطة الضوء",
+            "بين الجبال", "ظل النخيل", "عند الفجر")
         val cards = (1..16).map { index -> Demo.films[(index - 1) % Demo.films.size]
-            .copy(id = "demo-navigation-$index", title = "عمل الاختبار $index", series = false) }
+            .copy(id = "demo-navigation-$index", title = titles[index - 1], series = false) }
         runOnMainSync {
             vm.shelves = listOf(Shelf("row-a", "صف الاختبار الأول", cards), Shelf("row-b", "صف الاختبار الثاني", cards.reversed()),
                 Shelf("row-c", "صف الاختبار الثالث", cards))
@@ -311,24 +385,29 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             cards.forEach { vm.library.toggle(it) }
             activity.setContent { CinemaApp(vm, television = true) }
         }
-        waitFor("Startup focuses full-screen featured card") { focusedText().contains("عمل الاختبار") }
+        waitFor("Startup focuses full-screen featured card") { titles.any { focusedText().contains(it) } }
         check(!visibleText().contains("شاهد الآن")) { "Old hero action still visible" }
         record("Hero has no Watch now action")
+        waitFor("Featured artwork is decoded and laid out") {
+            var visible = false
+            runOnMainSync { visible = nodes().any { it.config.getOrNull(SemanticsProperties.TestTag) == "tv.hero.artwork" && it.boundsInRoot.width > 100 } }
+            visible
+        }
         screenshot("01-home-fullscreen")
         val hero = focusedText()
         key(KeyEvent.KEYCODE_DPAD_LEFT)
-        waitFor("Left changes featured title") { focusedText().contains("عمل الاختبار") && focusedText() != hero }
+        waitFor("Left changes featured title") { titles.any { focusedText().contains(it) } && focusedText() != hero }
         screenshot("02-home-next-feature")
         key(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Featured OK opens details") { vm.selected != null }
         screenshot("03-details")
         key(KeyEvent.KEYCODE_BACK)
-        waitFor("Back returns to the same featured card") { vm.selected == null && focusedText().contains("عمل الاختبار") }
+        waitFor("Back returns to the same featured card") { vm.selected == null && titles.any { focusedText().contains(it) } }
         key(KeyEvent.KEYCODE_DPAD_DOWN)
-        waitFor("Down enters first continue-watching card") { focusedText().contains("عمل الاختبار 2") }
+        waitFor("Down enters first continue-watching card") { focusedText().contains(titles[1]) }
         screenshot("04-continue-first")
         key(KeyEvent.KEYCODE_DPAD_LEFT)
-        waitFor("Horizontal movement reaches second continue card") { focusedText().contains("عمل الاختبار 1") }
+        waitFor("Horizontal movement reaches second continue card") { focusedText().contains(titles[0]) }
         key(KeyEvent.KEYCODE_DPAD_RIGHT)
         val card = focusedText()
         // From the first card, Right enters the rail; Left must restore that exact shelf/card.
@@ -339,14 +418,14 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         waitFor("Left restores exact previous card from rail") { focusedText() == card }
         screenshot("06-rail-return")
         key(KeyEvent.KEYCODE_DPAD_DOWN)
-        waitFor("Down from a non-first card enters first item of next shelf") { focusedText().contains("عمل الاختبار 1") }
+        waitFor("Down from a non-first card enters first item of next shelf") { focusedText().contains(titles[0]) }
         key(KeyEvent.KEYCODE_DPAD_LEFT)
         key(KeyEvent.KEYCODE_DPAD_LEFT)
         key(KeyEvent.KEYCODE_DPAD_DOWN)
-        waitFor("Next shelf always starts at its first card") { focusedText().contains("عمل الاختبار 16") }
+        waitFor("Next shelf always starts at its first card") { focusedText().contains(titles[15]) }
         screenshot("07-next-shelf-first")
         key(KeyEvent.KEYCODE_DPAD_UP)
-        waitFor("Up also returns to first card of preceding shelf") { focusedText().contains("عمل الاختبار 1") }
+        waitFor("Up also returns to first card of preceding shelf") { focusedText().contains(titles[0]) }
         runOnMainSync { vm.showRecentOptions(cards[1]) }
         waitFor("Recent actions dialog starts on mark watched") { focusedText().contains("تعليم كمشاهَد") }
         Thread.sleep(1100)
@@ -386,19 +465,20 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         key(KeyEvent.KEYCODE_BACK)
         key(KeyEvent.KEYCODE_DPAD_DOWN)
         key(KeyEvent.KEYCODE_DPAD_CENTER)
-        waitFor("My List starts on its first saved card") { vm.page == Page.Library && focusedText().contains("عمل الاختبار 1") }
+        waitFor("My List starts on its first saved card") { vm.page == Page.Library && focusedText().contains(titles[0]) }
         screenshot("12-library-first")
         key(KeyEvent.KEYCODE_DPAD_LEFT)
         key(KeyEvent.KEYCODE_DPAD_LEFT)
         key(KeyEvent.KEYCODE_DPAD_DOWN)
         val libraryNext = focusedText()
-        check(libraryNext.contains("عمل الاختبار") && !libraryNext.contains("عمل الاختبار 3\n")) { "Library did not move to next row: $libraryNext" }
+        check(titles.any { libraryNext.contains(it) } && !libraryNext.contains(titles[2])) { "Library did not move to next row: $libraryNext" }
         record("Library Down enters another grid row")
         screenshot("13-library-next-row")
         key(KeyEvent.KEYCODE_DPAD_UP)
-        waitFor("Library Up resets column to first card") { focusedText().contains("عمل الاختبار 1") }
+        waitFor("Library Up resets column to first card") { focusedText().contains(titles[0]) }
         key(KeyEvent.KEYCODE_BACK)
         key(KeyEvent.KEYCODE_DPAD_DOWN)
+        focusWithRemote("الإعدادات", KeyEvent.KEYCODE_DPAD_DOWN)
         key(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Settings starts on Account") { vm.page == Page.Settings && focusedText().contains("الحساب") }
         screenshot("14-settings-account")
@@ -407,7 +487,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         screenshot("15-account-controls")
         key(KeyEvent.KEYCODE_BACK)
         key(KeyEvent.KEYCODE_BACK)
-        repeat(6) { key(KeyEvent.KEYCODE_DPAD_UP) }
+        focusWithRemote(Page.Search.label, KeyEvent.KEYCODE_DPAD_UP)
         key(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Search starts on its first keyboard key") { vm.page == Page.Search && focusedText().trim() == "ا" }
         screenshot("16-search-first-key")

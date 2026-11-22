@@ -217,7 +217,7 @@ private data class IptvPinRequest(val token: Int, val title: String, val setup: 
             ) { _, _ -> vm.clearUnlocks(); onExit() }
         } else Column(Modifier.fillMaxSize().padding(48.dp).testTag("iptv.tv.landing"),
             verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-            IptvTelevisionIcon(Modifier.size(64.dp), Brand.TextSecondary)
+            IptvSectionIcon(Modifier.size(64.dp), Brand.TextSecondary)
             when (entryState) {
                 IptvTvEntryState.Loading -> {
                     Spacer(Modifier.height(20.dp))

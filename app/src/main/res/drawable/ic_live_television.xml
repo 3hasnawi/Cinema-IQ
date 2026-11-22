@@ -1,0 +1,17 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="32dp"
+    android:height="32dp"
+    android:viewportWidth="32"
+    android:viewportHeight="32">
+    <!-- Antenna, screen and feet -->
+    <path
+        android:pathData="M10,2 L16,8 L22,2 M5.5,8.5 H26.5 Q30,8.5 30,12 V23.5 Q30,27 26.5,27 H5.5 Q2,27 2,23.5 V12 Q2,8.5 5.5,8.5 Z M8,27 L6.5,30 M24,27 L25.5,30"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- LIVE is part of the artwork and stays left-to-right in an Arabic layout. -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M5.5,13.5 H7.5 V20 H10.8 V22 H5.5 Z M12,13.5 H14 V22 H12 Z M15,13.5 H17.1 L18.55,19.1 L20,13.5 H22.1 L19.6,22 H17.5 Z M23,13.5 H28 V15.3 H25 V16.8 H27.6 V18.6 H25 V20.2 H28 V22 H23 Z" />
+</vector>
