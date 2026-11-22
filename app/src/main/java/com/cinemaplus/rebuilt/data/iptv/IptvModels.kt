@@ -5,7 +5,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.security.MessageDigest
 import java.util.UUID
 
-class IptvException(val reason: Reason, val status: Int? = null) : Exception(reason.name) {
+class IptvException(val reason: Reason, val status: Int? = null, val retryAfterMillis: Long = 0) : Exception(reason.name) {
     enum class Reason { InvalidUrl, HttpConsent, Credentials, InvalidServer, InvalidPlaylist, InvalidResponse,
         Inactive, NoChannels, TooLarge, Redirect, Http, Network, Storage, SourceLimit }
     fun arabic(): String = when (reason) {
