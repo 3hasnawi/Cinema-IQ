@@ -239,6 +239,13 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             waitUntil("Quality and speed panel opens from remote") { visibleText().contains("السرعة:") }
             screenshot("player-quality-panel")
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            waitUntil("Back from quality restores focus to the quality pill") {
+                focusedText().contains("الجودة والسرعة") && !visibleText().contains("السرعة:")
+            }
+            screenshot("player-quality-focused")
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+            waitUntil("Right from quality focuses the adjacent subtitle pill") { focusedText().trim() == "الترجمة" }
+            screenshot("player-subtitles-focused")
             runOnMainSync {
                 val vm = playerVm!!
                 vm.playing = vm.playing!!.copy(markers = com.cinemaplus.rebuilt.data.SkipMarkers(introEndMs = 30_000))

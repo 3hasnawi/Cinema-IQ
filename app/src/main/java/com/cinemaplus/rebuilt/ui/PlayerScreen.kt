@@ -512,8 +512,13 @@ fun PlayerScreen(vm: CinemaViewModel) {
                                 onPlaced = { anchors[PlayerPanel.Audio] = it }) { openPanel(PlayerPanel.Audio, audioFocus) }
                             PlayerPill("الترجمة", "CC", modifier = up.focusRequester(subtitlesFocus),
                                 onPlaced = { anchors[PlayerPanel.Subtitles] = it }) { openPanel(PlayerPanel.Subtitles, subtitlesFocus) }
-                            QualityBadge(vm.streams.getOrNull(streamIndex)?.resolution?.takeIf(String::isNotBlank) ?: "الجودة",
-                                enabled = vm.streams.isNotEmpty(), modifier = up.focusRequester(qualityFocus),
+                            val resolution = vm.streams.getOrNull(streamIndex)?.resolution?.takeIf(String::isNotBlank)
+                            PlayerPill(resolution?.let { "الجودة · $it" } ?: "الجودة", "HD",
+                                enabled = vm.streams.isNotEmpty(),
+                                modifier = up.focusRequester(qualityFocus).semantics {
+                                    contentDescription = "الجودة والسرعة"
+                                    if (resolution != null) stateDescription = resolution
+                                },
                                 onPlaced = { anchors[PlayerPanel.Quality] = it }) { openPanel(PlayerPanel.Quality, qualityFocus) }
                         }
                         // Transport in the centre, always left to right.
@@ -706,7 +711,7 @@ private fun PlayerControl(
 /** 64 px pill: glass with white content, white with dark content when focused; primary is white with an accent ring. */
 @Composable
 private fun PlayerPill(text: String, symbol: String, primary: Boolean = false, modifier: Modifier = Modifier,
-    onPlaced: (IntRect) -> Unit = {}, onClick: () -> Unit) {
+    enabled: Boolean = true, onPlaced: (IntRect) -> Unit = {}, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if(focused) 1.04f else 1f, tween(140), label = "Player pill focus")
     val radius = 32.mx
@@ -714,13 +719,13 @@ private fun PlayerPill(text: String, symbol: String, primary: Boolean = false, m
     val light = primary || focused
     val content = if(light) Brand.OnPrimary else Color.White
     Row(modifier.zIndex(if(focused) 1f else 0f).onGloballyPositioned { onPlaced(it.windowRect()) }
-        .graphicsLayer { scaleX = scale; scaleY = scale }
+        .graphicsLayer { scaleX = scale; scaleY = scale; alpha = if (enabled) 1f else .5f }
         .then(if(primary) Modifier.focusRingBehind(focused, radius) else Modifier)
         .height(64.mx)
         .background(if(light) Color.White else Color.White.copy(alpha = .14f), shape)
         .then(if(light) Modifier else Modifier.border(1.dp, Brand.GlassStroke, shape))
         .onFocusChanged { focused = it.isFocused }
-        .clickable(remember { MutableInteractionSource() }, null, onClick = onClick)
+        .clickable(remember { MutableInteractionSource() }, null, enabled = enabled, onClick = onClick)
         .padding(horizontal = 26.mx),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.mx)) {
         PlayerTransportIcon(symbol, content, 26.mx)
@@ -752,23 +757,6 @@ private fun PlayPauseButton(playing: Boolean, enabled: Boolean, modifier: Modifi
         .clickable(remember { MutableInteractionSource() }, null, enabled = enabled, onClick = onClick)
         .semantics { contentDescription = if(playing) "إيقاف مؤقت" else "تشغيل" }, contentAlignment = Alignment.Center) {
         PlayerTransportIcon(if(playing) "Ⅱ" else "▶", if (focused) Brand.Accent else Color.White, 40.mx)
-    }
-}
-
-/** Outlined quality badge; it opens the quality and speed panel, white when focused. */
-@Composable
-private fun QualityBadge(text: String, enabled: Boolean, modifier: Modifier, onPlaced: (IntRect) -> Unit, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(8.mx)
-    Box(modifier.onGloballyPositioned { onPlaced(it.windowRect()) }.height(64.mx)
-        .graphicsLayer { alpha = if(enabled) 1f else .5f }
-        .background(if(focused) Color.White else Color.Transparent, shape)
-        .border(1.dp, if(focused) Color.White else Color.White.copy(alpha = .2f), shape)
-        .onFocusChanged { focused = it.isFocused }
-        .clickable(remember { MutableInteractionSource() }, null, enabled = enabled, onClick = onClick)
-        .semantics { contentDescription = "الجودة والسرعة" }
-        .padding(horizontal = 14.mx), contentAlignment = Alignment.Center) {
-        Label(if (text == "الجودة") text else "الجودة · $text", 12, if(focused) Brand.OnPrimary else Color.White, true, lines = 1)
     }
 }
 
