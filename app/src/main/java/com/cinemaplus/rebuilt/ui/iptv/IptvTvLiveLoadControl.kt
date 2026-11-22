@@ -33,7 +33,7 @@ internal class IptvTvLiveLoadControl(
         if (!delegate.shouldStartPlayback(parameters)) return false
         if (!parameters.rebuffering) return true
         // The memory limit must still release playback for unusually high-bitrate streams.
-        if (delegate.allocator.totalBytesAllocated >= targetBytes) return true
+        if (delegate.getAllocator(parameters.playerId).totalBytesAllocated >= targetBytes) return true
         val buffered = Util.getPlayoutDurationForMediaDuration(parameters.bufferedDurationUs, parameters.playbackSpeed)
         return buffered >= IptvLivePlaybackPolicy.startThresholdUs(true, disruptions.get(), parameters.targetLiveOffsetUs)
     }
