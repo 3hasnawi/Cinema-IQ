@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 
 /** Shared live-TV surfaces stay translucent without blurring the decoder or foreground text. */
 internal object IptvTvGlass {
-    val Focus = Color(0xFFCC4165)
+    val Focus = Color(0xFFFFB645)
     val Hairline = Color.White.copy(alpha = .12f)
     val PanelBrush = Brush.linearGradient(listOf(
         Color(0xFF2B3442).copy(alpha = .24f),
@@ -37,13 +37,13 @@ internal object IptvTvGlass {
         1f to Color(0xFF0B141E).copy(alpha = .97f)
     )
     val GuideRowFocusedBrush = Brush.horizontalGradient(
-        0f to Color(0xFFDC5273).copy(alpha = 0f),
-        .48f to Color(0xFFDC5273).copy(alpha = .18f),
-        1f to Color(0xFFDC5273).copy(alpha = .29f)
+        0f to Focus.copy(alpha = 0f),
+        .48f to Focus.copy(alpha = .18f),
+        1f to Focus.copy(alpha = .29f)
     )
     val GuideCategoryFocusedBrush = Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = .125f)))
     val GuideRowQuietBrush = Brush.horizontalGradient(listOf(Color.Transparent, Color.Transparent))
-    val GuidePlaying = Color(0xFFF1A6B8)
+    val GuidePlaying = Color(0xFFFFDCA1)
 }
 
 @Composable internal fun IptvTvGlassPanel(modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {

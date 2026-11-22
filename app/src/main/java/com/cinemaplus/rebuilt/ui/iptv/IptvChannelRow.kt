@@ -14,6 +14,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil.ImageLoader
@@ -66,11 +67,11 @@ import com.cinemaplus.rebuilt.ui.*
     logos: ImageLoader, modifier: Modifier, click: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     val displayName = remember(channel.name, channel.group) { IptvChannelDisplayName.of(channel) }
-    val shape = RoundedCornerShape(12.dp)
+    val shape = androidx.compose.ui.graphics.RectangleShape
     androidx.tv.material3.Button(onClick = click,
         modifier = modifier.fillMaxWidth().heightIn(min = 56.dp).onFocusChanged { focused = it.isFocused }
         .clip(shape).background(if (focused) IptvTvGlass.GuideRowFocusedBrush else IptvTvGlass.GuideRowQuietBrush)
-        .semantics { contentDescription = displayName },
+        .semantics { contentDescription = displayName; if (playing) stateDescription = "قيد التشغيل" },
         shape = androidx.tv.material3.ButtonDefaults.shape(shape),
         scale = androidx.tv.material3.ButtonDefaults.scale(scale = 1f, focusedScale = 1f, pressedScale = 1f),
         colors = androidx.tv.material3.ButtonDefaults.colors(containerColor = Color.Transparent,
@@ -78,6 +79,7 @@ import com.cinemaplus.rebuilt.ui.*
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
     Row(Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.width(3.dp).height(32.dp).background(if (focused) IptvTvGlass.Focus else Color.Transparent))
         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
             if (channel.logo != null) AsyncImage(model = channel.logo, contentDescription = null, imageLoader = logos,
                 contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
@@ -89,7 +91,11 @@ import com.cinemaplus.rebuilt.ui.*
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Label(number.toString(), 11, if (playing) IptvTvGlass.GuidePlaying else Brand.TextSecondary, lines = 1)
-            if (playing) Label("▶", 10, IptvTvGlass.GuidePlaying, lines = 1)
+            if (playing) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                listOf(5, 12, 8, 14).forEach { height ->
+                    Box(Modifier.size(2.dp, height.dp).background(IptvTvGlass.GuidePlaying))
+                }
+            }
         }
     }
     }

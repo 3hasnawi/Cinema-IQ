@@ -78,7 +78,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 
-private enum class PlayerPanel { Quality, Tracks, SubtitleStyle }
+private enum class PlayerPanel { Quality, Subtitles, Audio, SubtitleStyle }
 private const val OverlayTimeoutMillis = 4_000L
 /** Scrub speed steps (multiples of the 10 second base step). */
 private val ScrubSpeeds = intArrayOf(1, 2, 4, 6)
@@ -96,6 +96,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
     val playFocus = remember { FocusRequester() }
     val seekFocus = remember { FocusRequester() }
     val backFocus = remember { FocusRequester() }
+    val subtitlesFocus = remember { FocusRequester() }
     val audioFocus = remember { FocusRequester() }
     val subtitleStyleFocus = remember { FocusRequester() }
     val nextEpisodeFocus = remember { FocusRequester() }
@@ -137,7 +138,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
     }
     var episodesShown by remember(film.id) { mutableStateOf(false) }
     var seekFocused by remember { mutableStateOf(false) }
-    var scrubTick by remember { mutableIntStateOf(0) }
+    var resumeAfterScrub by remember(film.id) { mutableStateOf(false) }
     var lastScrubAt by remember { mutableLongStateOf(0L) }
     var scrubHeldSince by remember { mutableLongStateOf(0L) }
     var scrubLevel by remember { mutableIntStateOf(0) }
@@ -157,14 +158,14 @@ fun PlayerScreen(vm: CinemaViewModel) {
     }
     /**
      * Apple-style scrubbing. A tap jumps 10s; holding accelerates. Playback pauses while scrubbing and,
-     * once the remote is idle, resumes from the point reached.
+     * the viewer can confirm the position with Select or discard it with Back.
      */
     fun scrub(direction: Int, repeat: Int) {
         if(!player.isCurrentMediaItemSeekable || player.duration <= 0) return
         reveal()
         val now = SystemClock.uptimeMillis()
         val starting = previewPosition == null
-        if(starting) { player.pause(); scrubLevel = 0; scrubDir = direction }
+        if(starting) { resumeAfterScrub = player.playWhenReady; player.pause(); scrubLevel = 0; scrubDir = direction }
         if(direction != scrubDir) { scrubDir = direction; scrubLevel = 0 }
         val base = previewPosition ?: player.currentPosition
         val delta: Long
@@ -182,14 +183,18 @@ fun PlayerScreen(vm: CinemaViewModel) {
         }
         lastScrubAt = now
         previewPosition = (base + direction * delta).coerceIn(0L, player.duration)
-        scrubTick++
+
     }
     fun commitScrub() {
         previewPosition?.let { player.seekTo(it) }
         previewPosition = null
-        player.play(); interact()
+        player.playWhenReady = resumeAfterScrub && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED); interact()
     }
-    fun cancelScrub() { previewPosition = null; player.play() }
+    fun cancelScrub() {
+        previewPosition = null
+        player.playWhenReady = resumeAfterScrub && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+        interact()
+    }
     fun openPanel(value: PlayerPanel, returnFocus: FocusRequester) {
         reveal(); panelReturnFocus = returnFocus; panelAnchor = anchors[value] ?: IntRect.Zero; panel = value
     }
@@ -375,13 +380,12 @@ fun PlayerScreen(vm: CinemaViewModel) {
         // The scrubber takes focus first so Left/Right scrub immediately, as on Apple TV.
         if(!nextEpisodeFocused) {
             // While skip-intro or next-episode shows, it keeps focus when the controls come up.
-            if(controlsVisible) { if(promptShown) runCatching { nextEpisodeFocus.requestFocus() } else seekFocus.requestFocus() }
+            if(controlsVisible) { if(promptShown) runCatching { nextEpisodeFocus.requestFocus() } else if (previewPosition == null && !player.playWhenReady && !ended) playFocus.requestFocus() else seekFocus.requestFocus() }
             else { episodesShown = false; rootFocus.requestFocus() }
         }
     }
-    LaunchedEffect(scrubTick) {
-        // Remote idle for a moment: continue playing from where scrubbing stopped.
-        if(previewPosition != null) { delay(900); commitScrub() }
+    LaunchedEffect(previewPosition != null) {
+        if (previewPosition != null) awaitTvFocus { seekFocus }
     }
     LaunchedEffect(panel) {
         if(panel == null && controlsVisible) { delay(32); panelReturnFocus?.requestFocus() }
@@ -396,6 +400,11 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) {
                     interact(); runCatching { nextEpisodeFocus.requestFocus() }
                 }
+                return@onPreviewKeyEvent true
+            }
+            if (previewPosition != null && native.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_DPAD_DOWN)) return@onPreviewKeyEvent true
+            if (previewPosition != null && native.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER, AndroidKeyEvent.KEYCODE_BUTTON_A)) {
+                if (native.action == AndroidKeyEvent.ACTION_UP) commitScrub()
                 return@onPreviewKeyEvent true
             }
             // Let the focused prompt consume Select even when the main overlay is hidden.
@@ -457,15 +466,15 @@ fun PlayerScreen(vm: CinemaViewModel) {
             Box(Modifier.fillMaxSize().drawBehind {
                 // Extend the lower scrim on pause so the synopsis remains readable over the video.
                 val top = size.height * 260f / 1080f
-                drawRect(Brush.verticalGradient(0f to Color.Black.copy(alpha = .75f), 1f to Color.Transparent, endY = top),
+                drawRect(Brush.verticalGradient(0f to Color.Black.copy(alpha = .34f), 1f to Color.Transparent, endY = top),
                     size = Size(size.width, top))
                 val bottom = size.height * (1f - (if (!playing) 660f else 420f) / 1080f)
-                drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = .9f), startY = bottom, endY = size.height),
+                drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = .81f), startY = bottom, endY = size.height),
                     topLeft = Offset(0f, bottom), size = Size(size.width, size.height - bottom))
             }) {
                 // Keep the work name at the upper right; episode facts belong above the timeline.
                 val work = vm.selected?.takeIf { it.series && isSeries } ?: film
-                Label(mediaTitle(work), 24, Color.White, true,
+                Label(mediaTitle(work), 31, Color.White, true,
                     modifier = Modifier.align(AbsoluteAlignment.TopRight)
                         .absolutePadding(right = 96.mx, top = 54.mx).widthIn(max = 900.mx), lines = 2)
                 if (!playing && !buffering && !ended && playerError == null && duration > 0 &&
@@ -478,27 +487,46 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 PlayerControl("إغلاق", "×", modifier = Modifier.focusRequester(backFocus).focusProperties { down = seekFocus },
                     outer = Modifier.align(Alignment.TopEnd).padding(end = 96.mx, top = 48.mx)) { saveProgress(); vm.stop() }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 96.mx, end = 96.mx, bottom = 72.mx)) {
+                    previewPosition?.let { target ->
+                        TvScenePreview(vm.streams.getOrNull(streamIndex)?.url, target, duration)
+                        Spacer(Modifier.height(18.mx))
+                    }
                     PlayerSeekBar(position = previewPosition ?: position, duration = duration,
                         previewing = previewPosition != null, bufferedPosition = bufferedPosition,
-                        speedLabel = if(previewPosition != null && scrubLevel > 0)
-                            "${if(scrubDir < 0) "ترجيع" else "تقديم"} ×${ScrubSpeeds[scrubLevel]}" else "",
+
                         modifier = Modifier.focusRequester(seekFocus).focusProperties { down = playFocus; up = if(promptShown) nextEpisodeFocus else backFocus },
                         onFocusChange = { seekFocused = it },
                         onSelect = { if(previewPosition != null) commitScrub() else { interact(); togglePlayback() } })
                     Spacer(Modifier.height(28.mx))
                     val up = Modifier.focusProperties { up = seekFocus }
-                    Box(Modifier.fillMaxWidth().height(96.mx).onPreviewKeyEvent { event ->
+                    if (previewPosition == null) Box(Modifier.fillMaxWidth().height(96.mx).onPreviewKeyEvent { event ->
                         // Down from the controls row reveals the episode strip (series only).
                         if(episodes.isNotEmpty() && event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN) {
                             if(event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN) { interact(); episodesShown = true }
                             true
                         } else false
                     }) {
-                        // Start side (right in RTL): subtitles/audio and episodes pills, then subtitle style and the scene filter.
-                        Row(Modifier.align(Alignment.CenterStart), horizontalArrangement = Arrangement.spacedBy(16.mx),
+                        Row(Modifier.align(Alignment.CenterStart), horizontalArrangement = Arrangement.spacedBy(8.mx),
                             verticalAlignment = Alignment.CenterVertically) {
-                            PlayerPill("الترجمة والصوت", "CC", modifier = up.focusRequester(audioFocus),
-                                onPlaced = { anchors[PlayerPanel.Tracks] = it }) { openPanel(PlayerPanel.Tracks, audioFocus) }
+                            PlayerPill("الصوت", "♪", modifier = up.focusRequester(audioFocus),
+                                onPlaced = { anchors[PlayerPanel.Audio] = it }) { openPanel(PlayerPanel.Audio, audioFocus) }
+                            PlayerPill("الترجمة", "CC", modifier = up.focusRequester(subtitlesFocus),
+                                onPlaced = { anchors[PlayerPanel.Subtitles] = it }) { openPanel(PlayerPanel.Subtitles, subtitlesFocus) }
+                            QualityBadge(vm.streams.getOrNull(streamIndex)?.resolution?.takeIf(String::isNotBlank) ?: "الجودة",
+                                enabled = vm.streams.isNotEmpty(), modifier = up.focusRequester(qualityFocus),
+                                onPlaced = { anchors[PlayerPanel.Quality] = it }) { openPanel(PlayerPanel.Quality, qualityFocus) }
+                        }
+                        // Transport in the centre, always left to right.
+                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                            Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(32.mx),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                TransportButton("↶10", "رجوع ١٠ ثوانٍ", up) { interact(); seekBy(-10_000) }
+                                PlayPauseButton(playing, enabled = !ended, modifier = up.focusRequester(playFocus)) { interact(); togglePlayback() }
+                                TransportButton("10↷", "تقديم ١٠ ثوانٍ", up) { interact(); seekBy(10_000) }
+                            }
+                        }
+                        Row(Modifier.align(Alignment.CenterEnd), horizontalArrangement = Arrangement.spacedBy(16.mx),
+                            verticalAlignment = Alignment.CenterVertically) {
                             if(episodes.isNotEmpty()) PlayerPill("الحلقات", "☷", modifier = up) {
                                 interact(); episodesShown = !episodesShown
                             }
@@ -512,22 +540,6 @@ fun PlayerScreen(vm: CinemaViewModel) {
                                 notice = if(vm.sceneFilter) "جارٍ تحليل المشاهد…" else "أُوقفت فلترة المشاهد"
                             }
                         }
-                        // Transport in the centre, always left to right.
-                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                            Row(Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(32.mx),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                TransportButton("↶10", "رجوع ١٠ ثوانٍ", up) { interact(); seekBy(-10_000) }
-                                PlayPauseButton(playing, enabled = !ended, modifier = up.focusRequester(playFocus)) { interact(); togglePlayback() }
-                                TransportButton("10↷", "تقديم ١٠ ثوانٍ", up) { interact(); seekBy(10_000) }
-                            }
-                        }
-                        // End side (left in RTL): the quality badge. Next episode appears above the timeline near the end instead.
-                        Row(Modifier.align(Alignment.CenterEnd), horizontalArrangement = Arrangement.spacedBy(16.mx),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            QualityBadge(vm.streams.getOrNull(streamIndex)?.resolution?.takeIf(String::isNotBlank) ?: "الجودة",
-                                enabled = vm.streams.isNotEmpty(), modifier = up.focusRequester(qualityFocus),
-                                onPlaced = { anchors[PlayerPanel.Quality] = it }) { openPanel(PlayerPanel.Quality, qualityFocus) }
-                        }
                     }
                     AnimatedVisibility(episodesShown && episodes.isNotEmpty(),
                         enter = fadeIn(tween(200)) + expandVertically(tween(220)),
@@ -538,7 +550,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 }
             }
         }
-        if(promptShown && panel == null && !episodesShown) {
+        if(promptShown && panel == null && !episodesShown && previewPosition == null) {
             // Skip-intro / next-episode prompt above the controls on the end side (left in RTL).
             // Right above the timeline on the end side; it takes focus when it appears (see the prompt effect).
             val promptModifier = Modifier.align(Alignment.BottomEnd).padding(end = 96.mx, bottom = 252.mx)
@@ -564,10 +576,10 @@ fun PlayerScreen(vm: CinemaViewModel) {
     }
     panel?.let { shown ->
         PlayerOptionsDialog(title = when(shown) {
-            PlayerPanel.Quality -> "الجودة والسرعة"; PlayerPanel.Tracks -> "الصوت والترجمة"; PlayerPanel.SubtitleStyle -> "مظهر الترجمة"
+            PlayerPanel.Quality -> "الجودة والسرعة"; PlayerPanel.Subtitles -> "الترجمة"; PlayerPanel.Audio -> "الصوت"; PlayerPanel.SubtitleStyle -> "مظهر الترجمة"
         },
             anchor = panelAnchor,
-            width = when(shown) { PlayerPanel.Quality -> 300.mx; PlayerPanel.Tracks -> 400.mx; PlayerPanel.SubtitleStyle -> 420.mx },
+            width = when(shown) { PlayerPanel.Quality -> 300.mx; PlayerPanel.Subtitles, PlayerPanel.Audio -> 360.mx; PlayerPanel.SubtitleStyle -> 420.mx },
             onDismiss = ::closePanel,
             onMediaToggle = { interact(); togglePlayback() }) { firstFocus ->
             when(shown) {
@@ -610,7 +622,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                             modifier = Modifier.background(Color.Black.copy(alpha = vm.subtitleBackground)).padding(horizontal = 16.mx, vertical = 4.mx))
                     }
                 }
-                PlayerPanel.Tracks -> {
+                PlayerPanel.Subtitles -> {
                     Label("الترجمة", 10, Brand.TextMuted, true, modifier = Modifier.padding(start = 20.mx, top = 4.mx))
                     PlayerOption("إيقاف الترجمة", selected = player.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT),
                         modifier = Modifier.focusRequester(firstFocus)) {
@@ -632,7 +644,15 @@ fun PlayerScreen(vm: CinemaViewModel) {
                         }
                     } }
                     if(textGroups.isEmpty()) Label("لا توجد مسارات ترجمة متاحة في هذا الفيديو.", 11, Brand.TextMuted, modifier = Modifier.padding(horizontal = 12.mx))
-                    Label("الصوت", 10, Brand.TextMuted, true, modifier = Modifier.padding(start = 20.mx, top = 14.mx))
+                }
+                PlayerPanel.Audio -> {
+                    PlayerOption("تلقائي", player.trackSelectionParameters.overrides.values.none { it.type == C.TRACK_TYPE_AUDIO },
+                        Modifier.focusRequester(firstFocus)) {
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                            .clearOverridesOfType(C.TRACK_TYPE_AUDIO).setPreferredAudioLanguage(null)
+                            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false).build()
+                        closePanel()
+                    }
                     val audioGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
                     var audioIndex = 0
                     audioGroups.forEach { group -> repeat(group.length) { index ->
@@ -726,12 +746,12 @@ private fun PlayPauseButton(playing: Boolean, enabled: Boolean, modifier: Modifi
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if(focused) 1.04f else 1f, tween(140), label = "Play focus")
     Box(modifier.zIndex(if(focused) 1f else 0f).graphicsLayer { scaleX = scale; scaleY = scale; alpha = if(enabled) 1f else .5f }
-        .focusRingBehind(focused, 48.mx)
-        .size(96.mx).background(Color.White, CircleShape)
+        .size(84.mx).background(if (focused) Brand.Accent.copy(alpha = .16f) else Brand.GlassFill, CircleShape)
+        .border(if (focused) 3.dp else 1.dp, if (focused) Brand.Accent else Brand.GlassStroke, CircleShape)
         .onFocusChanged { focused = it.isFocused }
         .clickable(remember { MutableInteractionSource() }, null, enabled = enabled, onClick = onClick)
         .semantics { contentDescription = if(playing) "إيقاف مؤقت" else "تشغيل" }, contentAlignment = Alignment.Center) {
-        PlayerTransportIcon(if(playing) "Ⅱ" else "▶", Brand.Background, 40.mx)
+        PlayerTransportIcon(if(playing) "Ⅱ" else "▶", if (focused) Brand.Accent else Color.White, 40.mx)
     }
 }
 
@@ -801,7 +821,7 @@ private fun androidx.compose.ui.layout.LayoutCoordinates.windowRect(): IntRect {
  */
 @Composable
 private fun PlayerSeekBar(
-    position: Long, duration: Long, previewing: Boolean, bufferedPosition: Long, speedLabel: String, modifier: Modifier,
+    position: Long, duration: Long, previewing: Boolean, bufferedPosition: Long, modifier: Modifier,
     onFocusChange: (Boolean) -> Unit, onSelect: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -836,28 +856,8 @@ private fun PlayerSeekBar(
                 Box(Modifier.offset(x = maxWidth * fraction - thumb / 2).size(thumb).drawBehind {
                     if(halo > 0f) drawCircle(Color.White.copy(alpha = .25f * halo), radius = size.minDimension / 2 + 6.mx.toPx() * halo)
                 }.background(Color.White, CircleShape))
-                // While scrubbing: the target time over the thumb, and under it the speed in words. The bubble is as
-                // wide as its text and stays inside the bar at both ends, so nothing is cut off.
-                if(previewing) {
-                    val thumbX = maxWidth * fraction
-                    val gap = 18.mx
-                    Box(Modifier.layout { measurable, constraints ->
-                        val bubble = measurable.measure(constraints.copy(minWidth = 0, maxWidth = Constraints.Infinity, minHeight = 0))
-                        val x = (thumbX.roundToPx() - bubble.width / 2).coerceIn(0, (constraints.maxWidth - bubble.width).coerceAtLeast(0))
-                        layout(constraints.maxWidth, 0) { bubble.place(x, -(bubble.height + gap.roundToPx())) }
-                    }) {
-                        Column(Modifier.background(Brand.Raised.copy(alpha = .96f), RoundedCornerShape(14.mx))
-                            .border(2.mx, Color.White.copy(alpha = .9f), RoundedCornerShape(14.mx))
-                            .padding(horizontal = 20.mx, vertical = 8.mx), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Label(formatPlayerTime(position), 15, Color.White, true, lines = 1)
-                            if(speedLabel.isNotBlank()) CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-                                Label(speedLabel, 11, Brand.Accent, true, lines = 1)
-                            }
-                        }
-                    }
-                }
             }
-            Label("-${if(duration > 0) formatPlayerTime((duration - position).coerceAtLeast(0L)) else "—"}", 13, Brand.TextSecondary, lines = 1)
+            Label(if(duration > 0) formatPlayerTime(duration) else "—", 13, Brand.TextSecondary, lines = 1)
         }
     }
 }
@@ -913,7 +913,7 @@ private fun EpisodeThumb(film: Film, current: Boolean, modifier: Modifier, onCli
     }
 }
 
-private fun formatPlayerTime(value: Long): String {
+internal fun formatPlayerTime(value: Long): String {
     val seconds = value.coerceAtLeast(0L) / 1000
     return if(seconds >= 3600) String.format(Locale.US, "%d:%02d:%02d", seconds / 3600, seconds % 3600 / 60, seconds % 60)
     else String.format(Locale.US, "%02d:%02d", seconds / 60, seconds % 60)

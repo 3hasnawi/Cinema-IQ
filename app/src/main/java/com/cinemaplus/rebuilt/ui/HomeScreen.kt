@@ -178,7 +178,7 @@ fun HomeScreen(vm: CinemaViewModel) {
         WithoutFocusScroll {
             Column(Modifier.fillMaxSize().onFocusChanged { if (!it.hasFocus) navigation?.cancel() }.tvRailFocusReturn().verticalScroll(scroll)) {
                 if (featured.isNotEmpty()) HomeFeaturedSurface(vm, featured, heroIndex, screen,
-                    heroFocus, selectPress, rtl,
+                    heroFocus, selectPress, rtl, rows.firstOrNull()?.title,
                     onFocused = { focused ->
                         heroFocused = focused
                         if (focused) lastInput[0] = android.os.SystemClock.uptimeMillis()
@@ -242,11 +242,11 @@ fun HomeScreen(vm: CinemaViewModel) {
 @Composable
 private fun HomeFeaturedSurface(vm: CinemaViewModel, featured: List<Film>, index: MutableIntState,
     height: Dp, focus: FocusRequester, selectPress: TvHomeSelectPress, rtl: Boolean,
-    onFocused: (Boolean) -> Unit, onOpen: (Film) -> Unit) {
+    firstRowTitle: String?, onFocused: (Boolean) -> Unit, onOpen: (Film) -> Unit) {
     val hero = featured.getOrNull(index.intValue.coerceIn(0, (featured.size - 1).coerceAtLeast(0)))?.let(vm::withArtwork) ?: return
     Box(Modifier.fillMaxWidth().height(height)) {
         HomeHeroArtwork(hero, Modifier.matchParentSize())
-        HomeHero(vm, hero, featured.size, index.intValue, height,
+        HomeHero(hero, featured.size, index.intValue, height, firstRowTitle,
             Modifier.focusRequester(focus).onFocusChanged { onFocused(it.isFocused) }
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
@@ -263,7 +263,7 @@ private fun HomeFeaturedSurface(vm: CinemaViewModel, featured: List<Film>, index
                         else -> false
                     }
                 }, onOpen = { onOpen(hero) })
-        Wordmark(Modifier.align(Alignment.TopEnd).padding(top = 48.mx, end = 58.mx))
+        Wordmark(Modifier.align(Alignment.TopStart).padding(top = 48.mx, start = TvMetrics.HomeStart))
     }
 }
 
@@ -294,7 +294,7 @@ private fun HomeHeroArtwork(film: Film?, modifier: Modifier) {
             // From the text edge: solid, 92% at 28%, 35% at 58%, clear from 80%.
             val stops = arrayOf(0f to bg.copy(alpha = .90f), .34f to bg.copy(alpha = .62f), .62f to bg.copy(alpha = .16f), .84f to Color.Transparent, 1f to Color.Transparent)
             val side = Brush.horizontalGradient(*(if (rtl) stops.map { (1f - it.first) to it.second }.reversed().toTypedArray() else stops))
-            val bottom = Brush.verticalGradient(0f to Color.Transparent, .55f to Color.Transparent, .80f to bg.copy(alpha = .75f), 1f to bg)
+            val bottom = Brush.verticalGradient(0f to Color.Transparent, .55f to Color.Transparent, .80f to bg.copy(alpha = .28f), 1f to bg.copy(alpha = .76f))
             onDrawBehind { drawRect(side); drawRect(bottom) }
         })
     }
@@ -303,42 +303,35 @@ private fun HomeHeroArtwork(film: Film?, modifier: Modifier) {
 /** A single focusable featured card: metadata and dots, with OK opening the title instead of action buttons. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun HomeHero(vm: CinemaViewModel, film: Film, count: Int, index: Int,
-    height: Dp, modifier: Modifier, onOpen: () -> Unit) {
-    var about by remember(film.id) { mutableStateOf(film.description) }
-    var quality by remember(film.id) { mutableStateOf(film.contentQuality) }
-    LaunchedEffect(film.id) { if (about.isBlank()) about = runCatching { vm.describe(film) }.getOrDefault("") }
-    LaunchedEffect(film.id) { if (quality.isBlank()) quality = runCatching { vm.bestQuality(film) }.getOrDefault("") }
+private fun HomeHero(film: Film, count: Int, index: Int, height: Dp, firstRowTitle: String?,
+    modifier: Modifier, onOpen: () -> Unit) {
     Box(modifier.fillMaxWidth().height(height).clickable(
         interactionSource = remember { MutableInteractionSource() }, indication = null,
         onClickLabel = "عرض تفاصيل ${mediaTitle(film)}", onClick = onOpen)) {
-        // Anchored low, so the artwork shows clearly above the text.
-        Column(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeStart, bottom = 96.mx).width(820.mx),
-            verticalArrangement = Arrangement.spacedBy(20.mx)) {
-            AccentChip(if (film.series) "مسلسل" else "فيلم")
+        Column(Modifier.align(Alignment.CenterStart).padding(start = TvMetrics.HomeStart).width(840.mx),
+            verticalArrangement = Arrangement.spacedBy(18.mx)) {
             Text(mediaTitle(film), color = Color.White, fontFamily = Cairo, fontWeight = FontWeight.Bold,
-                fontSize = 84.ms, lineHeight = (84 * 1.1).toInt().ms, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(14.mx), verticalArrangement = Arrangement.spacedBy(6.mx),
-                itemVerticalAlignment = Alignment.CenterVertically) {
-                val facts = listOf(film.year, formatContentDuration(film.duration),
-                    film.rating.takeIf { (it.toFloatOrNull() ?: 0f) > 0f }?.let { "★ $it" }.orEmpty()).filter(String::isNotBlank)
-                facts.forEachIndexed { i, fact ->
-                    if (i > 0) Label("•", 13, Brand.BorderStrong)
-                    Label(fact, 13, Brand.TextSecondary, lines = 1)
+                fontSize = 86.ms, lineHeight = 104.ms, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            val facts = listOf(if (film.series) "مسلسل" else "فيلم", film.year, formatContentDuration(film.duration),
+                film.rating.takeIf { (it.toFloatOrNull() ?: 0f) > 0f }?.let { "★ $it" }.orEmpty())
+            Label(facts.filter(String::isNotBlank).joinToString("  ·  "), 15, Brand.TextSecondary, lines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.mx)) {
+                Label("OK", 11, Color.White, true, Modifier.border(1.dp, Brand.TextSecondary,
+                    RoundedCornerShape(8.mx)).padding(horizontal = 10.mx), lines = 1)
+                Label("تفاصيل العمل", 14, Brand.TextSecondary, lines = 1)
+            }
+            if (count > 1) Row(horizontalArrangement = Arrangement.spacedBy(8.mx)) {
+                repeat(count) { dot ->
+                    val on = dot == index
+                    val width by animateDpAsState(if (on) 30.mx else 8.mx, tween(180), label = "Hero dot")
+                    Box(Modifier.size(width, 8.mx).clip(CircleShape).background(if (on) Brand.Accent else Brand.TextMuted))
                 }
-                MetaChip(quality, glass = true)
-                if (film.subtitles.isNotEmpty()) MetaChip("CC", glass = true)
             }
-            if (about.isNotBlank()) Text(about, color = Brand.TextSecondary, fontFamily = Cairo, fontSize = 24.ms,
-                lineHeight = (24 * 1.6).toInt().ms, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 760.mx))
         }
-        if (count > 1) Row(Modifier.align(Alignment.BottomStart).padding(start = TvMetrics.HomeStart, bottom = 30.mx),
-            horizontalArrangement = Arrangement.spacedBy(8.mx)) {
-            repeat(count) { dot ->
-                val on = dot == index
-                val width by animateDpAsState(if (on) 32.mx else 6.mx, tween(200), label = "Hero dot")
-                Box(Modifier.size(width, 6.mx).clip(CircleShape).background(if (on) Color.White else Brand.BorderStrong))
-            }
+        if (!firstRowTitle.isNullOrBlank()) Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 32.mx),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+            Label("⌄", 18, Brand.TextSecondary, lines = 1)
+            Label(firstRowTitle, 12, Brand.TextSecondary, lines = 1)
         }
     }
 }

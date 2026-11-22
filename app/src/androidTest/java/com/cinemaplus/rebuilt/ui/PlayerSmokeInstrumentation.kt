@@ -3,6 +3,10 @@ package com.cinemaplus.rebuilt.ui
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Context
+import com.cinemaplus.rebuilt.ui.iptv.IptvTvActivity
+import com.cinemaplus.rebuilt.data.iptv.IptvSourceStore
+import com.cinemaplus.rebuilt.data.iptv.IptvSource
+import com.cinemaplus.rebuilt.data.iptv.IptvKind
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.os.SystemClock
@@ -73,17 +77,63 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         try {
             prefs.edit().putBoolean("demo", true).commit()
             val video = File(targetContext.cacheDir, "player-smoke.mp4")
-            context.assets.open("player-smoke.mp4").use { input -> video.outputStream().use { input.copyTo(it) } }
+            val scenic = File(targetContext.filesDir, "tv-capture.mp4")
+            if (scenic.isFile) scenic.copyTo(video, overwrite = true)
+            else context.assets.open("player-smoke.mp4").use { input -> video.outputStream().use { input.copyTo(it) } }
             val subtitleFiles = listOf("player-ar.vtt", "player-en.vtt").map { name ->
                 File(targetContext.cacheDir, name).also { file -> context.assets.open(name).use { input -> file.outputStream().use { input.copyTo(it) } } }
             }
             activity = startActivitySync(android.content.Intent(targetContext, MainActivity::class.java)
                 .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
             targetActivity = activity
+            if (scenic.isFile) {
+                val pm = targetContext.packageManager
+                val info = pm.getApplicationInfo(targetContext.packageName, 0)
+                runOnMainSync {
+                    val row = android.widget.LinearLayout(activity).apply {
+                        gravity = android.view.Gravity.CENTER
+                        setBackgroundColor(android.graphics.Color.rgb(12, 17, 25))
+                    }
+                    for ((drawable, width, height) in listOf(
+                        Triple(info.loadIcon(pm), 220, 220), Triple(info.loadBanner(pm), 640, 360))) {
+                        val view = android.widget.ImageView(activity).apply { setImageDrawable(drawable) }
+                        row.addView(view, android.widget.LinearLayout.LayoutParams(width,height).apply { setMargins(32,0,32,0) })
+                    }
+                    activity!!.setContentView(row)
+                }
+                waitForIdleSync(); Thread.sleep(500); screenshot("tv-installed-identity")
+            }
             try { runBrowseChecks(activity!!, ::record, ::screenshot) }
             catch (error: Throwable) {
                 browseFailure = error.stackTraceToString()
                 screenshot("browse-failure")
+            }
+            if (scenic.isFile) {
+                val store = IptvSourceStore(targetContext)
+                check(store.read().isEmpty()) { "Live fixture requires an empty emulator" }
+                val source = IptvSource(name = "بث تجريبي", kind = IptvKind.M3U,
+                    address = "http://10.0.2.2:8765/list.m3u", allowHttp = true)
+                store.write(listOf(source))
+                val live = startActivitySync(android.content.Intent(targetContext, IptvTvActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                try {
+                    waitUntil("Television opens the local live channel", 30_000) { visibleText().contains("الوثائقية") }
+                    Thread.sleep(1500)
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
+                    waitUntil("OK opens the live channel guide", 10_000) { focusedText().contains("الوثائقية") }
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
+                    waitUntil("Guide focus moves independently of tuned channel", 10_000) { focusedText().contains("الطبيعة") }
+                    screenshot("tv-channels-focused")
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+                    waitUntil("Right opens live categories", 10_000) { visibleText().contains("كل القنوات") }
+                    screenshot("tv-categories")
+                    sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+                    waitUntil("Left restores prior channel row", 10_000) { focusedText().contains("الطبيعة") }
+                } finally {
+                    runOnMainSync { live.finish() }
+                    store.write(emptyList())
+                    waitForIdleSync()
+                }
             }
             runOnMainSync {
                 val vm = CinemaViewModel(activity!!.application)
@@ -118,21 +168,29 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             }
             assertPauseGeometry()
             record("Paused work title is upper right; episode information lower right above transport")
+            waitUntil("Pause puts focus on Play") { focusedText().trim() == "تشغيل" }
             screenshot("player-paused")
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Visible focused Play resumes playback", predicate = { visibleText().contains("إيقاف مؤقت") })
             waitUntil("Paused metadata disappears on resume") { !visibleText().contains("وصف الحلقة") }
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
             waitUntil("D-pad Up reaches the seek bar", predicate = { focusedText().contains("موضع الفيديو") })
             var seekFrom = 0L
             runOnMainSync { withPlayer { seekFrom = it.currentPosition } }
             val expectedTime = String.format(java.util.Locale.US, "%02d:%02d", (seekFrom + 10_000) / 60_000, (seekFrom + 10_000) / 1000 % 60)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-            waitUntil("Seek preview exposes target time and pauses actual playback", 750) {
+            waitUntil("Seek preview exposes target time and pauses actual playback", 4000) {
                 !mediaIsPlaying() && visibleText().contains(expectedTime)
             }
+            waitUntil("Real frame thumbnails are decoded", 12_000) { visibleText().contains("معاينة المشهد") }
+            Thread.sleep(1200)
+            check(!mediaIsPlaying()) { "An idle preview must not seek or resume" }
             screenshot("player-seek")
+            sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            waitUntil("Back cancels preview without seeking", 5000) { mediaIsPlaying() && !visibleText().contains("الانتقال إلى المشهد") }
+            runOnMainSync { withPlayer { check(it.currentPosition < seekFrom + 9000) } }
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
+            waitUntil("Second preview waits for Select") { visibleText().contains("الانتقال إلى المشهد") }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Seek confirmation commits the actual playback position") {
                 var committed = false
@@ -140,7 +198,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
                 committed
             }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
-            focusWithRemote("الترجمة والصوت", KeyEvent.KEYCODE_DPAD_RIGHT)
+            focusWithRemote("الترجمة", KeyEvent.KEYCODE_DPAD_RIGHT)
             record("Remote reaches subtitle/audio button from transport")
             // Hardware media keys must bypass whichever controller item currently owns focus.
             sendKeyDownUpSync(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
@@ -170,7 +228,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             waitUntil("Reopened track panel retains English selection") { visibleText().contains("إيقاف الترجمة") && visibleText().contains("✓") }
             screenshot("player-english-selected")
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-            focusWithRemote("480p", KeyEvent.KEYCODE_DPAD_LEFT)
+            focusWithRemote("الجودة والسرعة", KeyEvent.KEYCODE_DPAD_LEFT)
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
             waitUntil("Quality and speed panel opens from remote") { visibleText().contains("السرعة:") }
             screenshot("player-quality-panel")
@@ -202,7 +260,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             result.putString("stream", "Media3 remote smoke passed: ${checks.length()} checks\n")
             status.putString("stream", result.getString("stream")); sendStatus(0, status)
             File(output, "results.json").writeText(JSONObject().put("passed", browseFailure == null).put("checks", checks)
-                .put("browseError", browseFailure).put("fixture", "Locally generated test pattern; no live service request").toString(2))
+                .put("browseError", browseFailure).put("fixture", "Local test footage; no commercial stream").toString(2))
         } catch(error: Throwable) {
             screenshot("player-failure")
             status.putString("stack", error.stackTraceToString()); sendStatus(-2, status)
