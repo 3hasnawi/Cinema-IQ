@@ -1,9 +1,11 @@
 @file:Suppress("UnsafeOptInUsageError")
 package com.cinemaplus.rebuilt.ui.iptv
 
+import android.content.Context
 import androidx.media3.common.C
 import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.LoadControl
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
@@ -11,6 +13,10 @@ import androidx.media3.datasource.HttpDataSource
 import com.cinemaplus.rebuilt.data.iptv.IptvLivePlaybackPolicy
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
+
+internal fun iptvLiveTrackSelector(context: Context) = DefaultTrackSelector(context).apply {
+    setParameters(buildUponParameters().setExceedRendererCapabilitiesIfNecessary(false))
+}
 
 /** Fast channel entry; repeated starvation earns a larger resume buffer without replacing the decoder. */
 internal class IptvTvLiveLoadControl(

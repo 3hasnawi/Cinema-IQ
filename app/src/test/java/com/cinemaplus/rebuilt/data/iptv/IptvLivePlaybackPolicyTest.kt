@@ -4,6 +4,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class IptvLivePlaybackPolicyTest {
+    @Test fun compressedBufferBudgetScalesWithHeapAndStaysBoundedOnLargeTvs() {
+        val mib = 1024 * 1024
+        for ((heap, expected) in listOf(64 to 8, 128 to 16, 256 to 32, 512 to 64, 1024 to 96)) {
+            assertEquals(expected * mib, IptvLivePlaybackPolicy.targetBufferBytes(heap.toLong() * mib))
+        }
+    }
+
     @Test fun firstPlaybackStaysFastWhileRecoveryBecomesMoreStableAndRemainsBounded() {
         val policy = IptvLivePlaybackPolicy
         assertEquals(750_000L, policy.startThresholdUs(false, Int.MAX_VALUE, -1))

@@ -138,9 +138,7 @@ import kotlinx.coroutines.*
         ExoPlayer.Builder(context).setMediaSourceFactory(mediaSources)
             .apply {
                 if (television) {
-                    val selector = androidx.media3.exoplayer.trackselection.DefaultTrackSelector(context)
-                    selector.setParameters(selector.buildUponParameters().setExceedRendererCapabilitiesIfNecessary(false))
-                    setTrackSelector(selector)
+                    setTrackSelector(iptvLiveTrackSelector(context))
                     setRenderersFactory(DefaultRenderersFactory(context).setEnableDecoderFallback(true))
                     setLoadControl(checkNotNull(liveLoadControl))
                 }
