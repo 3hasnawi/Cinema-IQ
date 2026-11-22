@@ -18,6 +18,7 @@ class IptvNetworkTest {
             path == "/redirect" -> Reply(302, location = "/list")
             path == "/other" -> Reply(302, location = "http://localhost:$port/list")
             path.startsWith("/code") -> Reply(path.removePrefix("/code").toInt())
+            path == "/limited" -> Reply(429, retryAfter = "123")
             path == "/huge" -> Reply(200, length = IptvParsers.MAX_BYTES + 1)
             else -> Reply(200, "#EXTM3U\n#EXTINF:-1,News\nhttps://media.example/news.m3u8\n")
         } }
@@ -27,6 +28,12 @@ class IptvNetworkTest {
             assertTrue(network.get("$base/redirect", true).toString(Charsets.UTF_8).startsWith("#EXTM3U"))
             try { network.get("$base/other", true); fail() } catch (e: IptvException) { assertEquals(IptvException.Reason.Redirect, e.reason) }
             try { network.get("$base/huge", true); fail() } catch (e: IptvException) { assertEquals(IptvException.Reason.TooLarge, e.reason) }
+            try {
+                network.get("$base/limited", true); fail()
+            } catch (e: IptvException) {
+                assertEquals(429, e.status)
+                assertEquals(123_000L, e.retryAfterMillis)
+            }
             for (code in listOf(403, 404, 429, 500)) {
                 try { network.get("$base/code$code", true); fail() } catch (e: IptvException) { assertEquals(code, e.status) }
             }
@@ -43,7 +50,7 @@ class IptvNetworkTest {
             assertTrue(request.isCancelled)
         } finally { release.countDown(); network.close(); server.close() }
     }
-    private data class Reply(val code: Int, val body: String = "", val location: String? = null, val length: Int? = null)
+    private data class Reply(val code: Int, val body: String = "", val location: String? = null, val length: Int? = null, val retryAfter: String? = null)
     /** Test-only loopback HTTP peer; no external server, Android framework or extra test dependency. */
     private class LoopbackServer(val handler: (String, Int) -> Reply) : Closeable {
         private val socket = ServerSocket(0, 20, InetAddress.getByName("127.0.0.1"))
@@ -62,7 +69,8 @@ class IptvNetworkTest {
                         while (true) { val line = reader.readLine(); if (line == null || line.isEmpty()) break }
                         val reply = handler(path, it.localPort); val data = reply.body.toByteArray(Charsets.UTF_8)
                         val headers = "HTTP/1.1 ${reply.code} Response\r\nConnection: close\r\nContent-Length: ${reply.length ?: data.size}\r\n" +
-                            (reply.location?.let { location -> "Location: $location\r\n" } ?: "") + "\r\n"
+                            (reply.location?.let { location -> "Location: $location\r\n" } ?: "") +
+                            (reply.retryAfter?.let { wait -> "Retry-After: $wait\r\n" } ?: "") + "\r\n"
                         it.getOutputStream().apply { write(headers.toByteArray(Charsets.US_ASCII)); write(data); flush() }
                     } } catch (_: Exception) { /* Cancellation closes the peer while the handler is waiting. */ }
                     finally { clients.remove(client) }
