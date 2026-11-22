@@ -480,7 +480,7 @@ class PlayerSmokeInstrumentation : Instrumentation() {
         screenshot("15-account-controls")
         key(KeyEvent.KEYCODE_BACK)
         key(KeyEvent.KEYCODE_BACK)
-        focusWithRemote("البحث", KeyEvent.KEYCODE_DPAD_UP)
+        focusWithRemote(Page.Search.label, KeyEvent.KEYCODE_DPAD_UP)
         key(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Search starts on its first keyboard key") { vm.page == Page.Search && focusedText().trim() == "ا" }
         screenshot("16-search-first-key")
