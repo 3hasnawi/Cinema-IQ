@@ -5,7 +5,8 @@ import CinemaCore
 
 /// One AVPlayer for the entire live session. Channel changes cancel stale work and never write movie progress.
 @MainActor final class IPTVPlayerSession: ObservableObject {
-    let controller = PlaybackController()
+    let controller: PlaybackController
+    var permitsPlayback: ((IPTVChannel) -> Bool)?
     let sourceID: String
     @Published private(set) var channel: IPTVChannel
     @Published private(set) var channels: [IPTVChannel] = []
@@ -77,7 +78,8 @@ import CinemaCore
         let height = usesCompatibility ? Double(quality?.height ?? maximumHeight ?? 0) : Double(controller.player.currentItem?.presentationSize.height ?? 0)
         return height.isFinite && height > 0 ? Int(min(height, 100_000)) : maximumHeight ?? 0
     }
-    init(initial: IPTVChannel, group: String?, preferredMaximumHeight: Int? = nil, automaticallyReconnect: Bool = false) {
+    init(initial: IPTVChannel, group: String?, preferredMaximumHeight: Int? = nil, automaticallyReconnect: Bool = false, automaticEngine: Bool = false) {
+        controller = PlaybackController(automaticEngine: automaticEngine)
         channel = initial; sourceID = initial.sourceID; self.group = group
         self.automaticallyReconnect = automaticallyReconnect
         self.section = group.map(IPTVChannelSection.group) ?? .all
@@ -123,7 +125,7 @@ import CinemaCore
     }
     func previous() { if let value = channels.first(where: { $0.id == previousID }) { tune(value) } }
     func tune(_ next: IPTVChannel, debounce: Bool = false) {
-        guard next.sourceID == sourceID else { return }
+        guard next.sourceID == sourceID, permitsPlayback?(next) != false else { return }
         tuneTask?.cancel(); cancelRecovery(); qualityTask?.cancel()
         let token = UUID(); generation = token
         pausedByUser = false; attempts = 0; renewedLink = false
@@ -136,6 +138,7 @@ import CinemaCore
         }
     }
     private func open(_ next: IPTVChannel, token: UUID) {
+        guard permitsPlayback?(next) != false else { close(); return }
         if prefersHighestQuality { qualities = []; quality = nil; maximumHeight = nil }
         var url = next.url
 #if DEBUG

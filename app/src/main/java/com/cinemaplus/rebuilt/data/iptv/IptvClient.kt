@@ -24,7 +24,7 @@ class IptvNetworkTransport : IptvTransport, java.io.Closeable {
     private val http = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).callTimeout(45, TimeUnit.SECONDS).build()
     override fun close() { http.dispatcher.cancelAll(); http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll() }
-    private data class Reply(val status: Int, val bytes: ByteArray, val location: String?)
+    private data class Reply(val status: Int, val bytes: ByteArray, val location: String?, val retryAfterMillis: Long)
     override suspend fun get(url: String, allowHttp: Boolean): ByteArray {
         var current = IptvUrls.validate(url, allowHttp)
         repeat(6) {
@@ -35,7 +35,7 @@ class IptvNetworkTransport : IptvTransport, java.io.Closeable {
                 if (!IptvUrls.sameOrigin(current, next)) throw IptvException(IptvException.Reason.Redirect)
                 current = next
             } else {
-                if (reply.status !in 200..299) throw IptvException(IptvException.Reason.Http, reply.status)
+                if (reply.status !in 200..299) throw IptvException(IptvException.Reason.Http, reply.status, reply.retryAfterMillis)
                 return reply.bytes
             }
         }
@@ -66,7 +66,8 @@ class IptvNetworkTransport : IptvTransport, java.io.Closeable {
                             }
                             output.toByteArray()
                         } else ByteArray(0)
-                        Reply(it.code, bytes, it.header("Location"))
+                        Reply(it.code, bytes, it.header("Location"),
+                            it.header("Retry-After")?.let { value -> IptvReconnectPolicy.retryAfter(value, System.currentTimeMillis()) } ?: 0)
                     }
                     if (continuation.isActive) continuation.resume(reply)
                 } catch (e: Exception) {

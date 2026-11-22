@@ -65,7 +65,7 @@ class IptvTvActivity : ComponentActivity() {
         .semantics { contentDescription = "التلفزيون" }.padding(horizontal = if (expanded) 20.mx else 0.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (expanded) Arrangement.spacedBy(20.mx) else Arrangement.Center) {
-        IptvTelevisionIcon(Modifier.size(30.mx), if (focused) Ink else Brand.TextTertiary)
+        IptvSectionIcon(Modifier.size(30.mx), if (focused) Ink else Brand.TextTertiary)
         if (expanded) Label("التلفزيون", 15, if (focused) Ink else Brand.TextTertiary, focused, lines = 1)
     }
 }

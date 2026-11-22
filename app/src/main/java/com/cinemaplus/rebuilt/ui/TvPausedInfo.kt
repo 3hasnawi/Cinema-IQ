@@ -22,7 +22,7 @@ internal fun TvPausedInfo(vm: CinemaViewModel, film: Film, durationMs: Long, mod
     val title = if (film.episode > 0) {
         listOf("الموسم ${film.season} · الحلقة ${film.episode}", film.episodeTitle)
             .filter(String::isNotBlank).joinToString(" — ")
-    } else mediaTitle(film)
+    } else "متوقف مؤقتًا"
     val runtime = formatContentDuration((durationMs / 1000).toString())
         .ifBlank { formatContentDuration(film.duration) }
     val facts = listOf(film.year, runtime, film.contentQuality, film.edition)

@@ -31,6 +31,11 @@ internal fun PlayerTransportIcon(symbol: String, tint: Color, iconSize: Dp = 28.
             val stroke = Stroke(w * .085f, cap = StrokeCap.Round, join = StrokeJoin.Round)
             when (symbol) {
                 "▶" -> triangle(tint, w * .30f, w * .20f, w * .80f)
+                "♪" -> {
+                    drawLine(tint, Offset(w * .50f, w * .22f), Offset(w * .50f, w * .72f), w * .09f)
+                    drawLine(tint, Offset(w * .48f, w * .22f), Offset(w * .77f, w * .31f), w * .09f)
+                    drawOval(tint, Offset(w * .24f, w * .62f), Size(w * .30f, w * .22f))
+                }
                 "Ⅱ" -> {
                     drawRoundRect(tint, Offset(w * .26f, w * .20f), Size(w * .17f, w * .60f), CornerRadius(w * .05f))
                     drawRoundRect(tint, Offset(w * .57f, w * .20f), Size(w * .17f, w * .60f), CornerRadius(w * .05f))
