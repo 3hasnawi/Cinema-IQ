@@ -7,6 +7,7 @@ import androidx.media3.common.util.Util
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.upstream.DefaultAllocator
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.datasource.HttpDataSource
@@ -20,26 +21,26 @@ internal fun iptvLiveTrackSelector(context: Context) = DefaultTrackSelector(cont
 
 /** Fast channel entry; repeated starvation earns a larger resume buffer without replacing the decoder. */
 internal class IptvTvLiveLoadControl(
-    private val targetBytes: Int = IptvLivePlaybackPolicy.targetBufferBytes(Runtime.getRuntime().maxMemory()),
-    private val delegate: DefaultLoadControl = DefaultLoadControl.Builder()
-        .setBufferDurationsMsForStreaming(
-            IptvLivePlaybackPolicy.MIN_BUFFER_MS, IptvLivePlaybackPolicy.MAX_BUFFER_MS,
-            IptvLivePlaybackPolicy.START_BUFFER_MS, IptvLivePlaybackPolicy.BASE_REBUFFER_MS
-        )
-        .setTargetBufferBytes(targetBytes)
-        .setPrioritizeTimeOverSizeThresholdsForStreaming(false)
-        .build()
-) : LoadControl by delegate {
+    private val targetBytes: Int = IptvLivePlaybackPolicy.targetBufferBytes(Runtime.getRuntime().maxMemory())
+) : DefaultLoadControl(
+    DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE),
+    IptvLivePlaybackPolicy.MIN_BUFFER_MS, DEFAULT_MIN_BUFFER_FOR_LOCAL_PLAYBACK_MS,
+    IptvLivePlaybackPolicy.MAX_BUFFER_MS, DEFAULT_MAX_BUFFER_FOR_LOCAL_PLAYBACK_MS,
+    IptvLivePlaybackPolicy.START_BUFFER_MS, DEFAULT_BUFFER_FOR_PLAYBACK_FOR_LOCAL_PLAYBACK_MS,
+    IptvLivePlaybackPolicy.BASE_REBUFFER_MS, DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_FOR_LOCAL_PLAYBACK_MS,
+    targetBytes, false, DEFAULT_PRIORITIZE_TIME_OVER_SIZE_THRESHOLDS_FOR_LOCAL_PLAYBACK,
+    0, false, emptyMap()
+) {
     private val disruptions = AtomicInteger(0)
 
     fun noteDisruption() { disruptions.updateAndGet { (it + 1).coerceAtMost(3) } }
     fun resetStability() { disruptions.set(0) }
 
     override fun shouldStartPlayback(parameters: LoadControl.Parameters): Boolean {
-        if (!delegate.shouldStartPlayback(parameters)) return false
+        if (!super.shouldStartPlayback(parameters)) return false
         if (!parameters.rebuffering) return true
         // The memory limit must still release playback for unusually high-bitrate streams.
-        if (delegate.getAllocator(parameters.playerId).totalBytesAllocated >= targetBytes) return true
+        if (getAllocator(parameters.playerId).totalBytesAllocated >= targetBytes) return true
         val buffered = Util.getPlayoutDurationForMediaDuration(parameters.bufferedDurationUs, parameters.playbackSpeed)
         return buffered >= IptvLivePlaybackPolicy.startThresholdUs(true, disruptions.get(), parameters.targetLiveOffsetUs)
     }

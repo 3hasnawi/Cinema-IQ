@@ -15,18 +15,38 @@ internal fun iptvDefaultRoute(context: Context) = callbackFlow<Boolean> {
         close()
         return@callbackFlow
     }
+    val lock = Any()
+    var current: Network? = null
     val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) { trySend(true) }
-        override fun onLost(network: Network) { trySend(manager.activeNetwork != null) }
+        override fun onAvailable(network: Network) {
+            synchronized(lock) {
+                current = network
+                trySend(true)
+            }
+        }
+        override fun onLost(network: Network) {
+            synchronized(lock) {
+                if (current == network) {
+                    current = null
+                    trySend(false)
+                }
+            }
+        }
     }
+    var registered = false
     try {
-        manager.registerDefaultNetworkCallback(callback)
+        synchronized(lock) {
+            manager.registerDefaultNetworkCallback(callback)
+            registered = true
+            current = manager.activeNetwork
+            trySend(current != null)
+        }
     } catch (_: RuntimeException) {
+        if (registered) manager.unregisterNetworkCallback(callback)
         // If route monitoring is unavailable, continue with timed provider retries.
         trySend(true)
         close()
         return@callbackFlow
     }
-    trySend(manager.activeNetwork != null)
     awaitClose { manager.unregisterNetworkCallback(callback) }
 }.distinctUntilChanged()

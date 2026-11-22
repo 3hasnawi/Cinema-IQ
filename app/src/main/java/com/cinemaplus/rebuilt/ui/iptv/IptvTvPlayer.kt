@@ -119,9 +119,7 @@ import kotlinx.coroutines.*
     // A revoked authorization projection still rejects that snapshot immediately.
     val guideSnapshot = preparedSnapshot?.takeIf { it.first === guideCatalog }?.second
     val liveLoadControl = remember(television, allowHttp) { if (television) IptvTvLiveLoadControl() else null }
-    val routeAvailable by produceState(true, television, foreground, context) {
-        if (television && foreground) iptvDefaultRoute(context).collect { value = it }
-    }
+    var routeAvailable by remember { mutableStateOf(true) }
     val player = remember(allowHttp, television) {
         val factory = DefaultHttpDataSource.Factory().setUserAgent("Cinema-iQ-IPTV/1.0")
             .setConnectTimeoutMs(15_000).setReadTimeoutMs(20_000).setAllowCrossProtocolRedirects(allowHttp)
@@ -302,6 +300,20 @@ import kotlinx.coroutines.*
         onDispose {
             refreshTask?.cancel(); requestGeneration++
             lifecycle.removeObserver(observer); player.removeListener(listener); view.keepScreenOn = false; player.release()
+        }
+    }
+    LaunchedEffect(television, foreground, player) {
+        if (!television || !foreground) return@LaunchedEffect
+        var lostRoute = false
+        iptvDefaultRoute(context).collect { available ->
+            routeAvailable = available
+            if (available && lostRoute && !pausedByUser && !terminalFailure && !retryNeeded && !refreshing &&
+                player.currentMediaItem?.mediaId == channel.id && player.playbackState == Player.STATE_BUFFERING &&
+                eligible(channel) && android.os.SystemClock.elapsedRealtime() >= retryNotBefore) {
+                // The old socket may still be waiting for a read timeout on the disconnected route.
+                attempt++
+            }
+            lostRoute = !available
         }
     }
     LaunchedEffect(channels, channel.id, television, player) {
