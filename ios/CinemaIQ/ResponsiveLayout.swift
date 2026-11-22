@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// Tablet layouts follow the current tab/window bounds, including a narrowed multitasking window.
-/// Phone measurements retain the existing appearance.
+/// Home shelves size their cards against the remaining column after sidebar and window changes.
 struct ContentLayout {
     var size: CGSize = .zero
     var isTablet = false
@@ -10,12 +10,16 @@ struct ContentLayout {
     var sideInset: CGFloat { spacious ? 32 : 18 }
     var detailInset: CGFloat { spacious ? 32 : 20 }
     var posterWidth: CGFloat { spacious ? 164 : 118 }
-    var continueWidth: CGFloat { spacious ? 320 : 250 }
+    var continueWidth: CGFloat {
+        let count: CGFloat = spacious ? 3 : 2
+        return min(340, max(132, (size.width - 2 * sideInset - (count - 1) * 12) / count))
+    }
     var readableWidth: CGFloat { spacious ? 1000 : .infinity }
     var formWidth: CGFloat { isTablet ? 860 : .infinity }
     var episodeImageWidth: CGFloat { spacious ? 220 : 150 }
     var heroHeight: CGFloat {
-        isTablet ? max(300, min(660, min(size.width * 0.75, size.height * 0.8))) : 560
+        let width = size.width - (isTablet ? 2 * sideInset : 0)
+        return max(225, min(isTablet ? 480 : 420, width * (isTablet ? 0.54 : 0.86), size.height * 0.52))
     }
     var detailHeroHeight: CGFloat { isTablet ? max(300, min(600, size.width * 0.56)) : 430 }
     var panelWidth: CGFloat { isTablet ? min(360, max(200, size.width - 40)) : 300 }

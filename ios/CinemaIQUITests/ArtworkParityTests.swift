@@ -145,12 +145,7 @@ final class ArtworkParityTests: XCTestCase {
         XCTAssertTrue(card.waitForExistence(timeout: 20)); return card
     }
     private func tab(_ title: String) {
-        let button = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
-        if !button.exists || !button.isHittable {
-            let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
-            if sidebar.exists && sidebar.isHittable { sidebar.tap() }
-        }
-        waitFor { button.exists && button.isHittable }; button.tap()
+        CinemaTabNavigation.open(title, in: app)
     }
     private func reveal(_ control: XCUIElement) {
         for _ in 0..<8 {

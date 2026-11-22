@@ -73,6 +73,15 @@ final class PhoneParityTests: XCTestCase {
         waitForKeyboardDismissal()
         shot("account-toolbar-done-dismissed")
 
+        // Remove the synthetic password before leaving the form. Otherwise iCloud Keychain can
+        // offer to save it over the next screen, including over a subsequent test's app launch.
+        revealSetting(password)
+        password.tap()
+        app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "preview-only".count))
+        waitFor("The unsubmitted test credential should be removed") { !login.isEnabled }
+        pressKeyboardButton(["Done", "تم"])
+        waitForKeyboardDismissal()
+
         tab("الرئيسية")
         XCTAssertTrue(element("ios.home.hero").waitForExistence(timeout: 20))
         XCTAssertFalse(app.keyboards.firstMatch.exists)
@@ -144,38 +153,7 @@ final class PhoneParityTests: XCTestCase {
     }
 
     private func tab(_ title: String) {
-        if tablet {
-            // iPad's collapsed top tabs can expose an overflowed AX frame underneath
-            // its pinned Search tab. Use the real sidebar row instead of that frame.
-            func sidebarRow() -> XCUIElement? {
-                app.cells.matching(NSPredicate(format: "label == %@", title))
-                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
-            }
-            if sidebarRow() == nil {
-                let toggle = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'"))
-                    .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
-                XCTAssertNotNil(toggle, "The iPad sidebar must be reachable")
-                toggle?.tap()
-            }
-            waitFor("Sidebar tab must be reachable: \(title)") { sidebarRow() != nil }
-            sidebarRow()?.tap()
-            // Native sidebar selection may leave the overlay open in some size classes.
-            let hide = app.buttons.matching(NSPredicate(format: "label == 'Hide Sidebar' OR (label CONTAINS 'إخفاء' AND label CONTAINS 'الشريط الجانبي')"))
-                .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
-            hide?.tap()
-            return
-        }
-        func visibleTab() -> XCUIElement? {
-            app.buttons.matching(NSPredicate(format: "label == %@", title))
-                .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
-        }
-        if visibleTab() == nil {
-            let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'"))
-                .allElementsBoundByIndex.first { $0.exists && $0.isHittable }
-            sidebar?.tap()
-        }
-        waitFor("Tab must be reachable: \(title)") { visibleTab() != nil }
-        visibleTab()?.tap()
+        CinemaTabNavigation.open(title, in: app)
     }
 
     private func revealSetting(_ target: XCUIElement) {

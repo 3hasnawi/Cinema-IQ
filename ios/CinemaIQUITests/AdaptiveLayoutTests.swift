@@ -10,7 +10,7 @@ final class AdaptiveLayoutTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player"]
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-player", "--cinema-ui-testing-static-carousel"]
         addUIInterruptionMonitor(withDescription: "System permission") { alert in
             for title in ["Allow", "OK", "السماح", "موافق"] where alert.buttons[title].exists {
                 alert.buttons[title].tap(); return true
@@ -31,6 +31,35 @@ final class AdaptiveLayoutTests: XCTestCase {
         print("CINEMA_UI_HIERARCHY \(deviceName):\n\(app.debugDescription)")
         app.terminate()
         XCUIDevice.shared.orientation = .portrait
+    }
+
+    func testCinematicHomeAndDirectTelevision() {
+        let hero = element("ios.home.hero")
+        let detail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.home.detail.")).firstMatch
+        waitFor("The visible featured title must open with a single tap") { detail.exists && detail.isHittable }
+        XCTAssertTrue(hero.frame.intersects(detail.frame))
+        screenshot("cinematic-home-portrait")
+        detail.tap()
+        XCTAssertTrue(element("ios.detail.play").waitForExistence(timeout: 15))
+        let back = app.navigationBars.buttons.matching(NSPredicate(
+            format: "identifier == 'Back' OR label IN %@", ["رجوع", "Back", "الرئيسية"])).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        back.tap()
+        XCTAssertTrue(hero.waitForExistence(timeout: 15))
+        if tablet {
+            landscape()
+            XCTAssertTrue(element("ios.home.profile").isHittable)
+            screenshot("cinematic-home-landscape")
+        }
+        tab("التلفزيون")
+        XCTAssertTrue(element("ios.iptv.empty.add").waitForExistence(timeout: 15))
+        screenshot("cinematic-tv-entry")
+        tab("الرئيسية")
+        XCTAssertTrue(hero.waitForExistence(timeout: 15))
+        tab("الإعدادات")
+        XCTAssertTrue(element("ios.settings").waitForExistence(timeout: 10))
+        tab("الرئيسية")
+        XCTAssertTrue(element("ios.home.profile").isHittable)
     }
 
     func testNavigationAndRotation() {
@@ -65,7 +94,6 @@ final class AdaptiveLayoutTests: XCTestCase {
         tab("الإعدادات")
         XCTAssertTrue(element("ios.settings").waitForExistence(timeout: 10))
         screenshot("settings")
-        if !tablet { XCTAssertTrue(app.tabBars.firstMatch.exists, "iPhone must retain its tab bar") }
         tab("البحث")
         let search = app.searchFields.firstMatch
         // iPad's native navigation bar initially presents search as a toolbar button.
@@ -152,16 +180,7 @@ final class AdaptiveLayoutTests: XCTestCase {
         return card
     }
     private func tab(_ title: String) {
-        func visibleTab() -> XCUIElement? {
-            let button = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
-            return button.exists && button.isHittable ? button : nil
-        }
-        if visibleTab() == nil {
-            let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
-            if sidebar.exists && sidebar.isHittable { sidebar.tap() }
-        }
-        waitFor("The tab must be reachable: \(title)") { visibleTab() != nil }
-        visibleTab()?.tap()
+        CinemaTabNavigation.open(title, in: app)
     }
     private func landscape() {
         XCUIDevice.shared.orientation = .landscapeLeft

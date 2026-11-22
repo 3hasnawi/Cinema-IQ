@@ -1,16 +1,16 @@
 import SwiftUI
 
-/// Cinema iQ colours, shared with the Android app.
+/// Cinematic charcoal surfaces with a warm accent for iPhone and iPad.
 enum Theme {
-    static let ink = Color(red: 0x1E / 255, green: 0x17 / 255, blue: 0x22 / 255)
+    static let ink = Color(red: 0.08, green: 0.085, blue: 0.095)
     static let canvas = LinearGradient(colors: [
-        Color(red: 0.24, green: 0.29, blue: 0.36),
-        Color(red: 0.14, green: 0.19, blue: 0.27),
-        Color(red: 0.07, green: 0.10, blue: 0.17)
+        Color(red: 0.13, green: 0.135, blue: 0.15),
+        Color(red: 0.09, green: 0.095, blue: 0.11),
+        ink
     ], startPoint: .topTrailing, endPoint: .bottomLeading)
-    static let panel = Color(red: 0x2B / 255, green: 0x22 / 255, blue: 0x30 / 255)
-    static let accent = Color(red: 1, green: 0x8A / 255, blue: 0x2B / 255)
-    static let muted = Color(red: 0xB5 / 255, green: 0xA9 / 255, blue: 0xBC / 255)
+    static let panel = Color(red: 0.15, green: 0.15, blue: 0.17)
+    static let accent = Color(red: 1, green: 0xBD / 255, blue: 0x75 / 255)
+    static let muted = Color(red: 0.76, green: 0.75, blue: 0.72)
     static let positive = Color(red: 0.37, green: 0.83, blue: 0.54)
     static let negative = Color(red: 1, green: 0.42, blue: 0.35)
 }

@@ -340,14 +340,9 @@ final class IPTVFlowTests: XCTestCase {
             screenshot("ipad-entry")
             return
         }
-        let browse = app.buttons.matching(NSPredicate(format: "label == %@", "تصفّح")).firstMatch
-        if !browse.exists || !browse.isHittable {
-            let sidebar = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'sidebar' OR label CONTAINS 'الشريط الجانبي'")).firstMatch
-            if sidebar.exists && sidebar.isHittable { sidebar.tap() }
-        }
-        XCTAssertTrue(browse.waitForExistence(timeout: 25)); browse.tap()
-        let entry = element("ios.browse.iptv")
-        XCTAssertTrue(entry.waitForExistence(timeout: 15)); entry.tap()
+        let live = app.tabBars.buttons["التلفزيون"]
+        XCTAssertTrue(live.waitForExistence(timeout: 15))
+        live.tap()
         XCTAssertTrue(element("ios.iptv.add").waitForExistence(timeout: 15))
         screenshot(tablet ? "ipad-entry" : "iphone-entry")
     }
