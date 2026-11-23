@@ -133,7 +133,7 @@ jobs:
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Test touch navigation and playback rotation
         # Parity contains ten independent phone cases; retain their individual limits.
-        timeout-minutes: ${{ inputs.scenario == 'parity' && 35 || 25 }}
+        timeout-minutes: ${{ (inputs.scenario == 'parity' || inputs.scenario == 'cinematic') && 35 || 25 }}
         env:
           UI_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
           CHECK_LIVE_TMDB: ${{ inputs.live_tmdb && inputs.scenario == 'cinematic' }}

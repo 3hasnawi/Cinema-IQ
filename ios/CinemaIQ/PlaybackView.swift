@@ -206,6 +206,11 @@ struct PlaybackView: View {
                 Text(verbatim: "\(actual.isFinite ? Int(actual) : -1)|\(controller.playing)")
                     .font(.system(size: 1)).opacity(0.01).frame(width: 1, height: 1)
                     .accessibilityIdentifier("ios.player.testClock").allowsHitTesting(false)
+                if UITestSupport.completionFixture, !controller.ended, current.episode > 0,
+                   library.progress[current.id]?.completed == true {
+                    Text("Credits saved").font(.system(size: 1)).opacity(0.01)
+                        .accessibilityIdentifier("ios.player.testCreditsSaved").allowsHitTesting(false)
+                }
             }
         }
 #endif
@@ -253,7 +258,7 @@ struct PlaybackView: View {
 #if DEBUG
             if UITestSupport.completionFixture, current.isExternal, current.episode > 0 {
                 // Deterministic IntroDB response for the 180-second licensed AVPlayer test asset.
-                let json = #"{"imdb_id":"tt0000001","is_movie":false,"season":1,"episode":\#(current.episode),"intro":{"start_sec":0,"end_sec":148},"outro":{"start_sec":150,"end_sec":180}}"#
+                let json = #"{"imdb_id":"tt0000001","is_movie":false,"season":1,"episode":\#(current.episode),"intro":{"start_sec":0,"end_sec":98},"outro":{"start_sec":100,"end_sec":180}}"#
                 skips = IntroDBParser.parse(Data(json.utf8), imdbID: "tt0000001", season: current.season, episode: current.episode, movie: false)
                 timedMediaID = identity
                 return

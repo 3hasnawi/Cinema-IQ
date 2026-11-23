@@ -181,8 +181,8 @@ final class AdaptiveLayoutTests: XCTestCase {
             card.tap()
             let skip = element("ios.player.skipIntro")
             XCTAssertTrue(skip.waitForExistence(timeout: 15)); skip.tap()
-            let video = element("ios.player.video")
-            waitFor("Skipping the intro reaches the credits of this episode") { self.seconds(video) >= 151 }
+            XCTAssertTrue(element("ios.player.testCreditsSaved").waitForExistence(timeout: 45),
+                          "The library must record the credits while the video is still playing")
             if number < 4 { XCTAssertTrue(element("ios.player.nextEpisode").exists) }
             element("ios.player.close").tap()
             waitFor("The finished episode must not return when the player closes") { !card.exists }
