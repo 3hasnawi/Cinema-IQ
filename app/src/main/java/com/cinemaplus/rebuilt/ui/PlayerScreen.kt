@@ -80,9 +80,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 
 private enum class PlayerPanel { Quality, Subtitles, Audio, SubtitleStyle }
 private const val OverlayTimeoutMillis = 4_000L
-/** Scrub speed steps (multiples of the 10 second base step). */
-private val ScrubSpeeds = intArrayOf(1, 2, 4, 6)
-
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(vm: CinemaViewModel) {
@@ -121,7 +118,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
     var duration by remember { mutableLongStateOf(0L) }
     var bufferedPosition by remember { mutableLongStateOf(0L) }
     var resumeAfterLifecyclePause by remember { mutableStateOf(false) }
-    var previewPosition by remember(film.id) { mutableStateOf<Long?>(null) }
+    var seekKey by remember(film.id) { mutableIntStateOf(0) }
     var playerError by remember(film.id, streamIndex) { mutableStateOf<String?>(null) }
     var tracks by remember { mutableStateOf(Tracks.EMPTY) }
     val isSeries = film.episode > 0 || film.series || vm.selected?.series == true
@@ -138,11 +135,6 @@ fun PlayerScreen(vm: CinemaViewModel) {
     }
     var episodesShown by remember(film.id) { mutableStateOf(false) }
     var seekFocused by remember { mutableStateOf(false) }
-    var resumeAfterScrub by remember(film.id) { mutableStateOf(false) }
-    var lastScrubAt by remember { mutableLongStateOf(0L) }
-    var scrubHeldSince by remember { mutableLongStateOf(0L) }
-    var scrubLevel by remember { mutableIntStateOf(0) }
-    var scrubDir by remember { mutableIntStateOf(0) }
     var notice by remember { mutableStateOf<String?>(null) }
 
     fun saveProgress() {
@@ -156,44 +148,23 @@ fun PlayerScreen(vm: CinemaViewModel) {
         if(player.isCurrentMediaItemSeekable && player.duration > 0)
             player.seekTo((player.currentPosition + delta).coerceIn(0L, player.duration))
     }
-    /**
-     * Apple-style scrubbing. A tap jumps 10s; holding accelerates. Playback pauses while scrubbing and,
-     * the viewer can confirm the position with Select or discard it with Back.
-     */
-    fun scrub(direction: Int, repeat: Int) {
-        if(!player.isCurrentMediaItemSeekable || player.duration <= 0) return
-        reveal()
-        val now = SystemClock.uptimeMillis()
-        val starting = previewPosition == null
-        if(starting) { resumeAfterScrub = player.playWhenReady; player.pause(); scrubLevel = 0; scrubDir = direction }
-        if(direction != scrubDir) { scrubDir = direction; scrubLevel = 0 }
-        val base = previewPosition ?: player.currentPosition
-        val delta: Long
-        if(repeat == 0) {
-            // Pressing again within the same scrubbing session steps the speed up: x1, x2, x4, x6.
-            if(!starting) scrubLevel = (scrubLevel + 1).coerceAtMost(ScrubSpeeds.lastIndex)
-            scrubHeldSince = now
-            delta = 10_000L * ScrubSpeeds[scrubLevel]
-        } else {
-            // Holding the key also climbs the steps the longer it is held.
-            val held = now - scrubHeldSince
-            val floor = when { held < 800 -> 0; held < 1_800 -> 1; held < 3_200 -> 2; else -> 3 }
-            scrubLevel = maxOf(scrubLevel, floor)
-            delta = (now - lastScrubAt).coerceIn(0L, 120L) * 10L * ScrubSpeeds[scrubLevel]
+    // Run the hold clock independently of the remote's hardware repeat rate.
+    LaunchedEffect(seekKey, film.id, streamIndex) {
+        val key = seekKey
+        if (key == 0) return@LaunchedEffect
+        val direction = if (key == AndroidKeyEvent.KEYCODE_DPAD_LEFT) -1 else 1
+        val start = SystemClock.uptimeMillis()
+        delay(500)
+        while (seekKey == key) {
+            val held = SystemClock.uptimeMillis() - start
+            val step = when {
+                held < 1_800 -> 2_500L
+                held < 3_200 -> 5_000L
+                else -> 10_000L
+            }
+            seekBy(direction * step)
+            delay(250)
         }
-        lastScrubAt = now
-        previewPosition = (base + direction * delta).coerceIn(0L, player.duration)
-
-    }
-    fun commitScrub() {
-        previewPosition?.let { player.seekTo(it) }
-        previewPosition = null
-        player.playWhenReady = resumeAfterScrub && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED); interact()
-    }
-    fun cancelScrub() {
-        previewPosition = null
-        player.playWhenReady = resumeAfterScrub && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-        interact()
     }
     fun openPanel(value: PlayerPanel, returnFocus: FocusRequester) {
         reveal(); panelReturnFocus = returnFocus; panelAnchor = anchors[value] ?: IntRect.Zero; panel = value
@@ -214,7 +185,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
         when {
             panel != null -> closePanel()
             episodesShown -> { episodesShown = false; reveal(); runCatching { playFocus.requestFocus() } }
-            previewPosition != null -> { cancelScrub(); reveal(); runCatching { seekFocus.requestFocus() } }
+            seekKey != 0 -> { seekKey = 0; if (!ended) player.play(); reveal() }
             controlsVisible -> controlsVisible = false
             else -> { saveProgress(); vm.stop() }
         }
@@ -259,7 +230,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 buffering = state == Player.STATE_BUFFERING
                 ended = state == Player.STATE_ENDED
                 if(state == Player.STATE_ENDED) {
-                    ended = true; controlsVisible = true; previewPosition = null; player.pause()
+                    ended = true; controlsVisible = true; seekKey = 0; player.pause()
                     if (player.currentMediaItem?.mediaId == film.id) vm.completePlayback(film)
                 }
             }
@@ -277,13 +248,14 @@ fun PlayerScreen(vm: CinemaViewModel) {
             }
             override fun onPlayerError(error: PlaybackException) {
                 trace("playerError=${error.errorCodeName} cause=${error.cause?.javaClass?.simpleName.orEmpty()}")
+                seekKey = 0
                 playerError = "تعذّر تشغيل الفيديو. تحقق من الشبكة المحلية أو جرّب جودة أخرى."
                 controlsVisible = true
             }
         }
         val lifecycle = LifecycleEventObserver { _, event ->
             when(event) {
-                Lifecycle.Event.ON_PAUSE -> { resumeAfterLifecyclePause = player.playWhenReady; saveProgress(); player.pause() }
+                Lifecycle.Event.ON_PAUSE -> { resumeAfterLifecyclePause = player.playWhenReady || seekKey != 0; seekKey = 0; saveProgress(); player.pause() }
                 Lifecycle.Event.ON_RESUME -> if(resumeAfterLifecyclePause) { resumeAfterLifecyclePause = false; player.play() }
                 Lifecycle.Event.ON_STOP -> saveProgress()
                 else -> Unit
@@ -300,6 +272,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
             .setPreferredTextLanguage(vm.subtitleLanguage.takeUnless { it == "off" }).build()
     }
     LaunchedEffect(film.id, streamIndex, vm.streams) {
+        seekKey = 0
         val stream = vm.streams.getOrNull(streamIndex)
         if(stream == null) {
             if(player.currentMediaItem?.mediaId != film.id) { player.stop(); player.clearMediaItems() }
@@ -335,7 +308,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
         var lastSave = SystemClock.uptimeMillis()
         while(true) {
             position = player.currentPosition.coerceAtLeast(0L)
-            if(previewPosition == null && player.isPlaying)
+            if(seekKey == 0 && player.isPlaying)
                 skipRanges?.firstOrNull { position in it }?.let { range ->
                     player.seekTo(range.last + 1); position = range.last + 1; notice = "تم تخطي مشهد"
                 }
@@ -348,10 +321,10 @@ fun PlayerScreen(vm: CinemaViewModel) {
     LaunchedEffect(film.id) { nextEpisodeFocused = false; interact() }
     val promptKind = if(introTarget != null) "intro" else if(offerNext) "next" else null
     var autoFocusedPrompt by remember(film.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(film.id, promptKind, panel, episodesShown, previewPosition != null, buffering, playerError) {
+    LaunchedEffect(film.id, promptKind, panel, episodesShown, seekKey != 0, buffering, playerError) {
         if(promptKind == null) autoFocusedPrompt = null
         else if(autoFocusedPrompt != promptKind && panel == null && !episodesShown &&
-            previewPosition == null && !buffering && playerError == null) {
+            seekKey == 0 && !buffering && playerError == null) {
             // Let controller/panel restoration finish and the prompt attach before claiming focus once.
             delay(64)
             if(awaitTvFocus { nextEpisodeFocus }) {
@@ -366,8 +339,8 @@ fun PlayerScreen(vm: CinemaViewModel) {
             if (panel == null && !episodesShown) runCatching { if(controlsVisible) seekFocus.requestFocus() else rootFocus.requestFocus() }
         }
     }
-    LaunchedEffect(controlsVisible, lastInteraction, playing, panel, previewPosition, buffering, playerError, episodesShown, nextEpisodeFocused) {
-        if(controlsVisible && playing && panel == null && previewPosition == null && !episodesShown && !nextEpisodeFocused && !buffering && playerError == null) {
+    LaunchedEffect(controlsVisible, lastInteraction, playing, panel, seekKey, buffering, playerError, episodesShown, nextEpisodeFocused) {
+        if(controlsVisible && playing && panel == null && seekKey == 0 && !episodesShown && !nextEpisodeFocused && !buffering && playerError == null) {
             // Playback state changes must not restart the remote's inactivity deadline.
             val remaining = OverlayTimeoutMillis - (SystemClock.uptimeMillis() - lastInteraction)
             if (remaining > 0) delay(remaining)
@@ -380,12 +353,12 @@ fun PlayerScreen(vm: CinemaViewModel) {
         // The scrubber takes focus first so Left/Right scrub immediately, as on Apple TV.
         if(!nextEpisodeFocused) {
             // While skip-intro or next-episode shows, it keeps focus when the controls come up.
-            if(controlsVisible) { if(promptShown) runCatching { nextEpisodeFocus.requestFocus() } else if (previewPosition == null && !player.playWhenReady && !ended) playFocus.requestFocus() else seekFocus.requestFocus() }
+            if(controlsVisible) { if(promptShown) runCatching { nextEpisodeFocus.requestFocus() } else if (seekKey == 0 && !player.playWhenReady && !ended) playFocus.requestFocus() else seekFocus.requestFocus() }
             else { episodesShown = false; rootFocus.requestFocus() }
         }
     }
-    LaunchedEffect(previewPosition != null) {
-        if (previewPosition != null) awaitTvFocus { seekFocus }
+    LaunchedEffect(seekKey != 0) {
+        if (seekKey != 0) awaitTvFocus { seekFocus }
     }
     LaunchedEffect(panel) {
         if(panel == null && controlsVisible) { delay(32); panelReturnFocus?.requestFocus() }
@@ -402,19 +375,25 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 }
                 return@onPreviewKeyEvent true
             }
-            if (previewPosition != null && native.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_UP, AndroidKeyEvent.KEYCODE_DPAD_DOWN)) return@onPreviewKeyEvent true
-            if (previewPosition != null && native.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER, AndroidKeyEvent.KEYCODE_BUTTON_A)) {
-                if (native.action == AndroidKeyEvent.ACTION_UP) commitScrub()
-                return@onPreviewKeyEvent true
-            }
             // Let the focused prompt consume Select even when the main overlay is hidden.
             if (nextEpisodeFocused && native.keyCode in listOf(AndroidKeyEvent.KEYCODE_DPAD_CENTER,
                     AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER, AndroidKeyEvent.KEYCODE_BUTTON_A))
                 return@onPreviewKeyEvent false
             val horizontal = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT || native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
-            if(horizontal && !nextEpisodeFocused && !episodesShown && (!controlsVisible || previewPosition != null || seekFocused)) {
-                if(native.action == AndroidKeyEvent.ACTION_DOWN)
-                    scrub(if(native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT) -1 else 1, native.repeatCount)
+            if (horizontal && (seekKey != 0 || (panel == null && !nextEpisodeFocused &&
+                    !episodesShown && (!controlsVisible || seekFocused)))) {
+                if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount == 0 &&
+                    playerError == null && player.isCurrentMediaItemSeekable && player.duration > 0) {
+                    seekKey = native.keyCode
+                    reveal()
+                    player.pause()
+                    seekBy(if (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT) -10_000 else 10_000)
+                } else if (native.action == AndroidKeyEvent.ACTION_UP && seekKey == native.keyCode) {
+                    seekKey = 0
+                    interact()
+                    if (!native.isCanceled && owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+                        player.playbackState != Player.STATE_ENDED && playerError == null) player.play()
+                }
                 return@onPreviewKeyEvent true
             }
             val key = when(native.keyCode) {
@@ -478,7 +457,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                     modifier = Modifier.align(AbsoluteAlignment.TopRight)
                         .absolutePadding(right = 96.mx, top = 54.mx).widthIn(max = 900.mx), lines = 2)
                 if (!playing && !buffering && !ended && playerError == null && duration > 0 &&
-                    previewPosition == null && panel == null && !episodesShown) {
+                    seekKey == 0 && panel == null && !episodesShown) {
                     TvPausedInfo(vm, film, duration,
                         Modifier.align(AbsoluteAlignment.BottomRight)
                             .absolutePadding(right = 96.mx, bottom = 292.mx)
@@ -487,19 +466,14 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 PlayerControl("إغلاق", "×", modifier = Modifier.focusRequester(backFocus).focusProperties { down = seekFocus },
                     outer = Modifier.align(Alignment.TopEnd).padding(end = 96.mx, top = 48.mx)) { saveProgress(); vm.stop() }
                 Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(start = 96.mx, end = 96.mx, bottom = 72.mx)) {
-                    previewPosition?.let { target ->
-                        TvScenePreview(vm.streams.getOrNull(streamIndex)?.url, target, duration)
-                        Spacer(Modifier.height(18.mx))
-                    }
-                    PlayerSeekBar(position = previewPosition ?: position, duration = duration,
-                        previewing = previewPosition != null, bufferedPosition = bufferedPosition,
-
+                    PlayerSeekBar(position = position, duration = duration,
+                        seeking = seekKey != 0, bufferedPosition = bufferedPosition,
                         modifier = Modifier.focusRequester(seekFocus).focusProperties { down = playFocus; up = if(promptShown) nextEpisodeFocus else backFocus },
                         onFocusChange = { seekFocused = it },
-                        onSelect = { if(previewPosition != null) commitScrub() else { interact(); togglePlayback() } })
+                        onSelect = { interact(); togglePlayback() })
                     Spacer(Modifier.height(28.mx))
                     val up = Modifier.focusProperties { up = seekFocus }
-                    if (previewPosition == null) Box(Modifier.fillMaxWidth().height(96.mx).onPreviewKeyEvent { event ->
+                    Box(Modifier.fillMaxWidth().height(96.mx).onPreviewKeyEvent { event ->
                         // Down from the controls row reveals the episode strip (series only).
                         if(episodes.isNotEmpty() && event.nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN) {
                             if(event.nativeKeyEvent.action == AndroidKeyEvent.ACTION_DOWN) { interact(); episodesShown = true }
@@ -555,7 +529,7 @@ fun PlayerScreen(vm: CinemaViewModel) {
                 }
             }
         }
-        if(promptShown && panel == null && !episodesShown && previewPosition == null) {
+        if(promptShown && panel == null && !episodesShown && seekKey == 0) {
             // Skip-intro / next-episode prompt above the controls on the end side (left in RTL).
             // Right above the timeline on the end side; it takes focus when it appears (see the prompt effect).
             val promptModifier = Modifier.align(Alignment.BottomEnd).padding(end = 96.mx, bottom = 252.mx)
@@ -809,12 +783,12 @@ private fun androidx.compose.ui.layout.LayoutCoordinates.windowRect(): IntRect {
  */
 @Composable
 private fun PlayerSeekBar(
-    position: Long, duration: Long, previewing: Boolean, bufferedPosition: Long, modifier: Modifier,
+    position: Long, duration: Long, seeking: Boolean, bufferedPosition: Long, modifier: Modifier,
     onFocusChange: (Boolean) -> Unit, onSelect: () -> Unit
 ) {
     var focused by remember { mutableStateOf(false) }
     var selectPressed by remember { mutableStateOf(false) }
-    val active = focused || previewing
+    val active = focused || seeking
     val halo by animateFloatAsState(if(active) 1f else 0f, tween(160), label = "Seek focus")
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused; onFocusChange(it.isFocused) }
