@@ -4,8 +4,13 @@ import UIKit
 /// Keep the entire hero artwork visible on both tall phone and wide tablet frames.
 /// A dimmed copy fills the unused space while the foreground keeps its original aspect ratio.
 struct HeroArtwork: View {
-    let url: String
-    var fallbackURL = ""
+    let urls: [String]
+
+    init(urls: [String]) { self.urls = urls }
+
+    init(url: String, fallbackURL: String) {
+        urls = fallbackURL == url ? [url] : [url, fallbackURL]
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -38,13 +43,8 @@ struct HeroArtwork: View {
     }
 
     private func remote(size: CGSize) -> some View {
-        AsyncImage(url: url.isEmpty ? nil : URL(string: url), transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
+        CatalogArtworkImage(urls: urls, size: size) { phase in
             if let image = phase.image { fitted(image, size: size) }
-            else if !fallbackURL.isEmpty && fallbackURL != url {
-                AsyncImage(url: URL(string: fallbackURL)) { fallback in
-                    if let image = fallback.image { fitted(image, size: size) }
-                }
-            }
         }
     }
 

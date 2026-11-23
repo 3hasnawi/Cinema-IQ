@@ -2,6 +2,20 @@ import XCTest
 @testable import CinemaCore
 
 final class TVArtworkSelectionTests: XCTestCase {
+    func testFeaturedFormatsPreferMatchingOrientationAndKeepOrderedFallbacks() {
+        var media = Media(id: "cinemana:one", title: "One")
+        media.poster = " provider-poster "; media.backdrop = "provider-backdrop"
+        var metadata = TMDBWork(); metadata.poster = "matched-poster"; metadata.backdrop = "matched-backdrop"
+        XCTAssertEqual(FeaturedArtworkFormat.poster.candidates(for: media, tmdb: metadata, fallbackPoster: "omdb"),
+                       ["matched-poster", "provider-poster", "omdb", "matched-backdrop", "provider-backdrop"])
+        XCTAssertEqual(FeaturedArtworkFormat.backdrop.candidates(for: media, tmdb: metadata, fallbackPoster: "omdb"),
+                       ["matched-backdrop", "provider-backdrop", "matched-poster", "provider-poster", "omdb"])
+        media.poster = " "; media.backdrop = "only-image"
+        XCTAssertEqual(FeaturedArtworkFormat.poster.candidates(for: media, tmdb: nil), ["only-image"])
+        media.poster = "only-image"
+        XCTAssertEqual(FeaturedArtworkFormat.poster.candidates(for: media, tmdb: nil, fallbackPoster: "only-image"), ["only-image"])
+    }
+
     func testMatchedTMDBLandscapeTakesPriorityOverProviderPosterAndBackdrop() {
         var media = Media(id: "cinemana:fixture", title: "Fixture")
         media.backdrop = "https://provider.example/portrait.jpg"; media.poster = "https://provider.example/poster.jpg"

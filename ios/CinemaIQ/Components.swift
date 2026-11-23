@@ -77,11 +77,15 @@ struct SourceMenu: View {
 struct Artwork: View {
     let url: String
     var body: some View {
-        AsyncImage(url: URL(string: url), transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            case .failure: placeholder(icon: "film")
-            default: placeholder(icon: nil)
+        GeometryReader { geometry in
+            CatalogArtworkImage(urls: [url], size: geometry.size) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                case .failure: placeholder(icon: "film")
+                default: placeholder(icon: nil)
+                }
             }
         }
     }

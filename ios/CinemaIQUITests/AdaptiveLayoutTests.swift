@@ -62,6 +62,72 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertTrue(element("ios.home.profile").isHittable)
     }
 
+    func testResumeCardSizesAndAdaptiveFeaturedArt() {
+        executionTimeAllowance = 420
+        let hero = element("ios.home.hero")
+        if tablet { XCTAssertGreaterThan(hero.frame.width, hero.frame.height) }
+        else { XCTAssertGreaterThan(hero.frame.height, hero.frame.width) }
+
+        tab("تصفّح")
+        firstPoster().tap()
+        func watchBriefly() {
+            let play = element("ios.detail.play")
+            waitFor("The selected title should be playable") { play.exists && play.isEnabled && play.isHittable }
+            play.tap()
+            let video = element("ios.player.video")
+            waitFor("Save progress from the local AVPlayer clip") { self.seconds(video) >= 2 }
+            element("ios.player.close").tap()
+            XCTAssertTrue(play.waitForExistence(timeout: 15))
+        }
+        watchBriefly()
+        let back = app.navigationBars.buttons.matching(NSPredicate(
+            format: "identifier == 'Back' OR label IN %@", ["Back", "رجوع", "تصفّح"])).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10)); back.tap()
+        let series = app.segmentedControls.buttons["مسلسلات"]
+        series.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let poster = firstPoster()
+        waitFor("The series should replace the movie grid") { (poster.value as? String) == "مسلسل" }
+        poster.tap()
+        watchBriefly()
+        tab("الرئيسية")
+
+        let cards = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.continue."))
+        waitFor("Both a film and an episode must have persisted") { cards.count >= 2 }
+        let episode = element("ios.continue.ext:demo:open-movies-1")
+        let film = element("ios.continue.ext:demo:big-buck-bunny")
+        XCTAssertTrue(episode.exists && film.exists)
+        XCTAssertEqual(episode.frame.width, film.frame.width, accuracy: 1)
+        XCTAssertEqual(episode.frame.height, film.frame.height, accuracy: 1)
+        XCTAssertEqual(episode.frame.minY, film.frame.minY, accuracy: 1)
+        XCTAssertGreaterThan(film.frame.width, 130)
+        screenshot("adaptive-home-with-history")
+        landscape()
+        waitFor("The wide window must use landscape artwork") { hero.frame.width > hero.frame.height }
+        screenshot("adaptive-home-wide")
+    }
+
+    func testRepeatedNativeTabSwitches() throws {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 2
+        var metrics: [XCTMetric] = [XCTClockMetric()]
+        #if compiler(>=6.2)
+        if #available(iOS 26, *) { metrics.append(XCTHitchMetric(application: app)) }
+        #endif
+        // Warm the first visit, then repeatedly switch the native destinations with their real content.
+        func switchTabs() {
+            tab("تصفّح")
+            XCTAssertTrue(element("ios.catalog").waitForExistence(timeout: 12))
+            tab("التلفزيون")
+            XCTAssertTrue(element("ios.iptv.empty.add").waitForExistence(timeout: 12))
+            tab("مكتبتي")
+            XCTAssertTrue(app.segmentedControls.buttons["قائمتي"].waitForExistence(timeout: 12))
+            tab("الرئيسية")
+            XCTAssertTrue(element("ios.home.hero").waitForExistence(timeout: 12))
+        }
+        switchTabs()
+        measure(metrics: metrics, options: options) { switchTabs() }
+    }
+
     func testNavigationAndRotation() {
         screenshot("home-portrait")
         tab("تصفّح")

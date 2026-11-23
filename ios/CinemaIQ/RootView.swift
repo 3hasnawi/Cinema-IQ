@@ -4,9 +4,7 @@ import CinemaCore
 enum AppTab: Hashable { case home, browse, iptv, library, search }
 
 struct RootView: View {
-    @EnvironmentObject private var library: LibraryStore
     @StateObject private var player = PlayerPresenter()
-    @StateObject private var iptv = IPTVStore()
     @State private var showingSettings = false
     @State private var tab: AppTab = {
 #if DEBUG
@@ -22,10 +20,9 @@ struct RootView: View {
             tabs.defaultAdaptableTabBarPlacement(window.size.width >= 1000 && window.size.width > window.size.height ? .sidebar : .tabBar)
         }
         .environmentObject(player)
-        .environmentObject(iptv)
         .sheet(isPresented: $showingSettings) { settings }
         .fullScreenCover(item: $player.selection) { selection in
-            ResponsiveContainer { PlaybackView(selection: selection).environmentObject(library) }
+            ResponsiveContainer { PlaybackView(selection: selection) }
         }
     }
 
@@ -38,7 +35,7 @@ struct RootView: View {
                 RoutedStack { BrowseView() }
             }
             Tab("التلفزيون", systemImage: PhoneTelevisionSymbol.name, value: AppTab.iptv) {
-                RoutedStack { IPTVView() }
+                LiveTelevisionTab()
             }
             Tab("مكتبتي", systemImage: "bookmark.fill", value: AppTab.library) {
                 RoutedStack { LibraryView() }
@@ -71,6 +68,15 @@ struct RootView: View {
                     }
             }
         }
+    }
+}
+
+/// Live catalog updates should not invalidate the tab bar and every other destination.
+private struct LiveTelevisionTab: View {
+    @StateObject private var store = IPTVStore()
+    var body: some View {
+        RoutedStack { IPTVView() }
+            .environmentObject(store)
     }
 }
 

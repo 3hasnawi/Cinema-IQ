@@ -17,9 +17,12 @@ struct ContentLayout {
     var readableWidth: CGFloat { spacious ? 1000 : .infinity }
     var formWidth: CGFloat { isTablet ? 860 : .infinity }
     var episodeImageWidth: CGFloat { spacious ? 220 : 150 }
+    /// Narrow portrait windows include Split View on iPad. A rotated phone gets a wide hero.
+    var usesPortraitHero: Bool { size.width < 600 && size.height > size.width }
     var heroHeight: CGFloat {
         let width = size.width - (isTablet ? 2 * sideInset : 0)
-        return max(225, min(isTablet ? 480 : 420, width * (isTablet ? 0.54 : 0.86), size.height * 0.52))
+        if usesPortraitHero { return max(260, min(width * 1.5, size.height * 0.66)) }
+        return max(200, min(480, width * 9 / 16, size.height * 0.72))
     }
     var detailHeroHeight: CGFloat { isTablet ? max(300, min(600, size.width * 0.56)) : 430 }
     var panelWidth: CGFloat { isTablet ? min(360, max(200, size.width - 40)) : 300 }
