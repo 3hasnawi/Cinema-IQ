@@ -50,7 +50,8 @@ struct CatalogArtworkImage<Content: View>: View {
         let longest = max(size.width, size.height) * scale
         let pixels = [256, 512, 1024, 1536, 2048].first { CGFloat($0) >= longest } ?? 2048
         let request = Request(urls: urls.compactMap { URL(string: $0) }.filter { $0.scheme != nil }, pixels: pixels)
-        Group {
+        // Empty artwork phases can produce an EmptyView; keep the loader mounted independently.
+        Color.clear.overlay {
             if let displayed, request.urls.contains(displayed.url) {
                 content(.success(Image(decorative: displayed.image, scale: scale)))
             } else if failed || request.urls.isEmpty {

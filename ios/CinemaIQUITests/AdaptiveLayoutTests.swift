@@ -100,10 +100,33 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertEqual(episode.frame.height, film.frame.height, accuracy: 1)
         XCTAssertEqual(episode.frame.minY, film.frame.minY, accuracy: 1)
         XCTAssertGreaterThan(film.frame.width, 130)
+        waitFor("The actual demo poster must draw into the hero, including after returning from another tab") {
+            self.hasVisibleDemoPoster(in: hero.frame)
+        }
         screenshot("adaptive-home-with-history")
         landscape()
         waitFor("The wide window must use landscape artwork") { hero.frame.width > hero.frame.height }
         screenshot("adaptive-home-wide")
+    }
+
+    // The demo poster has bright and dark areas through the middle of the image. Inspect that
+    // area above the hero labels so that a dark placeholder with working controls cannot pass.
+    private func hasVisibleDemoPoster(in hero: CGRect) -> Bool {
+        let frame = app.frame
+        guard let image = XCUIScreen.main.screenshot().image.cgImage,
+              frame.width > 0, frame.height > 0 else { return false }
+        let sx = CGFloat(image.width) / frame.width, sy = CGFloat(image.height) / frame.height
+        let region = CGRect(x: (hero.minX - frame.minX + hero.width * 0.35) * sx,
+                            y: (hero.minY - frame.minY + hero.height * 0.12) * sy,
+                            width: hero.width * 0.30 * sx, height: hero.height * 0.30 * sy)
+        guard let crop = image.cropping(to: region.integral),
+              let context = CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8,
+                                      bytesPerRow: 16, space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: 16, height: 16))
+        guard let bytes = context.data else { return false }
+        let samples = UnsafeBufferPointer(start: bytes.assumingMemoryBound(to: UInt8.self), count: 256)
+        return samples.filter { $0 > 65 }.count >= 16 && Int(samples.max() ?? 0) - Int(samples.min() ?? 0) > 40
     }
 
     func testRepeatedNativeTabSwitches() throws {
