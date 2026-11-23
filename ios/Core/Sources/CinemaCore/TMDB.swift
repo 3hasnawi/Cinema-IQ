@@ -23,7 +23,34 @@ public struct TMDBWork: Codable, Equatable, Sendable {
     public var backdrop = ""
     public var poster = ""
     public var year = ""
+    /// Optional so work entries written by older versions remain readable.
+    public struct PosterInfo: Codable, Equatable, Sendable {
+        public let localizedTitle: String
+        public let originalTitle: String
+        public let rating: String?
+        public let runtimeMinutes: Int?
+    }
+    public var posterInfo: PosterInfo?
     public init() {}
+
+    /// A presentation copy. Playback, history and favorites keep using the provider's original media.
+    public func featuredMedia(for source: Media) -> Media {
+        var display = source
+        if !year.isEmpty { display.year = year }
+        guard let info = posterInfo else { return display }
+        // TMDB can return its original title when no Arabic translation exists.
+        let hasArabicTitle = source.title.range(of: #"\p{script=Arabic}"#, options: .regularExpression) != nil
+        let translationMissing = info.localizedTitle == info.originalTitle &&
+            info.localizedTitle.range(of: #"\p{script=Arabic}"#, options: .regularExpression) == nil
+        if !info.localizedTitle.isEmpty && !(hasArabicTitle && translationMissing) {
+            display.title = info.localizedTitle
+        }
+        if !info.originalTitle.isEmpty { display.enTitle = info.originalTitle }
+        if let minutes = info.runtimeMinutes {
+            display.duration = String(format: "%d:%02d:00", minutes / 60, minutes % 60)
+        }
+        return display
+    }
 }
 
 /// One season in TMDB: its first air date and, by episode number, each episode's date, name, story and still.
@@ -52,17 +79,18 @@ public enum TMDBParser {
     public static func pick(_ results: [[String: Any]], title: String, year: Int?) -> [String: Any]? {
         let wanted = normalize(title)
         guard !wanted.isEmpty else { return nil }
+        var related: [String: Any]?
         for result in results {
-            if text(result, "backdrop_path").isEmpty && text(result, "poster_path").isEmpty { continue }
             let resultYear = Int(text(result, "release_date", "first_air_date").prefix(4))
             if let year, let resultYear, abs(resultYear - year) > 1 { continue }
             let names = [text(result, "title", "name"), text(result, "original_title", "original_name")].map(normalize).filter { !$0.isEmpty }
             let exact = names.contains(wanted)
             let loose = year != nil && resultYear != nil && wanted.count >= 6 &&
                 names.contains { $0.contains(wanted) || (wanted.contains($0) && $0.count >= 6) }
-            if exact || loose { return result }
+            if exact { return result }
+            if loose && related == nil { related = result }
         }
-        return nil
+        return related
     }
 
     /// A work's details page fetched with `append_to_response=credits,external_ids`.
@@ -83,6 +111,15 @@ public enum TMDBParser {
         work.directors = unique((credits["crew"] as? [[String: Any]] ?? []).filter { text($0, "job") == "Director" }.map { text($0, "name") })
         if series { work.creators = unique((data["created_by"] as? [[String: Any]] ?? []).map { text($0, "name") }) }
         work.overview = text(data, "overview")
+        let average = data["vote_average"] as? Double
+        let rating = average.flatMap { value -> String? in
+            guard (data["vote_count"] as? Int ?? 0) > 0, value > 0, value <= 10 else { return nil }
+            return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+        }
+        let runtime = series ? (data["episode_run_time"] as? [Int])?.first(where: { $0 > 0 }) : data["runtime"] as? Int
+        work.posterInfo = .init(localizedTitle: text(data, series ? "name" : "title"),
+                                originalTitle: text(data, series ? "original_name" : "original_title"),
+                                rating: rating, runtimeMinutes: runtime.flatMap { $0 > 0 ? $0 : nil })
         let backdrop = text(data, "backdrop_path"), poster = text(data, "poster_path")
         work.backdrop = backdrop.isEmpty ? "" : images + "w1280" + backdrop
         work.poster = poster.isEmpty ? "" : images + "w780" + poster
@@ -140,14 +177,15 @@ public actor TMDBClient {
         let series = media.isSeries || media.episode > 0
         let cacheKey = "\(series ? "tv" : "movie")|\(media.id)"
         load()
-        if let entry = works[cacheKey], -entry.at.timeIntervalSinceNow < (entry.work == nil ? 86_400 : 7 * 86_400) { return entry.work }
+        if let entry = works[cacheKey], entry.work == nil || entry.work?.posterInfo != nil,
+           -entry.at.timeIntervalSinceNow < (entry.work == nil ? 86_400 : 7 * 86_400) { return entry.work }
         if let running = inFlight[cacheKey] { return await running.value }
         let task = Task { () -> TMDBWork? in
             do {
                 let found = try await self.find(media, series: series)
                 await self.remember(cacheKey, found)
                 return found
-            } catch { return nil }
+            } catch { return self.works[cacheKey]?.work }
         }
         inFlight[cacheKey] = task
         let result = await task.value
@@ -184,7 +222,7 @@ public actor TMDBClient {
                 var query = ["query": title, "language": latin ? "en-US" : "ar", "include_adult": "false"]
                 if useYear, let year { query[series ? "first_air_date_year" : "year"] = String(year) }
                 let results = try await get(series ? "3/search/tv" : "3/search/movie", query)["results"] as? [[String: Any]] ?? []
-                guard let match = TMDBParser.pick(results, title: title, year: useYear ? year : nil), let id = match["id"] as? Int else { continue }
+                guard let match = TMDBParser.pick(results, title: title, year: year), let id = match["id"] as? Int else { continue }
                 let data = try await get("3/\(series ? "tv" : "movie")/\(id)",
                                          ["language": "ar", "append_to_response": "credits,external_ids"])
                 return TMDBParser.work(data, series: series)

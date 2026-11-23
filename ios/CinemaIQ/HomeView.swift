@@ -192,6 +192,7 @@ struct HeroPage: View {
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.zoomNamespace) private var zoom
     var body: some View {
+        let display = currentTMDB?.featuredMedia(for: media) ?? media
         ZStack(alignment: .bottomLeading) {
             HeroArtwork(urls: artworkCandidates)
             LinearGradient(stops: [
@@ -201,16 +202,16 @@ struct HeroPage: View {
             ], startPoint: .top, endPoint: .bottom)
             .allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 6) {
-                if !media.enTitle.isEmpty && media.title.caseInsensitiveCompare(media.enTitle) != .orderedSame {
-                    Text(media.enTitle.uppercased())
+                if !display.enTitle.isEmpty && display.title.caseInsensitiveCompare(display.enTitle) != .orderedSame {
+                    Text(display.enTitle.uppercased())
                         .font(.caption.weight(.semibold)).tracking(1.4)
                         .foregroundStyle(Theme.accent).lineLimit(1)
                         .environment(\.layoutDirection, .leftToRight)
                 }
-                Text(media.title)
+                Text(display.title)
                     .font(.largeTitle.bold()).lineLimit(2)
                     .minimumScaleFactor(0.8)
-                MetaLine(media: media, imdb: currentOMDb?.imdbRating)
+                MetaLine(media: display, tmdbRating: currentTMDB?.posterInfo?.rating)
                 HStack(spacing: 10) {
                     NavigationLink(value: DetailRoute(media: media, key: routeKey)) {
                         Label("عرض التفاصيل", systemImage: "film")
@@ -263,9 +264,10 @@ struct HeroPage: View {
         }
     }
     private var currentOMDb: OMDbInfo? { omdbID == media.id ? omdb : nil }
+    private var currentTMDB: TMDBWork? { tmdbID == media.id ? tmdb : nil }
     private var artworkCandidates: [String] {
         let format: FeaturedArtworkFormat = layout.usesPortraitHero ? .poster : .backdrop
-        return format.candidates(for: media, tmdb: tmdbID == media.id ? tmdb : nil, fallbackPoster: currentOMDb?.largePoster ?? "")
+        return format.candidates(for: media, tmdb: currentTMDB, fallbackPoster: currentOMDb?.largePoster ?? "")
     }
 }
 

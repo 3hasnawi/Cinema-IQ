@@ -1,6 +1,27 @@
 import XCTest
 import UIKit
 
+/// Opt-in check run only when the simulator app is configured with the repository's TMDB key.
+final class LiveFeaturedMetadataTests: XCTestCase {
+    func testFeaturedMovieDisplaysTMDBScoreAndYear() throws {
+        try XCTSkipUnless(Bundle(for: Self.self).url(forResource: "LiveFeaturedCheck", withExtension: "plist") != nil,
+                          "Live TMDB validation is opt-in")
+        let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-static-carousel"]
+        app.launch()
+        let detail = app.buttons["ios.home.detail.ext:demo:big-buck-bunny"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 30))
+        let facts = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "TMDB ", "2008")).firstMatch
+        XCTAssertTrue(facts.waitForExistence(timeout: 40), "The featured film must receive its TMDB rating and release year")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = (UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone") + "-live-tmdb-featured-portrait"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.terminate()
+    }
+}
+
 /// Native touch navigation on the demo catalogue and AVPlayer with a local reference clip.
 final class AdaptiveLayoutTests: XCTestCase {
     private let app = XCUIApplication()

@@ -246,9 +246,9 @@ struct ErrorState: View {
 /// Year, rating, length and quality in one quiet line.
 struct MetaLine: View {
     let media: Media
-    var imdb: String? = nil
+    var tmdbRating: String?
     var body: some View {
-        Text(DisplayFormat.facts(media, imdb: imdb).joined(separator: " · "))
+        Text(DisplayFormat.facts(media, tmdbRating: tmdbRating).joined(separator: " · "))
             .font(.subheadline)
             .foregroundStyle(Theme.muted)
             .lineLimit(1)
@@ -257,10 +257,11 @@ struct MetaLine: View {
 
 enum DisplayFormat {
     /// With an OMDb rating, IMDb's score replaces the source's stars.
-    static func facts(_ media: Media, imdb: String? = nil) -> [String] {
+    static func facts(_ media: Media, imdb: String? = nil, tmdbRating: String? = nil) -> [String] {
         var facts: [String] = []
         if !media.year.isEmpty { facts.append(media.year) }
-        if let imdb, !imdb.isEmpty { facts.append("IMDb \(imdb)") }
+        if let tmdbRating { facts.append("TMDB \(tmdbRating)") }
+        else if let imdb, !imdb.isEmpty { facts.append("IMDb \(imdb)") }
         else if let value = Double(media.rating), value > 0 { facts.append("★ \(media.rating)") }
         let length = duration(media.duration)
         if !length.isEmpty { facts.append(length) }

@@ -14,6 +14,10 @@ on:
         type: choice
         options: [macos-15-intel, macos-15, macos-26]
         default: macos-15-intel
+      live_tmdb:
+        description: Also verify a featured movie against live TMDB metadata on the cinematic tour
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,6 +38,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Select compatible Xcode and generate project
+        env:
+          FEATURED_TMDB_KEY: ${{ inputs.live_tmdb && inputs.scenario == 'cinematic' && secrets.TMDB_API_KEY || '' }}
+          CHECK_LIVE_TMDB: ${{ inputs.live_tmdb && inputs.scenario == 'cinematic' }}
         run: |
           set -euo pipefail
           # Match the hosted iOS 18.5 runtime to its XCTest driver. Latest-SDK
@@ -49,15 +56,20 @@ jobs:
           cp ios/CinemaIQUITests/Fixtures/movie-audio-pattern.mp4 ios/CinemaIQ/Resources/UIPlayerFixture.mp4
           cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQ/Resources/UICompatibilityFixture.mkv
           cd ios
+          if [ "$CHECK_LIVE_TMDB" = true ]; then
+            plutil -create xml1 CinemaIQUITests/LiveFeaturedCheck.plist
+          fi
           xcodegen generate --spec project.yml
-          # Test the licensed fixture without metadata keys or external catalogue accounts.
+          # Default fixtures are offline for metadata. Only an explicitly requested live check uses TMDB.
           python3 - <<'PY'
-          import pathlib, plistlib
+          import os, pathlib, plistlib
           path = pathlib.Path('Generated/Info.plist')
           with path.open('rb') as file:
               info = plistlib.load(file)
           info['OMDbAPIKey'] = ''
-          info['TMDBAPIKey'] = ''
+          info['TMDBAPIKey'] = os.environ.get('FEATURED_TMDB_KEY', '')
+          if os.environ['CHECK_LIVE_TMDB'] == 'true' and not info['TMDBAPIKey']:
+              raise SystemExit('The live poster check requires the TMDB_API_KEY secret')
           with path.open('wb') as file:
               plistlib.dump(info, file)
           PY
@@ -124,6 +136,7 @@ jobs:
         timeout-minutes: ${{ inputs.scenario == 'parity' && 35 || 25 }}
         env:
           UI_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
+          CHECK_LIVE_TMDB: ${{ inputs.live_tmdb && inputs.scenario == 'cinematic' }}
         run: |
           set -o pipefail
           test_ids=(-only-testing:CinemaIQUITests/AdaptiveLayoutTests)
@@ -134,6 +147,9 @@ jobs:
                       -only-testing:CinemaIQUITests/ArtworkParityTests/testTallPosterKeepsBothColoredEdgesInHomeHero
                       -only-testing:CinemaIQUITests/PhoneParityTests/testSearchSubmitDismissesKeyboardAndDetailReturnPreservesQuery
                       -only-testing:CinemaIQUITests/PhoneParityTests/testAccountKeyboardNextAndBothDoneActionsStayDismissedAfterTabReturn)
+            if [ "$CHECK_LIVE_TMDB" = true ]; then
+              test_ids+=(-only-testing:CinemaIQUITests/LiveFeaturedMetadataTests/testFeaturedMovieDisplaysTMDBScoreAndYear)
+            fi
           fi
           if [ "$UI_TEST_SCENARIO" = parity ]; then
             test_ids=(-only-testing:CinemaIQUITests/ArtworkParityTests -only-testing:CinemaIQUITests/PhoneParityTests)
@@ -164,6 +180,20 @@ jobs:
             if [ -d "$RUNNER_TEMP/ios-evidence" ]; then find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete; fi
           fi
           grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
+          # Network diagnostics can contain request URLs. For a credentialed run keep only images,
+          # the XCTest attachment index and test outcome lines in downloadable evidence.
+          if [ "${{ inputs.live_tmdb && inputs.scenario == 'cinematic' }}" = true ]; then
+            for evidence in ios-evidence ios-fallback-evidence; do
+              if [ -d "$RUNNER_TEMP/$evidence" ]; then
+                find "$RUNNER_TEMP/$evidence" -type f ! -name '*.png' ! -name manifest.json -delete
+              fi
+            done
+            rm -f "$RUNNER_TEMP/ios-build.log"
+            if [ -f "$RUNNER_TEMP/ios-layout.log" ]; then
+              grep -E "^Test Case '-\[CinemaIQUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed|started)" "$RUNNER_TEMP/ios-layout.log" > "$RUNNER_TEMP/ios-outcomes.log" || true
+              mv "$RUNNER_TEMP/ios-outcomes.log" "$RUNNER_TEMP/ios-layout.log"
+            fi
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
