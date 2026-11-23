@@ -169,27 +169,30 @@ struct ContinueCard: View {
               progress.seconds >= 0, progress.duration > progress.seconds else { return nil }
         return Int(exactly: ceil((progress.duration - progress.seconds) / 60))
     }
+    private var caption: String {
+        let episode = media.episode > 0 ? "الموسم \(media.season) · الحلقة \(media.episode)" : nil
+        let remaining = remainingMinutes.map { "متبقٍ \($0) د" }
+        return [episode, remaining].compactMap { $0 }.joined(separator: "\n")
+    }
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 5) {
                 ArtworkTile(url: media.backdrop.isEmpty ? media.poster : media.backdrop, aspect: 16.0 / 9.0, corner: 12)
+                    .frame(width: layout.continueWidth, height: layout.continueWidth * 9 / 16)
                     .overlay(alignment: .bottom) {
                         if let progress, progress.duration > 0 {
                             ProgressBar(fraction: progress.seconds / progress.duration).padding(6)
                         }
                     }
                 Text(media.title).font(.subheadline.bold()).lineLimit(1)
-                if media.episode > 0 {
-                    Text("الموسم \(media.season) · الحلقة \(media.episode)")
-                        .font(.caption).foregroundStyle(Theme.muted)
-                }
-                if let remainingMinutes {
-                    Text("متبقٍ \(remainingMinutes) د").font(.caption).foregroundStyle(Theme.muted)
-                }
+                Text(caption)
+                    .font(.caption).foregroundStyle(Theme.muted)
+                    .lineLimit(2, reservesSpace: true)
             }
             .frame(width: layout.continueWidth, alignment: .leading)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ios.continue.\(media.id)")
         .contextMenu {
             Button(role: .destructive, action: remove) { Label("إزالة من تابع المشاهدة", systemImage: "xmark.circle") }
         }

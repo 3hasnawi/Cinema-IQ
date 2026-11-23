@@ -46,7 +46,7 @@ struct HomeView: View {
                         }
                         .padding(.horizontal, layout.sideInset)
                         ScrollView(.horizontal) {
-                            LazyHStack(spacing: 12) {
+                            LazyHStack(alignment: .top, spacing: 12) {
                                 ForEach(recent) { media in
                                     ContinueCard(media: media, progress: library.progress[media.id],
                                                  action: { player.play(media) }, remove: { library.remove(media) })
