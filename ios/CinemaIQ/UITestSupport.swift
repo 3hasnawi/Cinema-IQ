@@ -5,6 +5,7 @@ import Foundation
 /// Neither this flag nor the fixture is part of a Release app.
 enum UITestSupport {
     static let playerFixtureEnabled = ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-player")
+    static let completionFixture = playerFixtureEnabled && ProcessInfo.processInfo.arguments.contains("--cinema-ui-testing-completion")
 
     static func playbackURL(or sourceURL: URL) -> URL? {
         guard playerFixtureEnabled else { return sourceURL }

@@ -180,7 +180,9 @@ import CinemaCore
             known = Dictionary(records.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
             // Unsent edits from this iPhone stay until they reach the server.
             var merged = records.filter { outbox[$0.key] == nil }
-            merged += outbox.map { CloudRecord(key: $0.key, value: $0.value, updatedAt: Date()) }
+            // Flushing multiple offline titles must not give them an arbitrary dictionary order.
+            let activity = outbox.isEmpty ? [:] : library?.playbackActivity() ?? [:]
+            merged += outbox.map { CloudRecord(key: $0.key, value: $0.value, updatedAt: activity[$0.key] ?? Date()) }
             library?.applyRemote(merged)
             status = "تمت المزامنة " + Self.time.string(from: Date())
         } catch is CancellationError {

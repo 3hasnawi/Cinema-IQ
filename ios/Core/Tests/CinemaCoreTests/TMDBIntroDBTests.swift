@@ -2,6 +2,54 @@ import XCTest
 @testable import CinemaCore
 
 final class TMDBIntroDBTests: XCTestCase {
+    func testFeaturedPosterUsesOriginalLanguageAndMatchedMovieMetadataWithoutChangingSourceIdentity() {
+        var media = Media(id: "cinema-id", title: "عنوان المصدر")
+        media.enTitle = "Provider title"; media.duration = "900"; media.year = "2024"; media.quality = "4K"
+        let work = TMDBParser.work(["title": "العنوان العربي", "original_title": "千と千尋の神隠し",
+                                    "release_date": "2025-01-23", "runtime": 139,
+                                    "vote_average": 7.56, "vote_count": 120], series: false)
+        let display = TMDBWork.featuredMedia(for: media, matched: work)
+        XCTAssertEqual(display.title, "千と千尋の神隠し")
+        XCTAssertEqual(display.year, "2025"); XCTAssertEqual(display.duration, "2:19:00")
+        XCTAssertEqual(work.posterInfo?.rating, "7.6")
+        XCTAssertEqual(display.id, media.id); XCTAssertEqual(display.quality, "4K")
+        XCTAssertEqual(media.title, "عنوان المصدر")
+    }
+
+    func testIncompleteTMDBResponsePreservesSourceFieldsAndDoesNotPresentUnratedScore() throws {
+        var media = Media(id: "cinema-id", title: "لا تستسلم أبداً")
+        media.year = "2026"; media.duration = "8340"; media.rating = "6.1"
+        let work = TMDBParser.work(["title": "Never Surrender", "original_title": "Never Surrender",
+                                    "runtime": 0, "vote_count": 0, "vote_average": 10.0], series: false)
+        let display = TMDBWork.featuredMedia(for: media, matched: work)
+        XCTAssertEqual(display.title, "Never Surrender")
+        XCTAssertEqual(display.year, media.year); XCTAssertEqual(display.duration, media.duration)
+        XCTAssertNil(work.posterInfo?.rating); XCTAssertEqual(display.rating, media.rating)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(work)) as? [String: Any])
+        legacy.removeValue(forKey: "posterInfo")
+        let cached = try JSONDecoder().decode(TMDBWork.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(cached.posterInfo); XCTAssertEqual(TMDBWork.featuredMedia(for: media, matched: cached), media)
+    }
+
+    func testFeaturedTitleWhileLoadingAndWhenTheOriginalIsArabic() {
+        var source = Media(id: "demo", title: "الكيت كات")
+        source.enTitle = "Kit Kat"
+        XCTAssertEqual(TMDBWork.featuredMedia(for: source, matched: nil).title, "Kit Kat")
+        let match = TMDBParser.work(["title": "الكيت كات", "original_title": "الكيت كات"], series: false)
+        XCTAssertEqual(TMDBWork.featuredMedia(for: source, matched: match).title, "الكيت كات")
+        source.enTitle = "  "
+        XCTAssertEqual(TMDBWork.featuredMedia(for: source, matched: nil).title, source.title)
+    }
+
+    func testExactTMDBTitleWithoutArtworkBeatsRelatedMovieAndWrongYear() {
+        let results: [[String: Any]] = [
+            ["id": 1, "title": "Never Surrender", "release_date": "1998-01-01"],
+            ["id": 2, "title": "Never Surrender Again", "release_date": "2026-01-01", "poster_path": "/other.jpg"],
+            ["id": 3, "title": "Never Surrender", "release_date": "2026-01-01"],
+        ]
+        XCTAssertEqual(TMDBParser.pick(results, title: "Never Surrender", year: 2026)?["id"] as? Int, 3)
+    }
+
     func testPickMatchesTitleAndYear() {
         let results: [[String: Any]] = [
             ["id": 1, "name": "Slow Horses", "first_air_date": "2010-01-01", "poster_path": "/a.jpg"],

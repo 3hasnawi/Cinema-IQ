@@ -76,12 +76,18 @@ struct SourceMenu: View {
 
 struct Artwork: View {
     let url: String
+    var fallbackURL: String = ""
     var body: some View {
-        AsyncImage(url: URL(string: url), transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            case .failure: placeholder(icon: "film")
-            default: placeholder(icon: nil)
+        GeometryReader { geometry in
+            CatalogArtworkImage(urls: fallbackURL.isEmpty || fallbackURL == url ? [url] : [url, fallbackURL],
+                                size: geometry.size) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                case .failure: placeholder(icon: "film")
+                default: placeholder(icon: nil)
+                }
             }
         }
     }
@@ -95,13 +101,14 @@ struct Artwork: View {
 /// Artwork filling a rounded frame of a fixed aspect ratio; its width comes from the parent.
 struct ArtworkTile: View {
     let url: String
+    var fallbackURL: String = ""
     var aspect: CGFloat = 2.0 / 3.0
     var corner: CGFloat = 16
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
         Color.clear
             .aspectRatio(aspect, contentMode: .fit)
-            .overlay { Artwork(url: url) }
+            .overlay { Artwork(url: url, fallbackURL: fallbackURL) }
             .clipShape(shape)
             .contentShape(shape)
     }
@@ -169,27 +176,31 @@ struct ContinueCard: View {
               progress.seconds >= 0, progress.duration > progress.seconds else { return nil }
         return Int(exactly: ceil((progress.duration - progress.seconds) / 60))
     }
+    private var caption: String {
+        let episode = media.episode > 0 ? "الموسم \(media.season) · الحلقة \(media.episode)" : nil
+        let remaining = remainingMinutes.map { "متبقٍ \($0) د" }
+        return [episode, remaining].compactMap { $0 }.joined(separator: "\n")
+    }
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 5) {
-                ArtworkTile(url: media.backdrop.isEmpty ? media.poster : media.backdrop, aspect: 16.0 / 9.0, corner: 12)
+                ArtworkTile(url: media.backdrop.isEmpty ? media.poster : media.backdrop,
+                            fallbackURL: media.poster, aspect: 16.0 / 9.0, corner: 12)
+                    .frame(width: layout.continueWidth, height: layout.continueWidth * 9 / 16)
                     .overlay(alignment: .bottom) {
                         if let progress, progress.duration > 0 {
                             ProgressBar(fraction: progress.seconds / progress.duration).padding(6)
                         }
                     }
                 Text(media.title).font(.subheadline.bold()).lineLimit(1)
-                if media.episode > 0 {
-                    Text("الموسم \(media.season) · الحلقة \(media.episode)")
-                        .font(.caption).foregroundStyle(Theme.muted)
-                }
-                if let remainingMinutes {
-                    Text("متبقٍ \(remainingMinutes) د").font(.caption).foregroundStyle(Theme.muted)
-                }
+                Text(caption)
+                    .font(.caption).foregroundStyle(Theme.muted)
+                    .lineLimit(2, reservesSpace: true)
             }
             .frame(width: layout.continueWidth, alignment: .leading)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("ios.continue.\(media.id)")
         .contextMenu {
             Button(role: .destructive, action: remove) { Label("إزالة من تابع المشاهدة", systemImage: "xmark.circle") }
         }
@@ -239,9 +250,9 @@ struct ErrorState: View {
 /// Year, rating, length and quality in one quiet line.
 struct MetaLine: View {
     let media: Media
-    var imdb: String? = nil
+    var tmdbRating: String?
     var body: some View {
-        Text(DisplayFormat.facts(media, imdb: imdb).joined(separator: " · "))
+        Text(DisplayFormat.facts(media, tmdbRating: tmdbRating).joined(separator: " · "))
             .font(.subheadline)
             .foregroundStyle(Theme.muted)
             .lineLimit(1)
@@ -250,10 +261,11 @@ struct MetaLine: View {
 
 enum DisplayFormat {
     /// With an OMDb rating, IMDb's score replaces the source's stars.
-    static func facts(_ media: Media, imdb: String? = nil) -> [String] {
+    static func facts(_ media: Media, imdb: String? = nil, tmdbRating: String? = nil) -> [String] {
         var facts: [String] = []
         if !media.year.isEmpty { facts.append(media.year) }
-        if let imdb, !imdb.isEmpty { facts.append("IMDb \(imdb)") }
+        if let tmdbRating { facts.append("TMDB \(tmdbRating)") }
+        else if let imdb, !imdb.isEmpty { facts.append("IMDb \(imdb)") }
         else if let value = Double(media.rating), value > 0 { facts.append("★ \(media.rating)") }
         let length = duration(media.duration)
         if !length.isEmpty { facts.append(length) }

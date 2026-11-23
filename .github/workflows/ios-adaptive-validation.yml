@@ -7,13 +7,17 @@ on:
       scenario:
         description: Layout tour, Apple TV parity, or production movie controls regression
         type: choice
-        options: [all, cinematic, parity, movie_controls, movie_controls_apple, movie_and_episodes, episodes]
+        options: [all, cinematic, continue_watching, keyboard, parity, movie_controls, movie_controls_apple, movie_and_episodes, episodes]
         default: all
       runner:
         description: Hosted macOS runner for simulator validation
         type: choice
         options: [macos-15-intel, macos-15, macos-26]
         default: macos-15-intel
+      live_tmdb:
+        description: Also verify a featured movie against live TMDB metadata on the cinematic tour
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,11 +38,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Select compatible Xcode and generate project
+        env:
+          FEATURED_TMDB_KEY: ${{ inputs.live_tmdb && inputs.scenario == 'cinematic' && secrets.TMDB_API_KEY || '' }}
+          CHECK_LIVE_TMDB: ${{ inputs.live_tmdb && inputs.scenario == 'cinematic' }}
         run: |
           set -euo pipefail
           # Match the hosted iOS 18.5 runtime to its XCTest driver. Latest-SDK
           # Release compilation is covered by ios-app-compile.yml separately.
-          if [[ "$UI_TEST_SCENARIO" != cinematic && -d /Applications/Xcode_16.4.app ]]; then
+          if [[ "$UI_TEST_SCENARIO" != cinematic && "$UI_TEST_SCENARIO" != continue_watching && "$UI_TEST_SCENARIO" != keyboard && -d /Applications/Xcode_16.4.app ]]; then
             chosen=/Applications/Xcode_16.4.app
           else
             chosen="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
@@ -49,15 +56,20 @@ jobs:
           cp ios/CinemaIQUITests/Fixtures/movie-audio-pattern.mp4 ios/CinemaIQ/Resources/UIPlayerFixture.mp4
           cp ios/CinemaIQUITests/Fixtures/compatibility-pattern.mkv ios/CinemaIQ/Resources/UICompatibilityFixture.mkv
           cd ios
+          if [ "$CHECK_LIVE_TMDB" = true ]; then
+            plutil -create xml1 CinemaIQUITests/LiveFeaturedCheck.plist
+          fi
           xcodegen generate --spec project.yml
-          # Test the licensed fixture without metadata keys or external catalogue accounts.
+          # Default fixtures are offline for metadata. Only an explicitly requested live check uses TMDB.
           python3 - <<'PY'
-          import pathlib, plistlib
+          import os, pathlib, plistlib
           path = pathlib.Path('Generated/Info.plist')
           with path.open('rb') as file:
               info = plistlib.load(file)
           info['OMDbAPIKey'] = ''
-          info['TMDBAPIKey'] = ''
+          info['TMDBAPIKey'] = os.environ.get('FEATURED_TMDB_KEY', '')
+          if os.environ['CHECK_LIVE_TMDB'] == 'true' and not info['TMDBAPIKey']:
+              raise SystemExit('The live poster check requires the TMDB_API_KEY secret')
           with path.open('wb') as file:
               plistlib.dump(info, file)
           PY
@@ -74,7 +86,7 @@ jobs:
                       if r['isAvailable'] and '.iOS-' in r['identifier'] and int(r['version'].split('.')[0]) >= 18]
           # Exercise backward compatibility on the oldest installed supported runtime.
           # The device compile check separately uses the newest Xcode/SDK.
-          choose = max if os.environ['UI_TEST_SCENARIO'] == 'cinematic' else min
+          choose = max if os.environ['UI_TEST_SCENARIO'] in ('cinematic','continue_watching','keyboard') else min
           runtime = choose(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
           print('UI test runtime:', runtime, flush=True)
           types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
@@ -115,22 +127,38 @@ jobs:
         timeout-minutes: 10
         run: |
           set -euo pipefail
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool NO
           xcrun simctl boot "$IOS_TEST_DEVICE"
           open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$IOS_TEST_DEVICE"
           xcrun simctl bootstatus "$IOS_TEST_DEVICE" -b
           xcrun simctl io "$IOS_TEST_DEVICE" screenshot "$RUNNER_TEMP/simulator-ready.png"
       - name: Test touch navigation and playback rotation
         # Parity contains ten independent phone cases; retain their individual limits.
-        timeout-minutes: ${{ inputs.scenario == 'parity' && 35 || 25 }}
+        timeout-minutes: ${{ (inputs.scenario == 'parity' || inputs.scenario == 'cinematic') && 35 || 25 }}
         env:
           UI_TEST_SCENARIO: ${{ inputs.scenario || 'all' }}
+          CHECK_LIVE_TMDB: ${{ inputs.live_tmdb && inputs.scenario == 'cinematic' }}
         run: |
           set -o pipefail
           test_ids=(-only-testing:CinemaIQUITests/AdaptiveLayoutTests)
           if [ "$UI_TEST_SCENARIO" = cinematic ]; then
             test_ids=(-only-testing:CinemaIQUITests/AdaptiveLayoutTests/testCinematicHomeAndDirectTelevision
+                      -only-testing:CinemaIQUITests/AdaptiveLayoutTests/testContinueWatchingReordersAndRemovesCompletedMovieAndSeries
+                      -only-testing:CinemaIQUITests/AdaptiveLayoutTests/testResumeCardSizesAndAdaptiveFeaturedArt
+                      -only-testing:CinemaIQUITests/AdaptiveLayoutTests/testRepeatedNativeTabSwitches
+                      -only-testing:CinemaIQUITests/ArtworkParityTests/testTallPosterKeepsBothColoredEdgesInHomeHero
                       -only-testing:CinemaIQUITests/PhoneParityTests/testSearchSubmitDismissesKeyboardAndDetailReturnPreservesQuery
                       -only-testing:CinemaIQUITests/PhoneParityTests/testAccountKeyboardNextAndBothDoneActionsStayDismissedAfterTabReturn)
+            if [ "$CHECK_LIVE_TMDB" = true ]; then
+              test_ids+=(-only-testing:CinemaIQUITests/LiveFeaturedMetadataTests/testFeaturedMovieDisplaysTMDBScoreAndYear)
+            fi
+          fi
+          if [ "$UI_TEST_SCENARIO" = continue_watching ]; then
+            test_ids=(-only-testing:CinemaIQUITests/AdaptiveLayoutTests/testContinueWatchingReordersAndRemovesCompletedMovieAndSeries)
+          fi
+          if [ "$UI_TEST_SCENARIO" = keyboard ]; then
+            test_ids=(-only-testing:CinemaIQUITests/PhoneParityTests/testAccountKeyboardNextAndBothDoneActionsStayDismissedAfterTabReturn
+                      -only-testing:CinemaIQUITests/PhoneParityTests/testSearchSubmitDismissesKeyboardAndDetailReturnPreservesQuery)
           fi
           if [ "$UI_TEST_SCENARIO" = parity ]; then
             test_ids=(-only-testing:CinemaIQUITests/ArtworkParityTests -only-testing:CinemaIQUITests/PhoneParityTests)
@@ -161,6 +189,20 @@ jobs:
             if [ -d "$RUNNER_TEMP/ios-evidence" ]; then find "$RUNNER_TEMP/ios-evidence" -name '*.mp4' -delete; fi
           fi
           grep -E 'error:|failed|Timed out|Testing started|Test Case' "$RUNNER_TEMP/ios-layout.log" | tail -40 || true
+          # Network diagnostics can contain request URLs. For a credentialed run keep only images,
+          # the XCTest attachment index and test outcome lines in downloadable evidence.
+          if [ "${{ inputs.live_tmdb && inputs.scenario == 'cinematic' }}" = true ]; then
+            for evidence in ios-evidence ios-fallback-evidence; do
+              if [ -d "$RUNNER_TEMP/$evidence" ]; then
+                find "$RUNNER_TEMP/$evidence" -type f ! -name '*.png' ! -name manifest.json -delete
+              fi
+            done
+            rm -f "$RUNNER_TEMP/ios-build.log"
+            if [ -f "$RUNNER_TEMP/ios-layout.log" ]; then
+              grep -E "^Test Case '-\[CinemaIQUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed|started)" "$RUNNER_TEMP/ios-layout.log" > "$RUNNER_TEMP/ios-outcomes.log" || true
+              mv "$RUNNER_TEMP/ios-outcomes.log" "$RUNNER_TEMP/ios-layout.log"
+            fi
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

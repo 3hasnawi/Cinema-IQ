@@ -1,6 +1,28 @@
 import XCTest
 import UIKit
 
+/// Opt-in check run only when the simulator app is configured with the repository's TMDB key.
+final class LiveFeaturedMetadataTests: XCTestCase {
+    func testFeaturedMovieDisplaysTMDBScoreAndYear() throws {
+        try XCTSkipUnless(Bundle(for: Self.self).url(forResource: "LiveFeaturedCheck", withExtension: "plist") != nil,
+                          "Live TMDB validation is opt-in")
+        let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["-ios.contentSource.v1", "ext:demo", "--cinema-ui-testing-static-carousel"]
+        app.launch()
+        let detail = app.buttons["ios.home.detail.ext:demo:big-buck-bunny"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 30))
+        let facts = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "TMDB ", "2008")).firstMatch
+        XCTAssertTrue(facts.waitForExistence(timeout: 40), "The featured film must receive its TMDB rating and release year")
+        XCTAssertEqual(app.staticTexts["ios.home.title.ext:demo:big-buck-bunny"].label, "Big Buck Bunny")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = (UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone") + "-live-tmdb-featured-portrait"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.terminate()
+    }
+}
+
 /// Native touch navigation on the demo catalogue and AVPlayer with a local reference clip.
 final class AdaptiveLayoutTests: XCTestCase {
     private let app = XCUIApplication()
@@ -35,7 +57,8 @@ final class AdaptiveLayoutTests: XCTestCase {
 
     func testCinematicHomeAndDirectTelevision() {
         let hero = element("ios.home.hero")
-        let detail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.home.detail.")).firstMatch
+        // SwiftUI can expose prefetched carousel pages before the visible one in its AX order.
+        let detail = app.buttons["ios.home.detail.ext:demo:big-buck-bunny"]
         waitFor("The visible featured title must open with a single tap") { detail.exists && detail.isHittable }
         XCTAssertTrue(hero.frame.intersects(detail.frame))
         screenshot("cinematic-home-portrait")
@@ -60,6 +83,157 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertTrue(element("ios.settings").waitForExistence(timeout: 10))
         tab("الرئيسية")
         XCTAssertTrue(element("ios.home.profile").isHittable)
+    }
+
+    func testResumeCardSizesAndAdaptiveFeaturedArt() {
+        executionTimeAllowance = 420
+        let hero = element("ios.home.hero")
+        if tablet { XCTAssertGreaterThan(hero.frame.width, hero.frame.height) }
+        else { XCTAssertGreaterThan(hero.frame.height, hero.frame.width) }
+
+        tab("تصفّح")
+        firstPoster().tap()
+        func watchBriefly() {
+            let play = element("ios.detail.play")
+            waitFor("The selected title should be playable") { play.exists && play.isEnabled && play.isHittable }
+            play.tap()
+            let video = element("ios.player.video")
+            waitFor("Save progress from the local AVPlayer clip") { self.seconds(video) >= 2 }
+            element("ios.player.close").tap()
+            XCTAssertTrue(play.waitForExistence(timeout: 15))
+        }
+        watchBriefly()
+        let back = app.navigationBars.buttons.matching(NSPredicate(
+            format: "identifier == 'Back' OR label IN %@", ["Back", "رجوع", "تصفّح"])).firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10)); back.tap()
+        let series = app.segmentedControls.buttons["مسلسلات"]
+        series.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let poster = firstPoster()
+        waitFor("The series should replace the movie grid") { (poster.value as? String) == "مسلسل" }
+        poster.tap()
+        watchBriefly()
+        tab("الرئيسية")
+
+        let cards = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.continue."))
+        waitFor("Both a film and an episode must have persisted") { cards.count >= 2 }
+        let episode = element("ios.continue.ext:demo:open-movies-1")
+        let film = element("ios.continue.ext:demo:big-buck-bunny")
+        XCTAssertTrue(episode.exists && film.exists)
+        XCTAssertEqual(episode.frame.width, film.frame.width, accuracy: 1)
+        XCTAssertEqual(episode.frame.height, film.frame.height, accuracy: 1)
+        XCTAssertEqual(episode.frame.minY, film.frame.minY, accuracy: 1)
+        XCTAssertGreaterThan(film.frame.width, 130)
+        XCTAssertGreaterThan(episode.frame.midX, film.frame.midX, "The most recently watched episode is first in RTL")
+        waitFor("The actual demo poster must draw into the hero, including after returning from another tab") {
+            self.hasVisibleDemoPoster(in: hero.frame)
+        }
+        screenshot("adaptive-home-with-history")
+        landscape()
+        waitFor("The wide window must use landscape artwork") { hero.frame.width > hero.frame.height }
+        screenshot("adaptive-home-wide")
+    }
+
+    func testContinueWatchingReordersAndRemovesCompletedMovieAndSeries() {
+        executionTimeAllowance = 480
+        tab("تصفّح")
+        firstPoster().tap()
+        func saveBriefPlayback() {
+            let video = element("ios.player.video")
+            waitFor("The local AVPlayer must advance") { self.seconds(video) >= 2 }
+            element("ios.player.close").tap()
+        }
+        element("ios.detail.play").tap()
+        saveBriefPlayback()
+        let back = app.navigationBars.buttons.matching(NSPredicate(
+            format: "identifier == 'Back' OR label IN %@", ["Back", "رجوع", "تصفّح"])).firstMatch
+        back.tap()
+        let series = app.segmentedControls.buttons["مسلسلات"]
+        series.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let poster = firstPoster()
+        waitFor("Load the demo episode catalogue") { (poster.value as? String) == "مسلسل" }
+        poster.tap()
+        element("ios.detail.play").tap()
+        saveBriefPlayback()
+        tab("الرئيسية")
+        let film = element("ios.continue.ext:demo:big-buck-bunny")
+        func episode(_ number: Int) -> XCUIElement { element("ios.continue.ext:demo:open-movies-\(number)") }
+        waitFor("Latest episode first") { episode(1).exists && film.exists && episode(1).frame.midX > film.frame.midX }
+        film.tap()
+        saveBriefPlayback()
+        waitFor("Reopening an older film moves it to the leading card") { film.frame.midX > episode(1).frame.midX }
+        app.terminate()
+        app.launchArguments[1] = "cinemana"
+        app.launch()
+        XCTAssertTrue(film.waitForExistence(timeout: 20), "Changing catalogues must keep the same profile's watch order")
+        XCTAssertTrue(episode(1).exists)
+        XCTAssertGreaterThan(film.frame.midX, episode(1).frame.midX)
+        app.terminate()
+        app.launchArguments[1] = "ext:demo"
+        app.launchArguments.append("--cinema-ui-testing-completion")
+        app.launch()
+        XCTAssertTrue(film.waitForExistence(timeout: 20))
+        film.tap()
+        XCTAssertTrue(app.staticTexts["انتهت المشاهدة"].waitForExistence(timeout: 30))
+        element("ios.player.close").tap()
+        waitFor("The completed film must disappear while the series stays") { !film.exists && episode(1).exists }
+        for number in 1...4 {
+            let card = episode(number)
+            XCTAssertTrue(card.waitForExistence(timeout: 15))
+            card.tap()
+            let skip = element("ios.player.skipIntro")
+            XCTAssertTrue(skip.waitForExistence(timeout: 15)); skip.tap()
+            XCTAssertTrue(element("ios.player.testCreditsSaved").waitForExistence(timeout: 45),
+                          "The library must record the credits while the video is still playing")
+            if number < 4 { XCTAssertTrue(element("ios.player.nextEpisode").exists) }
+            element("ios.player.close").tap()
+            waitFor("The finished episode must not return when the player closes") { !card.exists }
+        }
+        app.terminate(); app.launch()
+        XCTAssertTrue(element("ios.home.hero").waitForExistence(timeout: 20))
+        XCTAssertFalse(film.exists)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.continue.ext:demo:open-movies-")).firstMatch.exists)
+    }
+
+    // The demo poster has bright and dark areas through the middle of the image. Inspect that
+    // area above the hero labels so that a dark placeholder with working controls cannot pass.
+    private func hasVisibleDemoPoster(in hero: CGRect) -> Bool {
+        let frame = app.frame
+        guard let image = XCUIScreen.main.screenshot().image.cgImage,
+              frame.width > 0, frame.height > 0 else { return false }
+        let sx = CGFloat(image.width) / frame.width, sy = CGFloat(image.height) / frame.height
+        let region = CGRect(x: (hero.minX - frame.minX + hero.width * 0.35) * sx,
+                            y: (hero.minY - frame.minY + hero.height * 0.12) * sy,
+                            width: hero.width * 0.30 * sx, height: hero.height * 0.30 * sy)
+        guard let crop = image.cropping(to: region.integral),
+              let context = CGContext(data: nil, width: 16, height: 16, bitsPerComponent: 8,
+                                      bytesPerRow: 16, space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: 16, height: 16))
+        guard let bytes = context.data else { return false }
+        let samples = UnsafeBufferPointer(start: bytes.assumingMemoryBound(to: UInt8.self), count: 256)
+        return samples.filter { $0 > 65 }.count >= 16 && Int(samples.max() ?? 0) - Int(samples.min() ?? 0) > 40
+    }
+
+    func testRepeatedNativeTabSwitches() throws {
+        let options = XCTMeasureOptions()
+        options.iterationCount = 2
+        var metrics: [XCTMetric] = [XCTClockMetric()]
+        #if compiler(>=6.2)
+        if #available(iOS 26, *) { metrics.append(XCTHitchMetric(application: app)) }
+        #endif
+        // Warm the first visit, then repeatedly switch the native destinations with their real content.
+        func switchTabs() {
+            tab("تصفّح")
+            XCTAssertTrue(element("ios.catalog").waitForExistence(timeout: 12))
+            tab("التلفزيون")
+            XCTAssertTrue(element("ios.iptv.empty.add").waitForExistence(timeout: 12))
+            tab("مكتبتي")
+            XCTAssertTrue(app.segmentedControls.buttons["قائمتي"].waitForExistence(timeout: 12))
+            tab("الرئيسية")
+            XCTAssertTrue(element("ios.home.hero").waitForExistence(timeout: 12))
+        }
+        switchTabs()
+        measure(metrics: metrics, options: options) { switchTabs() }
     }
 
     func testNavigationAndRotation() {

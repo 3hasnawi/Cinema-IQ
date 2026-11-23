@@ -17,6 +17,22 @@ public struct SkipSegments: Codable, Equatable, Sendable {
         guard hasIntro, let end = introEnd else { return false }
         return position >= (introStart ?? 0) && position < end - 2
     }
+    public func introTarget(at position: Double, duration: Double) -> Double? {
+        guard inIntro(position), let end = introEnd, end.isFinite, duration.isFinite, end < duration else { return nil }
+        return end
+    }
+
+    public func inCredits(_ position: Double, duration: Double) -> Bool {
+        guard duration.isFinite, duration > 0, let start = creditsStart, start.isFinite,
+              start > duration / 2, start < duration else { return false }
+        return position >= start
+    }
+
+    public func offersNext(at position: Double, duration: Double) -> Bool {
+        guard duration.isFinite, duration > 0, position.isFinite else { return false }
+        if let start = creditsStart, start > duration / 2, start < duration { return position >= start }
+        return position > 0 && position >= max(0, duration - 20)
+    }
 }
 
 public enum IntroDBParser {
@@ -31,7 +47,8 @@ public enum IntroDBParser {
                 if let ms = number(part[key + "_ms"]) { return ms / 1000 }
                 return number(part[key + "_sec"])
             }
-            guard let start = edge("start"), let end = edge("end"), end > start, start >= 0 else { return nil }
+            guard let start = edge("start"), let end = edge("end"), start.isFinite, end.isFinite,
+                  end > start, start >= 0 else { return nil }
             return (start, end)
         }
         let intro = segment("intro")
