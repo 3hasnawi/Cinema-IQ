@@ -106,6 +106,7 @@ private struct ContinueWatchingShelf: View {
     @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var player: PlayerPresenter
+    @State private var visibleID: Media.ID?
 
     var body: some View {
         let recent = library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source }
@@ -129,6 +130,8 @@ private struct ContinueWatchingShelf: View {
                     .padding(.horizontal, layout.sideInset)
                 }
                 .scrollTargetBehavior(.viewAligned)
+                .scrollPosition(id: $visibleID, anchor: .leading)
+                .onChange(of: recent.first?.id) { _, newest in visibleID = newest }
                 .scrollIndicators(.hidden)
             }
         }

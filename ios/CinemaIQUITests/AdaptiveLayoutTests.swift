@@ -122,6 +122,7 @@ final class AdaptiveLayoutTests: XCTestCase {
         XCTAssertEqual(episode.frame.height, film.frame.height, accuracy: 1)
         XCTAssertEqual(episode.frame.minY, film.frame.minY, accuracy: 1)
         XCTAssertGreaterThan(film.frame.width, 130)
+        XCTAssertGreaterThan(episode.frame.midX, film.frame.midX, "The most recently watched episode is first in RTL")
         waitFor("The actual demo poster must draw into the hero, including after returning from another tab") {
             self.hasVisibleDemoPoster(in: hero.frame)
         }
@@ -129,6 +130,60 @@ final class AdaptiveLayoutTests: XCTestCase {
         landscape()
         waitFor("The wide window must use landscape artwork") { hero.frame.width > hero.frame.height }
         screenshot("adaptive-home-wide")
+    }
+
+    func testContinueWatchingReordersAndRemovesCompletedMovieAndSeries() {
+        executionTimeAllowance = 480
+        tab("تصفّح")
+        firstPoster().tap()
+        func saveBriefPlayback() {
+            let video = element("ios.player.video")
+            waitFor("The local AVPlayer must advance") { self.seconds(video) >= 2 }
+            element("ios.player.close").tap()
+        }
+        element("ios.detail.play").tap()
+        saveBriefPlayback()
+        let back = app.navigationBars.buttons.matching(NSPredicate(
+            format: "identifier == 'Back' OR label IN %@", ["Back", "رجوع", "تصفّح"])).firstMatch
+        back.tap()
+        let series = app.segmentedControls.buttons["مسلسلات"]
+        series.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let poster = firstPoster()
+        waitFor("Load the demo episode catalogue") { (poster.value as? String) == "مسلسل" }
+        poster.tap()
+        element("ios.detail.play").tap()
+        saveBriefPlayback()
+        tab("الرئيسية")
+        let film = element("ios.continue.ext:demo:big-buck-bunny")
+        func episode(_ number: Int) -> XCUIElement { element("ios.continue.ext:demo:open-movies-\(number)") }
+        waitFor("Latest episode first") { episode(1).exists && film.exists && episode(1).frame.midX > film.frame.midX }
+        film.tap()
+        saveBriefPlayback()
+        waitFor("Reopening an older film moves it to the leading card") { film.frame.midX > episode(1).frame.midX }
+        app.terminate()
+        app.launchArguments.append("--cinema-ui-testing-completion")
+        app.launch()
+        XCTAssertTrue(film.waitForExistence(timeout: 20))
+        film.tap()
+        XCTAssertTrue(app.staticTexts["انتهت المشاهدة"].waitForExistence(timeout: 30))
+        element("ios.player.close").tap()
+        waitFor("The completed film must disappear while the series stays") { !film.exists && episode(1).exists }
+        for number in 1...4 {
+            let card = episode(number)
+            XCTAssertTrue(card.waitForExistence(timeout: 15))
+            card.tap()
+            let skip = element("ios.player.skipIntro")
+            XCTAssertTrue(skip.waitForExistence(timeout: 15)); skip.tap()
+            let video = element("ios.player.video")
+            waitFor("Skipping the intro reaches the credits of this episode") { self.seconds(video) >= 151 }
+            if number < 4 { XCTAssertTrue(element("ios.player.nextEpisode").exists) }
+            element("ios.player.close").tap()
+            waitFor("The finished episode must not return when the player closes") { !card.exists }
+        }
+        app.terminate(); app.launch()
+        XCTAssertTrue(element("ios.home.hero").waitForExistence(timeout: 20))
+        XCTAssertFalse(film.exists)
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.continue.ext:demo:open-movies-")).firstMatch.exists)
     }
 
     // The demo poster has bright and dark areas through the middle of the image. Inspect that

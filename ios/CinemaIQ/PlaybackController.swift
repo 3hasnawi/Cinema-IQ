@@ -109,6 +109,9 @@ struct MediaOption: Identifiable, Hashable {
     private var selectionTask: Task<Void, Never>?
     private var subtitleTask: Task<Void, Never>?
     private var ticks = 0
+    private var watchedThroughCredits = false
+    private(set) var persistedCompletion = false
+    private(set) var currentMediaID: String?
     private static let arabicWindows = String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(
         CFStringEncoding(CFStringEncodings.windowsArabic.rawValue)))
 
@@ -125,6 +128,7 @@ struct MediaOption: Identifiable, Hashable {
 
     func open(_ media: Media, url: URL, resume: Double, initiallyPlaying: Bool = true, save: @escaping (Double, Double, Bool) -> Void) {
         close(); self.save = save; error = nil; lastFailure = nil; ended = false; position = max(0, resume); duration = 0; ticks = 0
+        watchedThroughCredits = false; persistedCompletion = false; currentMediaID = media.id
         currentURL = url; fallbackAttempted = false; wantsPlay = initiallyPlaying
         let lease = UUID(); audioLease = lease; buffering = true
         openingTask = Task { [weak self] in
@@ -253,7 +257,7 @@ struct MediaOption: Identifiable, Hashable {
             guard let self, usesCompatibility else { return }
             let nextPosition = pendingMovieSeek ?? value.position
             if position != nextPosition { position = nextPosition }
-            if duration != value.duration { duration = value.duration }
+            if value.duration.isFinite, value.duration > 0, duration != value.duration { duration = value.duration }
             if playing != value.playing { playing = value.playing }
             if buffering != value.buffering { buffering = value.buffering }
             if audioOptions != value.audio { audioOptions = value.audio }
@@ -351,14 +355,24 @@ struct MediaOption: Identifiable, Hashable {
     }
 
     func persist(completed: Bool = false) {
-        guard !externalPlayback else { return }
+        guard !externalPlayback, !persistedCompletion else { return }
         // The periodic clock/seek already maintains this snapshot. Do not synchronously query
         // a remote asset again during dismissal if its connection has stalled.
         guard position.isFinite, duration.isFinite, duration > 0 else { return }
-        save?(position, duration, completed || ended)
+        let watched = completed || ended || watchedThroughCredits
+        if watched { persistedCompletion = true }
+        save?(position, duration, watched)
+    }
+
+    /// Reaching credits updates the library while the credits keep playing.
+    func creditAsWatched() {
+        guard hasItem else { return }
+        watchedThroughCredits = true
+        persist()
     }
 
     func togglePlay() {
+        if ended { watchedThroughCredits = false; persistedCompletion = false }
         if usesCompatibility {
             if ended { ended = false; position = 0; restartOnResume = true; play() }
             else if playing { pause() } else { play() }
@@ -467,7 +481,7 @@ struct MediaOption: Identifiable, Hashable {
         let lease = audioLease; audioLease = nil
         let retirement = compatibility.close()
         releaseNative(); usesCompatibility = false
-        currentURL = nil; save = nil; playing = false; buffering = false; restartOnResume = false; pendingMode = nil; pendingMovieSeek = nil
+        currentURL = nil; currentMediaID = nil; save = nil; playing = false; buffering = false; restartOnResume = false; pendingMode = nil; pendingMovieSeek = nil
         if let lease {
             // Returning to details must not wait for a slow decoder/network/audio shutdown.
             // The lease guard also protects a movie opened immediately after pressing Back.

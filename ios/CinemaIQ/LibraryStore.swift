@@ -55,6 +55,19 @@ struct WatchProgress: Codable {
         return entry.completed ? 1 : entry.seconds / entry.duration
     }
 
+    func remainingEpisode(after media: Media, in queue: [Media]) -> Media? {
+        ContinueWatching.remainingEpisode(after: media, in: queue) { progress[$0]?.completed == true }
+    }
+
+    private func ranked(_ items: [Media], recentDates: [String: Date] = [:]) -> [Media] {
+        var dates = recentDates
+        for entry in progress.values {
+            let key = entry.media.recentKey
+            dates[key] = max(dates[key] ?? .distantPast, entry.updatedAt)
+        }
+        return ContinueWatching.ordered(items, activity: dates) { progress[$0]?.completed == true }
+    }
+
     func toggle(_ media: Media) {
         let adding = !isFavorite(media)
         if adding { favorites.insert(media, at: 0) } else { favorites.removeAll { $0.id == media.id } }
@@ -103,9 +116,10 @@ struct WatchProgress: Codable {
         let localProgress = progress.filter { $0.key.hasPrefix("ext:") }
         let ordered = records.sorted { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
         favorites = ordered.filter { $0.key.hasPrefix("favorite/") }.compactMap { CloudLibraryCodec.film($0.value) } + localFavorites
-        recent = ordered.filter { $0.key.hasPrefix("recent/") }.compactMap { CloudLibraryCodec.film($0.value) } + localRecent
+        let recentRecords = ordered.filter { $0.key.hasPrefix("recent/") }
+        let candidates = recentRecords.compactMap { CloudLibraryCodec.film($0.value) } + localRecent
         var known: [String: Media] = [:]
-        for media in favorites + recent { known[media.id] = media }
+        for media in favorites + candidates { known[media.id] = media }
         var next: [String: WatchProgress] = [:]
         for record in ordered where record.key.hasPrefix("playback/") {
             guard let playback = CloudLibraryCodec.playback(record.value), playback.duration > 0 else { continue }
@@ -116,7 +130,8 @@ struct WatchProgress: Codable {
         }
         progress = next.merging(localProgress) { remote, _ in remote }
         // Continue watching in order of the last watch, local and synced items together.
-        if !localRecent.isEmpty { recent.sort { (progress[$0.id]?.updatedAt ?? .distantPast) > (progress[$1.id]?.updatedAt ?? .distantPast) } }
+        let recentDates = Dictionary(recentRecords.map { ($0.key, $0.updatedAt ?? .distantPast) }, uniquingKeysWith: max)
+        recent = ranked(candidates, recentDates: recentDates)
         persist()
     }
 
@@ -158,7 +173,8 @@ struct WatchProgress: Codable {
         favorites = (defaults.data(forKey: "\(prefix).favorites.v1")).flatMap { try? JSONDecoder().decode([Media].self, from: $0) } ?? []
         progress = (defaults.data(forKey: "\(prefix).progress.v1")).flatMap { try? JSONDecoder().decode([String: WatchProgress].self, from: $0) } ?? [:]
         if let data = defaults.data(forKey: "\(prefix).recent.v1"), let list = try? JSONDecoder().decode([Media].self, from: data) {
-            recent = list
+            // The saved order already includes any cloud recent timestamps and next-episode handoffs.
+            recent = ContinueWatching.ordered(list, activity: [:]) { progress[$0]?.completed == true }
         } else {
             // First run after the update: continue watching used to be worked out from progress.
             var groups = Set<String>()

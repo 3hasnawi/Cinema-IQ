@@ -40,6 +40,7 @@ struct PlaybackView: View {
     @State private var fetchedQueue: [Media] = []
     /// IntroDB timings of what plays: the opening (skip button) and the start of the end credits.
     @State private var skips = SkipSegments()
+    @State private var timedMediaID: String?
     @State private var fetchedSeries: Media?
     @StateObject private var controller = PlaybackController(enginePreference: .phoneMovies)
     @EnvironmentObject private var library: LibraryStore
@@ -77,11 +78,14 @@ struct PlaybackView: View {
     }
     /// Use IntroDB's credits, or the same final 20 seconds offered by the TV player.
     private var offerNext: Bool {
-        guard next != nil, !controller.ended, let left = controller.remaining else { return false }
-        if let credits = skips.creditsStart, controller.duration > 0, credits < controller.duration, controller.position >= credits { return true }
-        return left <= 20
+        next != nil && controller.currentMediaID == current.id && !controller.ended &&
+            currentTimings.offersNext(at: controller.position, duration: controller.duration)
     }
-    private var inIntro: Bool { skips.inIntro(controller.position) }
+    private var currentTimings: SkipSegments { timedMediaID == current.id ? skips : SkipSegments() }
+    private var reachedEpisodeCredits: Bool {
+        current.episode > 0 && controller.currentMediaID == current.id &&
+            currentTimings.inCredits(controller.position, duration: controller.duration)
+    }
     private var pausedInformation: Bool {
         !controller.playing && !controller.buffering && !loading && !controller.ended &&
             controller.position > 0 && resolutionError == nil && controller.error == nil
@@ -136,15 +140,25 @@ struct PlaybackView: View {
                 .accessibilityHidden(!controlsVisible)
                 .animation(controlsVisible || reduceMotion ? nil : .easeInOut(duration: 0.3), value: controlsVisible)
             // Skip the opening: shown during it whether or not the controls are, above the timeline.
-            if inIntro, let end = skips.introEnd, resolutionError == nil, controller.error == nil {
+            if !controller.ended, controller.currentMediaID == current.id, resolutionError == nil, controller.error == nil,
+               currentTimings.introTarget(at: controller.position, duration: controller.duration) != nil || offerNext {
                 VStack {
                     Spacer()
                     HStack {
                         Spacer()
-                        Button { controller.seek(to: end) } label: {
-                            Label("تخطي المقدمة", systemImage: "forward.fill").font(.headline)
+                        if let end = currentTimings.introTarget(at: controller.position, duration: controller.duration) {
+                            Button { controller.seek(to: end) } label: {
+                                Label("تخطي المقدمة", systemImage: "forward.fill").font(.headline)
+                            }
+                            .primaryAction()
+                            .accessibilityIdentifier("ios.player.skipIntro")
+                        } else if let next {
+                            Button { controller.creditAsWatched(); active = next } label: {
+                                Label("الحلقة التالية", systemImage: "forward.end.fill").font(.headline)
+                            }
+                            .primaryAction()
+                            .accessibilityIdentifier("ios.player.nextEpisode")
                         }
-                        .primaryAction()
                     }
                 }
                 .padding(.horizontal, 16)
@@ -234,12 +248,25 @@ struct PlaybackView: View {
             overlayInfo = found
         }
         .task(id: "skips-\(current.id)") {
-            skips = SkipSegments()
+            timedMediaID = nil
             let identity = current.id
+#if DEBUG
+            if UITestSupport.completionFixture, current.isExternal, current.episode > 0 {
+                // Deterministic IntroDB response for the 180-second licensed AVPlayer test asset.
+                let json = #"{"imdb_id":"tt0000001","is_movie":false,"season":1,"episode":\#(current.episode),"intro":{"start_sec":0,"end_sec":148},"outro":{"start_sec":150,"end_sec":180}}"#
+                skips = IntroDBParser.parse(Data(json.utf8), imdbID: "tt0000001", season: current.season, episode: current.episode, movie: false)
+                timedMediaID = identity
+                return
+            }
+#endif
             let found = await SkipTimings.load(current, series: selection.series ?? fetchedSeries, omdb: OMDb.shared)
             guard !exiting, !Task.isCancelled, current.id == identity else { return }
             skips = found.segments
+            timedMediaID = identity
             if fetchedSeries == nil { fetchedSeries = found.series }
+        }
+        .onChange(of: reachedEpisodeCredits) { _, reached in
+            if reached && !exiting { controller.creditAsWatched() }
         }
         .onAppear { previousIdleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true }
         .onChange(of: phase) { _, value in
@@ -290,15 +317,6 @@ struct PlaybackView: View {
                 Spacer()
                 if let notice = controller.notice {
                     Text(notice).font(.footnote).padding(.horizontal, 12).padding(.vertical, 6).glass(in: Capsule())
-                }
-                if offerNext, let next {
-                    HStack {
-                        Spacer()
-                        Button { active = next } label: {
-                            Label("الحلقة التالية", systemImage: "forward.end.fill").font(.headline)
-                        }
-                        .primaryAction()
-                    }
                 }
                 scrubber
             }
@@ -615,8 +633,14 @@ struct PlaybackView: View {
         #else
         let playbackURL = stream.url
         #endif
-        controller.open(media, url: playbackURL, resume: resume, initiallyPlaying: shouldPlay && phase == .active) { seconds, duration, completed in
-            library.save(media, seconds: seconds, duration: duration, completed: completed, next: completed ? following(media) : nil)
+        var startingPosition = resume
+#if DEBUG
+        if UITestSupport.completionFixture, media.isExternal, media.episode == 0 { startingPosition = 176 }
+#endif
+        controller.open(media, url: playbackURL, resume: startingPosition, initiallyPlaying: shouldPlay && phase == .active) { seconds, duration, completed in
+            let watched = completed || (media.episode > 0 && timedMediaID == media.id && skips.inCredits(seconds, duration: duration))
+            library.save(media, seconds: seconds, duration: duration, completed: watched,
+                         next: watched ? library.remainingEpisode(after: media, in: queue) : nil)
         }
         controller.setQuality(maximumHeight: qualityMode.height)
 #if DEBUG
@@ -632,6 +656,11 @@ struct PlaybackView: View {
         guard let found = try? await SourceClient().detail(media),
               !exiting, !Task.isCancelled, current.id == media.id else { return }
         fetchedQueue = found.1.flatMap(\.episodes)
+        // A short episode can end before the provider returns the season catalogue.
+        if controller.currentMediaID == media.id, controller.persistedCompletion,
+           let remaining = library.remainingEpisode(after: media, in: fetchedQueue) {
+            library.save(media, seconds: controller.position, duration: controller.duration, completed: true, next: remaining)
+        }
         if found.0.isSeries && fetchedSeries == nil { fetchedSeries = found.0 }
     }
 

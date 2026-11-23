@@ -7,7 +7,7 @@ on:
       scenario:
         description: Layout tour, Apple TV parity, or production movie controls regression
         type: choice
-        options: [all, cinematic, parity, movie_controls, movie_controls_apple, movie_and_episodes, episodes]
+        options: [all, cinematic, continue_watching, parity, movie_controls, movie_controls_apple, movie_and_episodes, episodes]
         default: all
       runner:
         description: Hosted macOS runner for simulator validation
@@ -45,7 +45,7 @@ jobs:
           set -euo pipefail
           # Match the hosted iOS 18.5 runtime to its XCTest driver. Latest-SDK
           # Release compilation is covered by ios-app-compile.yml separately.
-          if [[ "$UI_TEST_SCENARIO" != cinematic && -d /Applications/Xcode_16.4.app ]]; then
+          if [[ "$UI_TEST_SCENARIO" != cinematic && "$UI_TEST_SCENARIO" != continue_watching && -d /Applications/Xcode_16.4.app ]]; then
             chosen=/Applications/Xcode_16.4.app
           else
             chosen="$(ls -d /Applications/Xcode_*.app | grep -viE 'beta|release_candidate' | sort -V | tail -1)"
@@ -86,7 +86,7 @@ jobs:
                       if r['isAvailable'] and '.iOS-' in r['identifier'] and int(r['version'].split('.')[0]) >= 18]
           # Exercise backward compatibility on the oldest installed supported runtime.
           # The device compile check separately uses the newest Xcode/SDK.
-          choose = max if os.environ['UI_TEST_SCENARIO'] == 'cinematic' else min
+          choose = max if os.environ['UI_TEST_SCENARIO'] in ('cinematic','continue_watching') else min
           runtime = choose(runtimes, key=lambda r: tuple(map(int,r['version'].split('.'))))['identifier']
           print('UI test runtime:', runtime, flush=True)
           types = json.loads(sim('list','devicetypes','--json'))['devicetypes']
@@ -150,6 +150,9 @@ jobs:
             if [ "$CHECK_LIVE_TMDB" = true ]; then
               test_ids+=(-only-testing:CinemaIQUITests/LiveFeaturedMetadataTests/testFeaturedMovieDisplaysTMDBScoreAndYear)
             fi
+          fi
+          if [ "$UI_TEST_SCENARIO" = continue_watching ]; then
+            test_ids=(-only-testing:CinemaIQUITests/AdaptiveLayoutTests/testContinueWatchingReordersAndRemovesCompletedMovieAndSeries)
           fi
           if [ "$UI_TEST_SCENARIO" = parity ]; then
             test_ids=(-only-testing:CinemaIQUITests/ArtworkParityTests -only-testing:CinemaIQUITests/PhoneParityTests)

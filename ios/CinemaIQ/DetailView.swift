@@ -33,11 +33,13 @@ struct DetailView: View {
     private var target: Media? {
         if current.episode > 0 || (!current.isSeries && seasons.isEmpty) { return current }
         let all = queue
+        if let saved = library.recent.first(where: { $0.seriesID == current.id }),
+           let episode = all.first(where: { $0.id == saved.id }) { return episode }
         let watched = all.compactMap { episode in library.progress[episode.id].map { (episode, $0) } }
             .sorted { $0.1.updatedAt > $1.1.updatedAt }
         if let latest = watched.first {
             if !latest.1.completed { return latest.0 }
-            if let index = all.firstIndex(where: { $0.id == latest.0.id }), all.indices.contains(index + 1) { return all[index + 1] }
+            if let remaining = library.remainingEpisode(after: latest.0, in: all) { return remaining }
         }
         return all.first
     }
