@@ -57,7 +57,8 @@ final class AdaptiveLayoutTests: XCTestCase {
 
     func testCinematicHomeAndDirectTelevision() {
         let hero = element("ios.home.hero")
-        let detail = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "ios.home.detail.")).firstMatch
+        // SwiftUI can expose prefetched carousel pages before the visible one in its AX order.
+        let detail = app.buttons["ios.home.detail.ext:demo:big-buck-bunny"]
         waitFor("The visible featured title must open with a single tap") { detail.exists && detail.isHittable }
         XCTAssertTrue(hero.frame.intersects(detail.frame))
         screenshot("cinematic-home-portrait")
