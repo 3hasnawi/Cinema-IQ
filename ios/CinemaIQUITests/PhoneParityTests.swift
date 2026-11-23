@@ -51,6 +51,9 @@ final class PhoneParityTests: XCTestCase {
         // Sending keys through the app cannot implicitly focus the password field.
         // Login becoming enabled and the unchanged email prove that native Next moved focus.
         dismissKeyboardIntroductionIfPresent()
+        waitFor("Next must finish switching to the secure field's native Done keyboard") {
+            self.keyboardButton(["Done", "تم"]) != nil
+        }
         app.typeText("preview-only")
         dismissKeyboardIntroductionIfPresent()
         waitFor("Next must move to the password field") {
