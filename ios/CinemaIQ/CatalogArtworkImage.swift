@@ -14,7 +14,8 @@ private actor CatalogThumbnails {
         let key = "\(pixels):\(url.absoluteString)" as NSString
         try Task.checkCancellation()
         if let image = images.object(forKey: key) { return image }
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let request = URLRequest(url: url, timeoutInterval: 10)
+        let (data, response) = try await URLSession.shared.data(for: request)
         try Task.checkCancellation()
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw URLError(.badServerResponse)

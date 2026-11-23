@@ -76,9 +76,11 @@ struct SourceMenu: View {
 
 struct Artwork: View {
     let url: String
+    var fallbackURL: String = ""
     var body: some View {
         GeometryReader { geometry in
-            CatalogArtworkImage(urls: [url], size: geometry.size) { phase in
+            CatalogArtworkImage(urls: fallbackURL.isEmpty || fallbackURL == url ? [url] : [url, fallbackURL],
+                                size: geometry.size) { phase in
                 switch phase {
                 case .success(let image):
                     image.resizable().scaledToFill()
@@ -99,13 +101,14 @@ struct Artwork: View {
 /// Artwork filling a rounded frame of a fixed aspect ratio; its width comes from the parent.
 struct ArtworkTile: View {
     let url: String
+    var fallbackURL: String = ""
     var aspect: CGFloat = 2.0 / 3.0
     var corner: CGFloat = 16
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: corner, style: .continuous)
         Color.clear
             .aspectRatio(aspect, contentMode: .fit)
-            .overlay { Artwork(url: url) }
+            .overlay { Artwork(url: url, fallbackURL: fallbackURL) }
             .clipShape(shape)
             .contentShape(shape)
     }
@@ -181,7 +184,8 @@ struct ContinueCard: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 5) {
-                ArtworkTile(url: media.backdrop.isEmpty ? media.poster : media.backdrop, aspect: 16.0 / 9.0, corner: 12)
+                ArtworkTile(url: media.backdrop.isEmpty ? media.poster : media.backdrop,
+                            fallbackURL: media.poster, aspect: 16.0 / 9.0, corner: 12)
                     .frame(width: layout.continueWidth, height: layout.continueWidth * 9 / 16)
                     .overlay(alignment: .bottom) {
                         if let progress, progress.duration > 0 {

@@ -161,6 +161,13 @@ final class AdaptiveLayoutTests: XCTestCase {
         saveBriefPlayback()
         waitFor("Reopening an older film moves it to the leading card") { film.frame.midX > episode(1).frame.midX }
         app.terminate()
+        app.launchArguments[1] = "cinemana"
+        app.launch()
+        XCTAssertTrue(film.waitForExistence(timeout: 20), "Changing catalogues must keep the same profile's watch order")
+        XCTAssertTrue(episode(1).exists)
+        XCTAssertGreaterThan(film.frame.midX, episode(1).frame.midX)
+        app.terminate()
+        app.launchArguments[1] = "ext:demo"
         app.launchArguments.append("--cinema-ui-testing-completion")
         app.launch()
         XCTAssertTrue(film.waitForExistence(timeout: 20))

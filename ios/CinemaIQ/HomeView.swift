@@ -18,7 +18,6 @@ struct HomeView: View {
     /// The source whose shelves are on screen. Coming back from a title page re-runs `.task`; the page must
     /// then stay as it was (same rows, same scroll position) instead of reloading from the top.
     @State private var loadedSource: String?
-    private var source: ContentSource { SourcePreference.source(sourceName) }
     @State private var featured: [Media] = []
 
     var body: some View {
@@ -33,7 +32,7 @@ struct HomeView: View {
                         .clipShape(RoundedRectangle(cornerRadius: layout.isTablet ? 20 : 0, style: .continuous))
                         .padding(.horizontal, layout.isTablet ? layout.sideInset : 0)
                 }
-                ContinueWatchingShelf(source: source, openLibrary: openLibrary)
+                ContinueWatchingShelf(openLibrary: openLibrary)
                 ForEach(shelves) { shelf in ShelfSection(shelf: shelf) }
                 if let error, shelves.isEmpty {
                     ErrorState(message: error) { Task { await load() } }
@@ -101,7 +100,6 @@ struct HomeView: View {
 }
 
 private struct ContinueWatchingShelf: View {
-    let source: ContentSource
     let openLibrary: () -> Void
     @Environment(\.contentLayout) private var layout
     @EnvironmentObject private var library: LibraryStore
@@ -109,7 +107,7 @@ private struct ContinueWatchingShelf: View {
     @State private var visibleID: Media.ID?
 
     var body: some View {
-        let recent = library.recent.filter { (try? ContentSource.owner(of: $0.id)) == source }
+        let recent = library.recent
         if !recent.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {

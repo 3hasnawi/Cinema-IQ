@@ -59,13 +59,14 @@ struct WatchProgress: Codable {
         ContinueWatching.remainingEpisode(after: media, in: queue) { progress[$0]?.completed == true }
     }
 
-    private func ranked(_ items: [Media], recentDates: [String: Date] = [:]) -> [Media] {
-        var dates = recentDates
+    func playbackActivity() -> [String: Date] {
+        var dates: [String: Date] = [:]
         for entry in progress.values {
+            dates["playback/\(entry.media.id)"] = entry.updatedAt
             let key = entry.media.recentKey
             dates[key] = max(dates[key] ?? .distantPast, entry.updatedAt)
         }
-        return ContinueWatching.ordered(items, activity: dates) { progress[$0]?.completed == true }
+        return dates
     }
 
     func toggle(_ media: Media) {
@@ -78,7 +79,7 @@ struct WatchProgress: Codable {
     /// Saves the position. A finished episode hands continue watching to [next] (the following episode), or
     /// takes the series off it when there is none, as on Android.
     func save(_ media: Media, seconds: Double, duration: Double, completed: Bool = false, next: Media? = nil) {
-        guard seconds.isFinite, duration.isFinite, seconds >= 0, duration > 0 else { return }
+        guard seconds.isFinite, duration.isFinite, seconds >= 0, duration > 0, completed || seconds > 0 else { return }
         progress[media.id] = WatchProgress(media: media, seconds: min(seconds, duration), duration: duration, completed: completed, updatedAt: Date())
         var records = ["playback/\(media.id)": CloudLibraryCodec.playbackJSON(
             .init(seconds: min(seconds, duration), duration: duration, completed: completed, watched: completed ? media : nil))]
@@ -131,7 +132,8 @@ struct WatchProgress: Codable {
         progress = next.merging(localProgress) { remote, _ in remote }
         // Continue watching in order of the last watch, local and synced items together.
         let recentDates = Dictionary(recentRecords.map { ($0.key, $0.updatedAt ?? .distantPast) }, uniquingKeysWith: max)
-        recent = ranked(candidates, recentDates: recentDates)
+        let activity = playbackActivity().merging(recentDates, uniquingKeysWith: max)
+        recent = ContinueWatching.ordered(candidates, activity: activity) { progress[$0]?.completed == true }
         persist()
     }
 
