@@ -192,7 +192,7 @@ struct HeroPage: View {
     @EnvironmentObject private var player: PlayerPresenter
     @Environment(\.zoomNamespace) private var zoom
     var body: some View {
-        let display = currentTMDB?.featuredMedia(for: media) ?? media
+        let display = TMDBWork.featuredMedia(for: media, matched: currentTMDB)
         ZStack(alignment: .bottomLeading) {
             HeroArtwork(urls: artworkCandidates)
             LinearGradient(stops: [
@@ -202,15 +202,10 @@ struct HeroPage: View {
             ], startPoint: .top, endPoint: .bottom)
             .allowsHitTesting(false)
             VStack(alignment: .leading, spacing: 6) {
-                if !display.enTitle.isEmpty && display.title.caseInsensitiveCompare(display.enTitle) != .orderedSame {
-                    Text(display.enTitle.uppercased())
-                        .font(.caption.weight(.semibold)).tracking(1.4)
-                        .foregroundStyle(Theme.accent).lineLimit(1)
-                        .environment(\.layoutDirection, .leftToRight)
-                }
                 Text(display.title)
                     .font(.largeTitle.bold()).lineLimit(2)
                     .minimumScaleFactor(0.8)
+                    .accessibilityIdentifier("ios.home.title.\(media.id)")
                 MetaLine(media: display, tmdbRating: currentTMDB?.posterInfo?.rating)
                 HStack(spacing: 10) {
                     NavigationLink(value: DetailRoute(media: media, key: routeKey)) {

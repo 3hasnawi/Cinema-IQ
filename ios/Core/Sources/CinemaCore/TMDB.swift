@@ -34,19 +34,15 @@ public struct TMDBWork: Codable, Equatable, Sendable {
     public init() {}
 
     /// A presentation copy. Playback, history and favorites keep using the provider's original media.
-    public func featuredMedia(for source: Media) -> Media {
+    public static func featuredMedia(for source: Media, matched work: TMDBWork?) -> Media {
         var display = source
-        if !year.isEmpty { display.year = year }
-        guard let info = posterInfo else { return display }
-        // TMDB can return its original title when no Arabic translation exists.
-        let hasArabicTitle = source.title.range(of: #"\p{script=Arabic}"#, options: .regularExpression) != nil
-        let translationMissing = info.localizedTitle == info.originalTitle &&
-            info.localizedTitle.range(of: #"\p{script=Arabic}"#, options: .regularExpression) == nil
-        if !info.localizedTitle.isEmpty && !(hasArabicTitle && translationMissing) {
-            display.title = info.localizedTitle
+        let info = work?.posterInfo
+        let titles = [info?.originalTitle, source.enTitle, source.title, info?.localizedTitle]
+        if let title = titles.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) }).first(where: { !$0.isEmpty }) {
+            display.title = title
         }
-        if !info.originalTitle.isEmpty { display.enTitle = info.originalTitle }
-        if let minutes = info.runtimeMinutes {
+        if let year = work?.year, !year.isEmpty { display.year = year }
+        if let minutes = info?.runtimeMinutes {
             display.duration = String(format: "%d:%02d:00", minutes / 60, minutes % 60)
         }
         return display

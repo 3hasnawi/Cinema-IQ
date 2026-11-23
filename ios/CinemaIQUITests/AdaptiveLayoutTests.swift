@@ -14,6 +14,7 @@ final class LiveFeaturedMetadataTests: XCTestCase {
         XCTAssertTrue(detail.waitForExistence(timeout: 30))
         let facts = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "TMDB ", "2008")).firstMatch
         XCTAssertTrue(facts.waitForExistence(timeout: 40), "The featured film must receive its TMDB rating and release year")
+        XCTAssertEqual(app.staticTexts["ios.home.title.ext:demo:big-buck-bunny"].label, "Big Buck Bunny")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = (UIDevice.current.userInterfaceIdiom == .pad ? "ipad" : "iphone") + "-live-tmdb-featured-portrait"
         shot.lifetime = .keepAlways
