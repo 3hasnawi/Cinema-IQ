@@ -181,28 +181,35 @@ class PlayerSmokeInstrumentation : Instrumentation() {
             waitUntil("Paused metadata disappears on resume") { !visibleText().contains("على سفوح الجبال") }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_UP)
             waitUntil("D-pad Up reaches the seek bar", predicate = { focusedText().contains("موضع الفيديو") })
-            var seekFrom = 0L
-            runOnMainSync { withPlayer { seekFrom = it.currentPosition } }
-            val expectedTime = String.format(java.util.Locale.US, "%02d:%02d", (seekFrom + 10_000) / 60_000, (seekFrom + 10_000) / 1000 % 60)
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-            waitUntil("Seek preview exposes target time and pauses actual playback", 4000) {
-                !mediaIsPlaying() && visibleText().contains(expectedTime)
+            fun playbackPosition(): Long {
+                var position = 0L
+                runOnMainSync { withPlayer { position = it.currentPosition } }
+                return position
             }
-            waitUntil("Real frame thumbnails are decoded", 12_000) { visibleText().contains("معاينة المشهد") }
-            Thread.sleep(1200)
-            check(!mediaIsPlaying()) { "An idle preview must not seek or resume" }
-            screenshot("player-seek")
-            sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-            waitUntil("Back cancels preview without seeking", 5000) { mediaIsPlaying() && !visibleText().contains("الانتقال إلى المشهد") }
-            runOnMainSync { withPlayer { check(it.currentPosition < seekFrom + 9000) } }
+            val seekFrom = playbackPosition()
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_RIGHT)
-            waitUntil("Second preview waits for Select") { visibleText().contains("الانتقال إلى المشهد") }
-            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_CENTER)
-            waitUntil("Seek confirmation commits the actual playback position") {
-                var committed = false
-                runOnMainSync { withPlayer { committed = it.isPlaying && it.currentPosition >= seekFrom + 9_000 } }
-                committed
+            waitUntil("A Right tap seeks ten seconds and resumes without Select") {
+                mediaIsPlaying() && playbackPosition() in (seekFrom + 9_500)..(seekFrom + 14_000)
             }
+            val beforeBack = playbackPosition()
+            sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_LEFT)
+            waitUntil("A Left tap rewinds ten seconds and resumes") {
+                mediaIsPlaying() && playbackPosition() in (beforeBack - 10_500)..(beforeBack - 6_000)
+            }
+            runOnMainSync { withPlayer { it.pause() } }
+            val beforeHold = playbackPosition()
+            val pressedAt = SystemClock.uptimeMillis()
+            sendKeySync(KeyEvent(pressedAt, pressedAt, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, 0))
+            try {
+                waitUntil("Holding Right advances beyond a single step", 5_000) {
+                    playbackPosition() >= beforeHold + 20_000 && !mediaIsPlaying()
+                }
+                check(!visibleText().contains("الانتقال إلى المشهد"))
+                screenshot("player-seek")
+            } finally {
+                sendKeySync(KeyEvent(pressedAt, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_RIGHT, 0))
+            }
+            waitUntil("Releasing the held key starts playback even from pause") { mediaIsPlaying() }
             sendKeyDownUpSync(KeyEvent.KEYCODE_DPAD_DOWN)
             focusWithRemote("الترجمة", KeyEvent.KEYCODE_DPAD_RIGHT)
             record("Remote reaches subtitle/audio button from transport")
