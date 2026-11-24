@@ -1,5 +1,10 @@
 package com.cinemaplus.rebuilt.ui
 
+import com.cinemaplus.rebuilt.ui.mobile.InterfaceMode
+import com.cinemaplus.rebuilt.ui.mobile.currentInterfaceMode
+import com.cinemaplus.rebuilt.ui.mobile.setInterfaceMode
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.rounded.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -48,6 +53,7 @@ import com.cinemaplus.rebuilt.data.TitleLanguage
 
 private enum class SettingsPane(val title: String, val caption: String) {
     Account("الحساب", "حساب المزامنة وحساب مصدر المحتوى"),
+    Interface("واجهة التطبيق", "اختر الواجهة المستخدمة على هذا الجهاز"),
     Profiles("الملفات الشخصية", "لكل ملف قائمته وتقدّم مشاهدته"),
     Sources("المصدر والمحتوى", "من أين يُجلب المحتوى وكيف تظهر أسماء الأعمال"),
     Playback("التشغيل والجودة", "تُطبَّق على هذا التلفزيون فقط"),
@@ -63,6 +69,8 @@ private enum class SettingsPane(val title: String, val caption: String) {
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 internal fun TvSettingsScreen(vm: CinemaViewModel) {
+    val context = LocalContext.current
+    val interfaceMode = currentInterfaceMode()
     var cloudDialog by remember { mutableStateOf(false) }
     if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog() { cloudDialog = false }
     var sourceDialog by remember { mutableStateOf(false) }
@@ -87,6 +95,7 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
             SettingsPane.entries.forEach { entry ->
                 SectionRow(entry.title, paneIcon(entry), selected = entry == pane,
                     modifier = Modifier.focusRequester(rowFocus.getValue(entry)), onFocus = { paneName = entry.name }) {
+                    paneName = entry.name
                     runCatching { panelFocus.requestFocus() }
                 }
             }
@@ -118,6 +127,11 @@ internal fun TvSettingsScreen(vm: CinemaViewModel) {
                 SettingsPane.Account -> {
                     ActionRow("حساب Cinema iQ والمزامنة", CloudAccount.email ?: "مزامنة قائمتك وتقدم المشاهدة بالبريد الإلكتروني") { cloudDialog = true }
                     ActionRow("حساب سينمانا", if (vm.signedIn) "تم تسجيل الدخول إلى سينمانا" else "حساب مصدر المحتوى مستقل عن حساب المزامنة") { sourceDialog = true }
+                }
+                SettingsPane.Interface -> {
+                    InterfaceMode.entries.forEach { mode ->
+                        OptionRow(mode.label, null, interfaceMode == mode) { setInterfaceMode(context, mode) }
+                    }
                 }
                 SettingsPane.Profiles -> {
                     val switchProfile = LocalProfileSwitch.current
@@ -195,6 +209,7 @@ private fun <T> next(options: List<T>, current: T): T = options[(options.indexOf
 private fun paneIcon(pane: SettingsPane): @Composable (Color) -> Unit = { tint ->
     val icon: ImageVector? = when (pane) {
         SettingsPane.Account -> Icons.Rounded.AccountCircle
+        SettingsPane.Interface -> Icons.Rounded.Settings
         SettingsPane.Profiles -> Icons.Rounded.Face
         SettingsPane.Sources -> Icons.Rounded.List
         SettingsPane.Playback -> Icons.Rounded.PlayArrow

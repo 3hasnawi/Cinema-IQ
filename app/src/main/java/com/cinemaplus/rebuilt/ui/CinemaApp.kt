@@ -83,7 +83,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
     val cloudUid = com.cinemaplus.rebuilt.cloud.CloudAccount.uid
     val store = remember(cloudUid) { ProfileStore(context) }
     com.cinemaplus.rebuilt.cloud.CloudProfilesEffect(cloudUid)
-    val television = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(context)
+    val television = com.cinemaplus.rebuilt.ui.mobile.currentTelevisionInterface()
     DisposableEffect(television) {
         val activity = context as? android.app.Activity
         activity?.requestedOrientation = if (television) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
@@ -119,7 +119,7 @@ val Cairo = FontFamily(Font(R.font.cairo_regular, FontWeight.Normal), Font(R.fon
 }
 
 @Composable fun CinemaApp(vm: CinemaViewModel,
-    television: Boolean = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(LocalContext.current)) {
+    television: Boolean = com.cinemaplus.rebuilt.ui.mobile.currentTelevisionInterface()) {
     // A Watch Next card from the TV home screen opens straight into playback of that title.
     val launchContext = LocalContext.current
     val requested = LaunchRequest.pending

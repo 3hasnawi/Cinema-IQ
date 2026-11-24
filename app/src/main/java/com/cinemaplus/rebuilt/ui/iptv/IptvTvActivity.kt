@@ -32,13 +32,16 @@ import com.cinemaplus.rebuilt.ui.*
 class IptvTvActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val television = com.cinemaplus.rebuilt.ui.mobile.usesTelevisionInterface(this)
-        requestedOrientation = if (television) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            if (television) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
         setContent {
+            val television = com.cinemaplus.rebuilt.ui.mobile.currentTelevisionInterface()
+            DisposableEffect(television) {
+                requestedOrientation = if (television) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    if (television) hide(WindowInsetsCompat.Type.systemBars()) else show(WindowInsetsCompat.Type.systemBars())
+                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+                onDispose { }
+            }
             val type = Typography().let { t -> t.copy(bodyLarge = t.bodyLarge.copy(fontFamily = Cairo),
                 bodyMedium = t.bodyMedium.copy(fontFamily = Cairo), labelLarge = t.labelLarge.copy(fontFamily = Cairo),
                 bodySmall = t.bodySmall.copy(fontFamily = Cairo), titleMedium = t.titleMedium.copy(fontFamily = Cairo)) }

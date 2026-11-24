@@ -520,6 +520,8 @@ private fun PhoneEpisodeRow(item: Film, vm: CinemaViewModel, revision: Int, seri
 /** Phone settings (phone-png/04): opened from the avatar, grouped rounded lists, no bottom bar. */
 @Composable
 private fun MobileSettings(vm: CinemaViewModel) {
+    val context = LocalContext.current
+    val interfaceMode = currentInterfaceMode()
     var cloudDialog by remember { mutableStateOf(false) }
     if (cloudDialog) com.cinemaplus.rebuilt.cloud.CloudAccountDialog() { cloudDialog = false }
     var username by remember { mutableStateOf("") }
@@ -533,6 +535,13 @@ private fun MobileSettings(vm: CinemaViewModel) {
                 IconButton(onClick = { vm.backPage() }) { Icon(Icons.Rounded.ArrowForward, "رجوع", tint = Color.White) }
                 PText("الإعدادات", 22.sp, weight = FontWeight.Bold)
             }
+        }
+        item(key = "interface-mode") {
+            PhoneGroup("واجهة التطبيق", InterfaceMode.entries.map { mode ->
+                @Composable { PhoneRow(mode.label, if (interfaceMode == mode) "محدد" else "", chevron = false) {
+                    setInterfaceMode(context, mode)
+                } }
+            })
         }
         item(key = "card") {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Brand.Surface).clickable { switchProfile() }.padding(16.dp),
