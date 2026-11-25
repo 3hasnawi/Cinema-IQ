@@ -56,7 +56,11 @@ struct IPTVPlaybackView: View {
     }
     var body: some View {
         let phoneGuide = !startInBrowser && panel == .channels && UIDevice.current.userInterfaceIdiom == .phone
-        return screen(phoneGuide: phoneGuide)
+        return observeTail(observeMiddle(observeHead(screen(phoneGuide: phoneGuide))))
+    }
+    /// Lifecycle and state observers, split into small expressions so the type checker stays fast.
+    private func observeHead<V: View>(_ view: V) -> some View {
+        view
         .onAppear {
             idleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true
             session.attach(store); session.setActive(phase == .active && tabVisible)
@@ -77,6 +81,9 @@ struct IPTVPlaybackView: View {
             if value != .active { searchFocused = false; UIApplication.shared.isIdleTimerDisabled = idleSetting }
             else { UIApplication.shared.isIdleTimerDisabled = true }
         }
+    }
+    private func observeMiddle<V: View>(_ view: V) -> some View {
+        view
         .onChange(of: tabVisible) { _, visible in
             session.setActive(phase == .active && visible)
             if !visible { searchFocused = false }
@@ -99,6 +106,9 @@ struct IPTVPlaybackView: View {
                 do { try await Task.sleep(for: .seconds(60)) } catch { return }
             }
         }
+    }
+    private func observeTail<V: View>(_ view: V) -> some View {
+        view
         .sheet(isPresented: panelBinding(.channels), onDismiss: panelDismissed) {
             NavigationStack {
                 IPTVLiveGuide(session: session) { panel = nil }
