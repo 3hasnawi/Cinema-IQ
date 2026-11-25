@@ -76,11 +76,12 @@ final class TMDBIntroDBTests: XCTestCase {
         XCTAssertEqual(season.episodes[1]?.still, "https://image.tmdb.org/t/p/w780/s.jpg")
     }
     func testSeasonEpisodeRatingNeedsVotesAndIsOneDecimal() {
-        let season = TMDBParser.season(["episodes": [
+        let rows: [[String: Any]] = [
             ["episode_number": 1, "vote_average": 8.36, "vote_count": 12],
             ["episode_number": 2, "vote_average": 9.0, "vote_count": 0],
-            ["episode_number": 3, "vote_average": 0, "vote_count": 5]
-        ]])
+            ["episode_number": 3, "vote_average": 0.0, "vote_count": 5]
+        ]
+        let season = TMDBParser.season(["episodes": rows])
         XCTAssertEqual(season.episodes[1]?.rating, "8.4")
         XCTAssertEqual(season.episodes[2]?.rating, "")
         XCTAssertEqual(season.episodes[3]?.rating, "")
