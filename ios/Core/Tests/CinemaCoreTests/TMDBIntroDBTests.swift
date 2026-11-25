@@ -75,6 +75,17 @@ final class TMDBIntroDBTests: XCTestCase {
         XCTAssertEqual(season.airDate, "2026-07-22")
         XCTAssertEqual(season.episodes[1]?.still, "https://image.tmdb.org/t/p/w780/s.jpg")
     }
+    func testSeasonEpisodeRatingNeedsVotesAndIsOneDecimal() {
+        let rows: [[String: Any]] = [
+            ["episode_number": 1, "vote_average": 8.36, "vote_count": 12],
+            ["episode_number": 2, "vote_average": 9.0, "vote_count": 0],
+            ["episode_number": 3, "vote_average": 0.0, "vote_count": 5]
+        ]
+        let season = TMDBParser.season(["episodes": rows])
+        XCTAssertEqual(season.episodes[1]?.rating, "8.4")
+        XCTAssertEqual(season.episodes[2]?.rating, "")
+        XCTAssertEqual(season.episodes[3]?.rating, "")
+    }
     func testIntroDBSegmentsForTheSameEpisodeOnly() {
         let json = #"{"imdb_id":"tt123","is_movie":false,"season":1,"episode":2,"intro":{"start_ms":5000,"end_ms":65000},"outro":{"start_sec":2400,"end_sec":2500}}"#
         let found = IntroDBParser.parse(Data(json.utf8), imdbID: "tt123", season: 1, episode: 2, movie: false)

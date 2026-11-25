@@ -56,6 +56,8 @@ public struct TMDBSeason: Codable, Equatable, Sendable {
         public var name = ""
         public var overview = ""
         public var still = ""
+        /// TMDB's average score for the episode, one decimal, empty while nobody has voted.
+        public var rating = ""
     }
     public var airDate = ""
     public var episodes: [Int: Episode] = [:]
@@ -136,6 +138,11 @@ public enum TMDBParser {
             episode.overview = text(row, "overview")
             let still = text(row, "still_path")
             episode.still = still.isEmpty ? "" : images + "w780" + still
+            let average = row["vote_average"] as? Double
+            episode.rating = average.flatMap { value -> String? in
+                guard (row["vote_count"] as? Int ?? 0) > 0, value > 0, value <= 10 else { return nil }
+                return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+            } ?? ""
             season.episodes[number] = episode
         }
         return season
