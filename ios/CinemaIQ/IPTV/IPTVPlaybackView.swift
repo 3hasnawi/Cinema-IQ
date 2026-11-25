@@ -10,6 +10,8 @@ struct IPTVPlaybackView: View {
     @EnvironmentObject private var store: IPTVStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
+    /// False while another root tab is selected. The player and its polling must stop then, not keep decoding.
+    @Environment(\.iptvTabVisible) private var tabVisible
     @Environment(\.verticalSizeClass) private var verticalSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var session: IPTVPlayerSession
@@ -126,7 +128,7 @@ struct IPTVPlaybackView: View {
         .buttonStyle(.plain)
         .onAppear {
             idleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true
-            session.attach(store); session.setActive(phase == .active)
+            session.attach(store); session.setActive(phase == .active && tabVisible)
         }
         .onDisappear { searchFocused = false; session.close(); UIApplication.shared.isIdleTimerDisabled = idleSetting }
         .onChange(of: searching) { _, visible in searchFocused = visible }
@@ -140,18 +142,23 @@ struct IPTVPlaybackView: View {
         .onChange(of: session.channel.id) { _, _ in controls = true; programmes = IPTVNowNext(); interaction += 1 }
         .onChange(of: verticalSize) { _, _ in controls = true; interaction += 1 }
         .onChange(of: phase) { _, value in
-            session.setActive(value == .active)
+            session.setActive(value == .active && tabVisible)
             if value != .active { searchFocused = false; UIApplication.shared.isIdleTimerDisabled = idleSetting }
             else { UIApplication.shared.isIdleTimerDisabled = true }
         }
-        .task(id: "\(interaction)|\(panel?.rawValue ?? "")|\(session.playing)|\(controls)|\(fullscreen)|\(phase)|\(searchFocused)") {
-            guard controls, fullscreen, panel == nil, session.playing, session.problem == nil, phase == .active, !searchFocused else { return }
+        .onChange(of: tabVisible) { _, visible in
+            session.setActive(phase == .active && visible)
+            if !visible { searchFocused = false }
+        }
+        .task(id: "\(interaction)|\(panel?.rawValue ?? "")|\(session.playing)|\(controls)|\(fullscreen)|\(phase)|\(tabVisible)|\(searchFocused)") {
+            guard controls, fullscreen, panel == nil, session.playing, session.problem == nil, phase == .active, tabVisible, !searchFocused else { return }
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             if !UIAccessibility.isVoiceOverRunning { controls = false }
         }
-        .task(id: "\(session.channel.id)|\(phase)|\(session.channels.isEmpty)") {
+        .task(id: "\(session.channel.id)|\(phase)|\(tabVisible)|\(session.channels.isEmpty)") {
             programmes = IPTVNowNext()
-            guard phase == .active else { return }
+            // The guide poll runs once a minute; it stops as soon as this player is hidden.
+            guard phase == .active, tabVisible else { return }
             do { try await Task.sleep(for: .milliseconds(750)) } catch { return }
             while !Task.isCancelled {
                 do {

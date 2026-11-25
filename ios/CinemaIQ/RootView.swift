@@ -36,6 +36,7 @@ struct RootView: View {
             }
             Tab("التلفزيون", systemImage: PhoneTelevisionSymbol.name, value: AppTab.iptv) {
                 LiveTelevisionTab()
+                    .environment(\.iptvTabVisible, tab == .iptv)
             }
             Tab("مكتبتي", systemImage: "bookmark.fill", value: AppTab.library) {
                 RoutedStack { LibraryView() }
