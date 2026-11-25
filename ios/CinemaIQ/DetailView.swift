@@ -204,7 +204,7 @@ struct DetailView: View {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(episodes) { episode in
                         EpisodeCard(episode: episode, seriesTitle: current.title,
-                                    rating: episodeRatings[seasonID]?[episode.episode], aired: aired(episode),
+                                    rating: episodeRating(episode), aired: aired(episode),
                                     fraction: library.fraction(episode),
                                     completed: library.progress[episode.id]?.completed == true) { play(episode) }
                     }
@@ -249,6 +249,12 @@ struct DetailView: View {
         let omdbYear = omdbSeasons[season.id]?.released.values.compactMap { AirDate.year($0) }.min()
         guard let year = AirDate.year(of: season) ?? tmdbYear ?? omdbYear else { return "الموسم \(season.id)" }
         return "الموسم \(season.id) · \(year)"
+    }
+
+    /// An episode's score: TMDB's first, and OMDb's only when TMDB has no vote for it yet.
+    private func episodeRating(_ episode: Media) -> String? {
+        if let value = tmdbSeasons[seasonID]?.episodes[episode.episode]?.rating, !value.isEmpty { return value }
+        return episodeRatings[seasonID]?[episode.episode]
     }
 
     /// An episode's first-shown date: the source's, else TMDB's, else OMDb's.
