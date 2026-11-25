@@ -47,6 +47,13 @@ struct IPTVPlaybackView: View {
         if channel.id == session.channel.id { fullscreen = true; controls = true; interaction += 1 }
         else { session.tune(channel) }
     }
+    // Task identities are built here so the body's modifier chain stays within the type checker's budget.
+    private var controlsKey: String {
+        "\(interaction)|\(panel?.rawValue ?? "")|\(session.playing)|\(controls)|\(fullscreen)|\(phase)|\(tabVisible)|\(searchFocused)"
+    }
+    private var programmeKey: String {
+        "\(session.channel.id)|\(phase)|\(tabVisible)|\(session.channels.isEmpty)"
+    }
     var body: some View {
         let phoneGuide = !startInBrowser && panel == .channels && UIDevice.current.userInterfaceIdiom == .phone
         return GeometryReader { geometry in
@@ -150,12 +157,12 @@ struct IPTVPlaybackView: View {
             session.setActive(phase == .active && visible)
             if !visible { searchFocused = false }
         }
-        .task(id: "\(interaction)|\(panel?.rawValue ?? "")|\(session.playing)|\(controls)|\(fullscreen)|\(phase)|\(tabVisible)|\(searchFocused)") {
+        .task(id: controlsKey) {
             guard controls, fullscreen, panel == nil, session.playing, session.problem == nil, phase == .active, tabVisible, !searchFocused else { return }
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
             if !UIAccessibility.isVoiceOverRunning { controls = false }
         }
-        .task(id: "\(session.channel.id)|\(phase)|\(tabVisible)|\(session.channels.isEmpty)") {
+        .task(id: programmeKey) {
             programmes = IPTVNowNext()
             // The guide poll runs once a minute; it stops as soon as this player is hidden.
             guard phase == .active, tabVisible else { return }
