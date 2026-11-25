@@ -56,6 +56,62 @@ struct IPTVPlaybackView: View {
     }
     var body: some View {
         let phoneGuide = !startInBrowser && panel == .channels && UIDevice.current.userInterfaceIdiom == .phone
+        return screen(phoneGuide: phoneGuide)
+        .onAppear {
+            idleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true
+            session.attach(store); session.setActive(phase == .active && tabVisible)
+        }
+        .onDisappear { searchFocused = false; session.close(); UIApplication.shared.isIdleTimerDisabled = idleSetting }
+        .onChange(of: searching) { _, visible in searchFocused = visible }
+        .onChange(of: initialGroup) { _, group in browserSection = group.map(IPTVChannelSection.group) ?? .all; browserQuery = "" }
+        .onChange(of: browserSection) { _, value in searchFocused = false; session.section = value; session.group = value.group }
+        .onChange(of: session.section) { _, value in
+            guard browserSection != value else { return }
+            searchFocused = false; browserQuery = ""; browserSection = value
+        }
+        .onChange(of: fullscreen) { _, value in if value { searchFocused = false }; controls = true; interaction += 1 }
+        .onChange(of: session.channel.id) { _, _ in controls = true; programmes = IPTVNowNext(); interaction += 1 }
+        .onChange(of: verticalSize) { _, _ in controls = true; interaction += 1 }
+        .onChange(of: phase) { _, value in
+            session.setActive(value == .active && tabVisible)
+            if value != .active { searchFocused = false; UIApplication.shared.isIdleTimerDisabled = idleSetting }
+            else { UIApplication.shared.isIdleTimerDisabled = true }
+        }
+        .onChange(of: tabVisible) { _, visible in
+            session.setActive(phase == .active && visible)
+            if !visible { searchFocused = false }
+        }
+        .task(id: controlsKey) {
+            guard controls, fullscreen, panel == nil, session.playing, session.problem == nil, phase == .active, tabVisible, !searchFocused else { return }
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            if !UIAccessibility.isVoiceOverRunning { controls = false }
+        }
+        .task(id: programmeKey) {
+            programmes = IPTVNowNext()
+            // The guide poll runs once a minute; it stops as soon as this player is hidden.
+            guard phase == .active, tabVisible else { return }
+            do { try await Task.sleep(for: .milliseconds(750)) } catch { return }
+            while !Task.isCancelled {
+                do {
+                    let value = try await session.programmes()
+                    guard !Task.isCancelled else { return }; programmes = value
+                } catch { if Task.isCancelled { return }; programmes = IPTVNowNext() }
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
+        .sheet(isPresented: panelBinding(.channels), onDismiss: panelDismissed) {
+            NavigationStack {
+                IPTVLiveGuide(session: session) { panel = nil }
+                .navigationTitle("القنوات").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("تم") { panel = nil } } }
+            }
+            .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            .presentationBackground(.ultraThinMaterial).environment(\.layoutDirection, .rightToLeft)
+        }
+        .persistentSystemOverlays(.hidden)
+    }
+    /// The player surface, guide and panels, without the lifecycle modifiers below.
+    private func screen(phoneGuide: Bool) -> some View {
         return GeometryReader { geometry in
           ZStack {
             playbackSurface(in: geometry, phoneGuide: phoneGuide).contentShape(Rectangle())
@@ -133,58 +189,6 @@ struct IPTVPlaybackView: View {
         .toolbar(fullscreen ? .hidden : .visible, for: .navigationBar, .tabBar)
         .navigationBarBackButtonHidden(fullscreen)
         .buttonStyle(.plain)
-        .onAppear {
-            idleSetting = UIApplication.shared.isIdleTimerDisabled; UIApplication.shared.isIdleTimerDisabled = true
-            session.attach(store); session.setActive(phase == .active && tabVisible)
-        }
-        .onDisappear { searchFocused = false; session.close(); UIApplication.shared.isIdleTimerDisabled = idleSetting }
-        .onChange(of: searching) { _, visible in searchFocused = visible }
-        .onChange(of: initialGroup) { _, group in browserSection = group.map(IPTVChannelSection.group) ?? .all; browserQuery = "" }
-        .onChange(of: browserSection) { _, value in searchFocused = false; session.section = value; session.group = value.group }
-        .onChange(of: session.section) { _, value in
-            guard browserSection != value else { return }
-            searchFocused = false; browserQuery = ""; browserSection = value
-        }
-        .onChange(of: fullscreen) { _, value in if value { searchFocused = false }; controls = true; interaction += 1 }
-        .onChange(of: session.channel.id) { _, _ in controls = true; programmes = IPTVNowNext(); interaction += 1 }
-        .onChange(of: verticalSize) { _, _ in controls = true; interaction += 1 }
-        .onChange(of: phase) { _, value in
-            session.setActive(value == .active && tabVisible)
-            if value != .active { searchFocused = false; UIApplication.shared.isIdleTimerDisabled = idleSetting }
-            else { UIApplication.shared.isIdleTimerDisabled = true }
-        }
-        .onChange(of: tabVisible) { _, visible in
-            session.setActive(phase == .active && visible)
-            if !visible { searchFocused = false }
-        }
-        .task(id: controlsKey) {
-            guard controls, fullscreen, panel == nil, session.playing, session.problem == nil, phase == .active, tabVisible, !searchFocused else { return }
-            do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            if !UIAccessibility.isVoiceOverRunning { controls = false }
-        }
-        .task(id: programmeKey) {
-            programmes = IPTVNowNext()
-            // The guide poll runs once a minute; it stops as soon as this player is hidden.
-            guard phase == .active, tabVisible else { return }
-            do { try await Task.sleep(for: .milliseconds(750)) } catch { return }
-            while !Task.isCancelled {
-                do {
-                    let value = try await session.programmes()
-                    guard !Task.isCancelled else { return }; programmes = value
-                } catch { if Task.isCancelled { return }; programmes = IPTVNowNext() }
-                do { try await Task.sleep(for: .seconds(60)) } catch { return }
-            }
-        }
-        .sheet(isPresented: panelBinding(.channels), onDismiss: panelDismissed) {
-            NavigationStack {
-                IPTVLiveGuide(session: session) { panel = nil }
-                .navigationTitle("القنوات").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("تم") { panel = nil } } }
-            }
-            .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-            .presentationBackground(.ultraThinMaterial).environment(\.layoutDirection, .rightToLeft)
-        }
-        .persistentSystemOverlays(.hidden)
     }
     private func playbackSurface(in geometry: GeometryProxy, phoneGuide: Bool) -> some View {
         let width = geometry.size.width
