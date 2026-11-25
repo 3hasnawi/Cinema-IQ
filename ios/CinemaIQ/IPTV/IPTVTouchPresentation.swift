@@ -26,14 +26,8 @@ struct IPTVSearchInput: View {
 struct IPTVChannelLogo: View {
     let channel: IPTVChannel
     var body: some View {
-        Group {
-            if let url = channel.logo {
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image { image.resizable().scaledToFit() }
-                    else { placeholder }
-                }
-            } else { placeholder }
-        }.accessibilityHidden(true)
+        CachedRemoteImage(url: channel.logo, pixels: 256, contentMode: .fit) { placeholder }
+            .accessibilityHidden(true)
     }
     private var placeholder: some View {
         Image(systemName: PhoneTelevisionSymbol.name).resizable().scaledToFit()

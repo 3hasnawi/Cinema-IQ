@@ -2,7 +2,7 @@ import SwiftUI
 import ImageIO
 
 /// Decode only enough pixels for the current viewport. Reopening a tab can reuse its thumbnails.
-private actor CatalogThumbnails {
+actor CatalogThumbnails {
     static let shared = CatalogThumbnails()
     private let images = NSCache<NSString, CGImage>()
 
@@ -30,6 +30,34 @@ private actor CatalogThumbnails {
               ] as CFDictionary) else { throw URLError(.cannotDecodeContentData) }
         images.setObject(image, forKey: key, cost: image.bytesPerRow * image.height)
         return image
+    }
+}
+
+/// A small remote picture (cast portraits, channel logos) that shares the decoded-image cache with the posters
+/// instead of downloading again every time its row scrolls back into view.
+struct CachedRemoteImage<Placeholder: View>: View {
+    let url: URL?
+    var pixels: Int = 256
+    var contentMode: ContentMode = .fit
+    @ViewBuilder let placeholder: () -> Placeholder
+    @Environment(\.displayScale) private var scale
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(decorative: image, scale: scale)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
+            } else {
+                placeholder()
+            }
+        }
+        .task(id: url) {
+            image = nil
+            guard let url else { return }
+            image = try? await CatalogThumbnails.shared.image(at: url, pixels: pixels)
+        }
     }
 }
 

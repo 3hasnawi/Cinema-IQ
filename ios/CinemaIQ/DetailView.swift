@@ -272,11 +272,8 @@ struct DetailView: View {
                                         .font(.headline).foregroundStyle(Theme.muted)
                                 }
                                 .overlay {
-                                    if let url = URL(string: person.photo), !person.photo.isEmpty {
-                                        AsyncImage(url: url) { phase in
-                                            if let image = phase.image { image.resizable().scaledToFill() }
-                                        }
-                                    }
+                                    CachedRemoteImage(url: person.photo.isEmpty ? nil : URL(string: person.photo),
+                                                      contentMode: .fill) { Color.clear }
                                 }
                                 .clipShape(Circle())
                                 .frame(width: 72, height: 72)
