@@ -132,18 +132,27 @@ struct PosterCard: View {
     let routeKey: String
     var width: CGFloat? = 118
     @Environment(\.zoomNamespace) private var zoom
+    /// TMDB's poster once the title is matched. The source's poster shows until then, and when TMDB has none.
+    @State private var tmdbPoster: String?
     var body: some View {
         NavigationLink(value: DetailRoute(media: media, key: routeKey)) {
             VStack(alignment: .leading, spacing: 6) {
-                ArtworkTile(url: media.poster.isEmpty ? media.backdrop : media.poster)
+                ArtworkTile(url: tmdbPoster ?? (media.poster.isEmpty ? media.backdrop : media.poster))
                     .overlay(alignment: .topLeading) { RatingBadge(rating: media.rating).padding(6) }
                     .zoomSource(routeKey, in: zoom)
+                    .animation(.easeOut(duration: 0.2), value: tmdbPoster)
                 Text(media.title)
                     .font(.footnote.weight(.semibold))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(width: width)
+        }
+        // Cards that scroll away are cancelled by SwiftUI; the TMDB client caches each match for a week.
+        .task(id: media.id) {
+            let poster = await TMDB.shared?.work(for: media)?.poster ?? ""
+            guard !Task.isCancelled, !poster.isEmpty else { return }
+            tmdbPoster = poster
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("ios.poster.\(routeKey)")
