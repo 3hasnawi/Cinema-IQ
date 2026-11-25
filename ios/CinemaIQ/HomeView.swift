@@ -195,7 +195,7 @@ struct HeroPage: View {
     var body: some View {
         let display = TMDBWork.featuredMedia(for: media, matched: currentTMDB)
         ZStack(alignment: .bottomLeading) {
-            HeroArtwork(urls: artworkCandidates)
+            HeroArtwork(urls: artworkCandidates, fillsFrame: layout.usesPortraitHero)
             LinearGradient(stops: [
                 .init(color: .clear, location: 0.18),
                 .init(color: .black.opacity(0.45), location: 0.58),

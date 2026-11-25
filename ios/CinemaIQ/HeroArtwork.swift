@@ -5,11 +5,18 @@ import UIKit
 /// A dimmed copy fills the unused space while the foreground keeps its original aspect ratio.
 struct HeroArtwork: View {
     let urls: [String]
+    /// Portrait phones fill the whole hero with a poster. Only its top and bottom edges are cropped, and
+    /// the dimmed copy is not needed because no side bands remain.
+    let fillsFrame: Bool
 
-    init(urls: [String]) { self.urls = urls }
+    init(urls: [String], fillsFrame: Bool = false) {
+        self.urls = urls
+        self.fillsFrame = fillsFrame
+    }
 
     init(url: String, fallbackURL: String) {
         urls = fallbackURL == url ? [url] : [url, fallbackURL]
+        fillsFrame = false
     }
 
     var body: some View {
@@ -44,7 +51,15 @@ struct HeroArtwork: View {
 
     private func remote(size: CGSize) -> some View {
         CatalogArtworkImage(urls: urls, size: size) { phase in
-            if let image = phase.image { fitted(image, size: size) }
+            if let image = phase.image {
+                if fillsFrame {
+                    image.resizable().scaledToFill()
+                        .frame(width: size.width, height: size.height)
+                        .clipped()
+                } else {
+                    fitted(image, size: size)
+                }
+            }
         }
     }
 
